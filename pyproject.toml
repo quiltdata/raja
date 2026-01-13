@@ -52,3 +52,7 @@ addopts = [
     "--strict-config",
     "--showlocals",
 ]
+markers = [
+    "integration: tests that require deployed AWS resources",
+    "hypothesis: tests that validate RAJA claims",
+]
