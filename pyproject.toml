@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.7.0",
+    "PyJWT>=2.8.0",
 ]
 
 [project.optional-dependencies]
