@@ -23,9 +23,7 @@ class PolicyStore(Construct):
             validation_settings=verifiedpermissions.CfnPolicyStore.ValidationSettingsProperty(
                 mode="STRICT"
             ),
-            schema=verifiedpermissions.CfnPolicyStore.SchemaDefinitionProperty(
-                cedar_json=schema
-            ),
+            schema=verifiedpermissions.CfnPolicyStore.SchemaDefinitionProperty(cedar_json=schema),
         )
 
         for name, statement in policies.items():

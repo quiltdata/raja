@@ -67,8 +67,7 @@ class ServicesStack(Stack):
         )
 
         health_code = (
-            "def lambda_handler(event, context):\n"
-            "    return {\"statusCode\": 200, \"body\": \"ok\"}\n"
+            'def lambda_handler(event, context):\n    return {"statusCode": 200, "body": "ok"}\n'
         )
 
         health_lambda = lambda_.Function(

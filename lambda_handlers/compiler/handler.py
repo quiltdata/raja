@@ -22,10 +22,7 @@ def _load_policies(policy_store_id: str) -> list[dict[str, Any]]:
             continue
         policy = client.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
         policy_meta["statement"] = (
-            policy.get("policy", {})
-            .get("definition", {})
-            .get("static", {})
-            .get("statement", "")
+            policy.get("policy", {}).get("definition", {}).get("static", {}).get("statement", "")
         )
 
     return policies

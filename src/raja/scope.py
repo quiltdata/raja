@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from .models import Scope
 
@@ -29,7 +29,7 @@ def _normalize_scopes(scopes: Iterable[Scope | str]) -> set[str]:
     return normalized
 
 
-def is_subset(requested: Scope, granted: list[Scope | str]) -> bool:
+def is_subset(requested: Scope, granted: Sequence[Scope | str]) -> bool:
     requested_key = format_scope(requested.resource_type, requested.resource_id, requested.action)
     granted_keys = _normalize_scopes(granted)
     return requested_key in granted_keys

@@ -27,7 +27,7 @@ def test_cedar_policy_effect_validation():
     with pytest.raises(ValueError):
         CedarPolicy(
             effect="allow",
-            principal="User::\"alice\"",
-            action="Action::\"read\"",
-            resource="Document::\"doc1\"",
+            principal='User::"alice"',
+            action='Action::"read"',
+            resource='Document::"doc1"',
         )

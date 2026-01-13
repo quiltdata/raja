@@ -11,7 +11,7 @@ _ENTITY_RE = re.compile(r"^(?P<type>[^:]+)::\"(?P<id>[^\"]+)\"$")
 def _parse_entity(entity_str: str) -> tuple[str, str]:
     match = _ENTITY_RE.match(entity_str.strip())
     if not match:
-        raise ValueError("entity must be in the form Type::\"id\"")
+        raise ValueError('entity must be in the form Type::"id"')
     return match.group("type"), match.group("id")
 
 

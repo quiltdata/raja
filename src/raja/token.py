@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 import jwt
 
@@ -41,11 +41,12 @@ def validate_token(token_str: str, secret: str) -> Token:
 
 
 def decode_token(token_str: str) -> dict[str, Any]:
-    return jwt.decode(
+    payload = jwt.decode(
         token_str,
         options={"verify_signature": False, "verify_exp": False},
         algorithms=["HS256"],
     )
+    return cast(dict[str, Any], payload)
 
 
 def is_expired(token: Token) -> bool:

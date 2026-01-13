@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Poe the Poet shim script
+# Usage: ./poe <task> [args...]
+
+exec uv run poe "$@"
