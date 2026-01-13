@@ -7,10 +7,13 @@ authors = [
     { name = "Dr. Ernie Prabhakar", email = "ernest@quilt.bio" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.7.0",
+]
 
 [project.optional-dependencies]
 dev = [
+    "pytest>=8.0.0",
     "ruff>=0.1.0",
 ]
 
