@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: '3.12'
+          install-extras: dev
+
+      - name: Check formatting
+        run: ./poe format --check
+
+      - name: Lint
+        run: ./poe lint
+
+      - name: Typecheck
+        run: ./poe typecheck
+
+  test-unit:
+    name: Unit Tests
+    needs: quality
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: ${{ matrix.python-version }}
+          install-extras: dev
+
+      - name: Run unit tests
+        env:
+          PYTEST_ADDOPTS: --cov=src/raja --cov-report=xml --cov-report=term --junitxml=pytest-results.xml
+        run: ./poe test-unit
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: pytest-results.xml
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}-${{ matrix.python-version }}
+          path: coverage.xml
+
+  build:
+    name: Build Package
+    needs: test-unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: '3.12'
+          install-extras: dev
+
+      - name: Build
+        run: ./poe build
+
+      - name: Verify artifacts
+        shell: bash
+        run: |
+          ls -l dist
+          test -n "$(ls -1 dist/*.whl 2>/dev/null)"
+          test -n "$(ls -1 dist/*.tar.gz 2>/dev/null)"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          retention-days: 30
