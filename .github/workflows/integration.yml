@@ -1,0 +1,187 @@
+name: Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  deploy-test:
+    name: Deploy Test Infrastructure
+    runs-on: ubuntu-latest
+    environment: test
+    timeout-minutes: 15
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: '3.12'
+          install-extras: dev,aws
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsRoleRajaTest
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk
+
+      - name: Deploy
+        run: ./poe cdk-deploy
+
+      - name: Capture stack outputs
+        run: |
+          cd infra
+          cdk outputs --json > cdk-outputs.json
+
+      - name: Upload stack outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-outputs
+          path: infra/cdk-outputs.json
+
+      - name: Export stack outputs
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          data = json.load(open("infra/cdk-outputs.json"))
+          values = {}
+          for stack in data.values():
+            values.update(stack)
+          def emit(key, value):
+            if value:
+              print(f"{key}={value}")
+          emit("POLICY_STORE_ID", values.get("PolicyStoreId"))
+          emit("COMPILER_FUNCTION_NAME", values.get("CompilerLambdaArn"))
+          emit("RAJA_API_URL", values.get("ApiUrl"))
+          PY
+
+      - name: Load policies
+        run: ./poe load-policies
+
+      - name: Compile policies
+        run: ./poe compile-policies
+
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    environment: test
+    needs: deploy-test
+    timeout-minutes: 10
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: '3.12'
+          install-extras: dev,aws
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsRoleRajaTest
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Download stack outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: cdk-outputs
+          path: infra
+
+      - name: Export stack outputs
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          data = json.load(open("infra/cdk-outputs.json"))
+          values = {}
+          for stack in data.values():
+            values.update(stack)
+          def emit(key, value):
+            if value:
+              print(f"{key}={value}")
+          emit("POLICY_STORE_ID", values.get("PolicyStoreId"))
+          emit("COMPILER_FUNCTION_NAME", values.get("CompilerLambdaArn"))
+          emit("RAJA_API_URL", values.get("ApiUrl"))
+          PY
+
+      - name: Run integration tests
+        run: ./poe test-integration
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-results
+          path: .pytest_cache
+
+  test-hypothesis:
+    name: Hypothesis Validation
+    runs-on: ubuntu-latest
+    environment: test
+    needs: test-integration
+    timeout-minutes: 10
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: '3.12'
+          install-extras: dev,aws
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsRoleRajaTest
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Download stack outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: cdk-outputs
+          path: infra
+
+      - name: Export stack outputs
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          data = json.load(open("infra/cdk-outputs.json"))
+          values = {}
+          for stack in data.values():
+            values.update(stack)
+          def emit(key, value):
+            if value:
+              print(f"{key}={value}")
+          emit("POLICY_STORE_ID", values.get("PolicyStoreId"))
+          emit("COMPILER_FUNCTION_NAME", values.get("CompilerLambdaArn"))
+          emit("RAJA_API_URL", values.get("ApiUrl"))
+          PY
+
+      - name: Run hypothesis tests
+        run: ./poe test-hypothesis
+
+  cleanup-test:
+    name: Cleanup Test Infrastructure
+    runs-on: ubuntu-latest
+    environment: test
+    needs:
+      - deploy-test
+      - test-integration
+      - test-hypothesis
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - uses: ./.github/actions/setup-raja
+        with:
+          python-version: '3.12'
+          install-extras: dev,aws
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubActionsRoleRajaTest
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Destroy
+        run: ./poe cdk-destroy
