@@ -73,7 +73,7 @@ jobs:
           install-extras: dev
 
       - name: Build
-        run: python -m build
+        run: uv build
 
       - name: Verify artifacts
         shell: bash
