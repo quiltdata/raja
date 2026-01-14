@@ -9,6 +9,7 @@ from constructs import Construct
 
 from ..constructs.compiler_lambda import CompilerLambda
 from ..constructs.enforcer_lambda import EnforcerLambda
+from ..constructs.introspect_lambda import IntrospectLambda
 from ..constructs.token_service import TokenServiceLambda
 
 
@@ -66,6 +67,8 @@ class ServicesStack(Stack):
             jwt_secret=jwt_secret,
         )
 
+        introspect_lambda = IntrospectLambda(self, "IntrospectLambda")
+
         health_code = (
             'def lambda_handler(event, context):\n    return {"statusCode": 200, "body": "ok"}\n'
         )
@@ -78,7 +81,14 @@ class ServicesStack(Stack):
             code=lambda_.Code.from_inline(health_code),
         )
 
-        api = apigateway.RestApi(self, "RajaApi")
+        api = apigateway.RestApi(
+            self,
+            "RajaApi",
+            default_cors_preflight_options=apigateway.CorsOptions(
+                allow_origins=apigateway.Cors.ALL_ORIGINS,
+                allow_methods=["GET", "POST", "OPTIONS"],
+            ),
+        )
 
         token_resource = api.root.add_resource("token")
         token_resource.add_method(
@@ -90,6 +100,11 @@ class ServicesStack(Stack):
             "POST", apigateway.LambdaIntegration(enforcer_lambda.function)
         )
 
+        introspect_resource = api.root.add_resource("introspect")
+        introspect_resource.add_method(
+            "GET", apigateway.LambdaIntegration(introspect_lambda.function)
+        )
+
         health_resource = api.root.add_resource("health")
         health_resource.add_method("GET", apigateway.LambdaIntegration(health_lambda))
 
@@ -99,5 +114,6 @@ class ServicesStack(Stack):
         CfnOutput(self, "CompilerLambdaArn", value=compiler_lambda.function.function_arn)
         CfnOutput(self, "TokenServiceLambdaArn", value=token_service_lambda.function.function_arn)
         CfnOutput(self, "EnforcerLambdaArn", value=enforcer_lambda.function.function_arn)
+        CfnOutput(self, "IntrospectLambdaArn", value=introspect_lambda.function.function_arn)
         CfnOutput(self, "MappingsTableName", value=mappings_table.table_name)
         CfnOutput(self, "PrincipalTableName", value=principal_table.table_name)
