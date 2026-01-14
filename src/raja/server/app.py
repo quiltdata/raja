@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
@@ -76,18 +78,21 @@ class S3EnforceRequest(BaseModel):
     ]
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    logger.info("raja_server_started", version="0.2.0", title="RAJA Control Plane")
+    yield
+    # Shutdown (if needed in the future)
+
+
 # Create FastAPI app and include routers
-app = FastAPI(title="RAJA Control Plane", version="0.2.0")
+app = FastAPI(title="RAJA Control Plane", version="0.2.0", lifespan=lifespan)
 
 # Include domain-specific routers
 app.include_router(control_plane_router)
 app.include_router(harness_router)
-
-
-@app.on_event("startup")
-def log_startup() -> None:
-    """Log application startup."""
-    logger.info("raja_server_started", version="0.2.0", title="RAJA Control Plane")
 
 
 @app.get("/", response_class=HTMLResponse)
