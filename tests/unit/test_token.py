@@ -2,8 +2,9 @@ import time
 
 import pytest
 
+from raja.exceptions import TokenExpiredError, TokenInvalidError
 from raja.models import Token
-from raja.token import TokenValidationError, create_token, decode_token, is_expired, validate_token
+from raja.token import create_token, decode_token, is_expired, validate_token
 
 
 def test_create_and_validate_token():
@@ -23,13 +24,13 @@ def test_decode_token_without_validation():
 
 def test_validate_token_rejects_invalid_signature():
     token_str = create_token("alice", ["Document:doc1:read"], ttl=60, secret="secret-a")
-    with pytest.raises(TokenValidationError):
+    with pytest.raises(TokenInvalidError):
         validate_token(token_str, "secret-b")
 
 
 def test_validate_token_rejects_expired():
     token_str = create_token("alice", ["Document:doc1:read"], ttl=-1, secret="secret")
-    with pytest.raises(TokenValidationError):
+    with pytest.raises(TokenExpiredError):
         validate_token(token_str, "secret")
 
 
