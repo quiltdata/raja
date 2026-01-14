@@ -19,6 +19,7 @@ Analysis of the `/scripts/` directory reveals **mixed results**:
 **Purpose**: Version management and release automation
 
 **Used by**:
+
 - `./poe version` - show current version
 - `./poe bump` - bump patch version
 - `./poe bump-minor` - bump minor version
@@ -28,6 +29,7 @@ Analysis of the `/scripts/` directory reveals **mixed results**:
 **Quality Assessment**: ⭐⭐⭐⭐⭐
 
 **Strengths**:
+
 - Comprehensive functionality (show, bump, tag)
 - Good error handling and validation
 - Clear user feedback with emoji markers
@@ -38,6 +40,7 @@ Analysis of the `/scripts/` directory reveals **mixed results**:
 - Handles both local tags and remote deletion
 
 **Weaknesses**:
+
 - None significant
 
 **Recommendation**: **KEEP AS-IS** - This is exemplary Python code
@@ -53,12 +56,14 @@ Analysis of the `/scripts/` directory reveals **mixed results**:
 **Quality Assessment**: ⭐⭐⭐
 
 **Strengths**:
+
 - Clear purpose and scope
 - Uses environment variables for configuration
 - Proper error handling for missing config
 - Type hints on function signatures
 
 **Weaknesses**:
+
 1. **No dry-run mode** - always executes operations
 2. **No error handling for AWS operations** - boto3 calls can fail
 3. **No validation** - doesn't check if policies are valid Cedar syntax
@@ -183,11 +188,13 @@ if __name__ == "__main__":
 **Quality Assessment**: ⭐⭐
 
 **Strengths**:
+
 - Simple and focused
 - Uses environment variables for configuration
 - Type hints on function signature
 
 **Weaknesses**:
+
 1. **No error handling** - `urlopen` can raise exceptions
 2. **No timeout** - could hang indefinitely
 3. **No retry logic** - fails on transient errors
@@ -329,12 +336,14 @@ if __name__ == "__main__":
 **Quality Assessment**: ⭐⭐⭐
 
 **Strengths**:
+
 - Clear purpose and scope
 - Type hints on helper function
 - Proper error handling for missing config
 - Uses boto3 resource interface (cleaner than client)
 
 **Weaknesses**:
+
 1. **Hardcoded test data** - not configurable
 2. **No dry-run mode**
 3. **No error handling for DynamoDB operations**
@@ -461,6 +470,7 @@ if __name__ == "__main__":
 **Quality Assessment**: ⭐⭐
 
 **Issues**:
+
 1. **Redundant** - `./poe cdk-deploy` does the same thing with better integration
 2. **Less flexible** - no options for diff, synth, destroy
 3. **Manual dependency installation** - `uv pip install aws-cdk-lib` is better in pyproject.toml
@@ -469,6 +479,7 @@ if __name__ == "__main__":
 6. **No progress feedback**
 
 **Current poe tasks that replace it**:
+
 ```toml
 cdk-synth = { sequence = ["npx-verify", "cdk-synth-cmd"] }
 cdk-diff = { sequence = ["npx-verify", "cdk-diff-cmd"] }
@@ -501,12 +512,14 @@ cdk-destroy = { sequence = ["npx-verify", "cdk-destroy-cmd"] }
 **Quality Assessment**: ⭐⭐⭐
 
 **Analysis**:
+
 - **Not referenced in pyproject.toml** - no poe task
 - **Not mentioned in CLAUDE.md** - no documentation
 - **Not used in CI/CD** - no workflow references
 - **Overlaps with unit tests** - tests/unit/ covers same ground
 
 **Script functionality**:
+
 ```python
 def main() -> None:
     # Compile policies
@@ -526,6 +539,7 @@ def main() -> None:
 ```
 
 **This is better served by**:
+
 1. **Unit tests** - `tests/unit/` already covers this functionality
 2. **Interactive REPL** - `./poe repl` for manual testing
 3. **Integration tests** - `tests/integration/` for end-to-end validation
@@ -550,12 +564,14 @@ test_local.py      → [REDUNDANT] Covered by unit tests
 ### Orthogonality Score: ⭐⭐⭐⭐ (4/5)
 
 **Good separation**:
+
 - ✅ version.py is completely independent
 - ✅ load_policies.py handles policy loading
 - ✅ invoke_compiler.py handles compilation
 - ✅ seed_test_data.py handles test data
 
 **Issues**:
+
 - ⚠️ deploy.sh duplicates poe task functionality
 - ⚠️ test_local.py duplicates unit test functionality
 
@@ -581,23 +597,25 @@ test_local.py      → [REDUNDANT] Covered by unit tests
 ### Immediate Actions
 
 1. **DELETE** `deploy.sh` - Completely replaced by poe tasks
+
    ```bash
    git rm scripts/deploy.sh
    ```
 
 2. **DELETE** `test_local.py` - Redundant with unit tests
+
    ```bash
    git rm scripts/test_local.py
    ```
 
 ### Short-term Improvements (High Priority)
 
-3. **IMPROVE** `invoke_compiler.py`
+1. **IMPROVE** `invoke_compiler.py`
    - Add timeout and error handling
    - Add progress feedback
    - Consider switching to httpx for better HTTP handling
 
-4. **IMPROVE** `load_policies.py`
+2. **IMPROVE** `load_policies.py`
    - Add dry-run mode
    - Add error handling for AWS operations
    - Add progress feedback
@@ -605,7 +623,7 @@ test_local.py      → [REDUNDANT] Covered by unit tests
 
 ### Medium-term Improvements
 
-5. **IMPROVE** `seed_test_data.py`
+1. **IMPROVE** `seed_test_data.py`
    - Make test data configurable (JSON file)
    - Add dry-run mode
    - Add more comprehensive test principals
@@ -613,12 +631,13 @@ test_local.py      → [REDUNDANT] Covered by unit tests
 
 ### Optional Enhancements
 
-6. **Consider**: Move scripts to `src/raja/cli/` for better packaging
+1. **Consider**: Move scripts to `src/raja/cli/` for better packaging
    - Makes scripts installable as entry points
    - Better for distribution via PyPI
    - Cleaner project structure
 
-7. **Consider**: Add a unified CLI interface
+2. **Consider**: Add a unified CLI interface
+
    ```bash
    raja policy load      # instead of python scripts/load_policies.py
    raja policy compile   # instead of python scripts/invoke_compiler.py
@@ -630,7 +649,7 @@ test_local.py      → [REDUNDANT] Covered by unit tests
 
 ## Code Quality Standards
 
-### All scripts should have:
+### All scripts should have
 
 1. ✅ **Type hints** on all functions
 2. ✅ **Error handling** for all external operations
@@ -643,7 +662,7 @@ test_local.py      → [REDUNDANT] Covered by unit tests
 9. ✅ **Command-line argument parsing** where appropriate
 10. ✅ **Timeout handling** for network operations
 
-### Example template:
+### Example template
 
 ```python
 #!/usr/bin/env python3
@@ -692,7 +711,7 @@ if __name__ == "__main__":
 
 ## Integration with Poe Tasks
 
-### Current integration:
+### Current integration
 
 ```toml
 [tool.poe.tasks]
@@ -706,7 +725,7 @@ bump-major = { cmd = "python scripts/version.py bump major", help = "Bump major 
 tag = { script = "scripts.version:create_tag", help = "Create and push a git tag for release (runs checks first)" }
 ```
 
-### After cleanup:
+### After cleanup
 
 ```toml
 [tool.poe.tasks]
@@ -729,25 +748,29 @@ tag = { script = "scripts.version:create_tag", help = "Create and push a git tag
 
 The scripts directory is **mostly well-organized** but needs **cleanup and improvements**:
 
-### Strengths:
+### Strengths
+
 - ✅ Good separation of concerns (after cleanup)
 - ✅ Most scripts have clear, single purposes
 - ✅ Integrated with poe task runner
 - ✅ version.py is exemplary code
 
-### Weaknesses:
+### Weaknesses
+
 - ❌ Two unused/redundant scripts (deploy.sh, test_local.py)
 - ⚠️ Inconsistent error handling
 - ⚠️ Limited user feedback during operations
 - ⚠️ No dry-run modes for AWS operations
 
-### Priority actions:
+### Priority actions
+
 1. **Delete** deploy.sh and test_local.py (redundant)
 2. **Improve** error handling in load_policies.py and invoke_compiler.py
 3. **Add** dry-run modes to all AWS scripts
 4. **Enhance** user feedback with progress indicators
 
 After these improvements, the scripts directory will be:
+
 - ✅ 100% used (4/4 scripts)
 - ✅ 100% orthogonal (no overlap)
 - ✅ Well-written (consistent quality)

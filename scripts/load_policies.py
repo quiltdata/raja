@@ -67,7 +67,7 @@ def main() -> None:
 
     # Load policies
     repo_root = Path(__file__).resolve().parents[1]
-    policies_dir = repo_root / "policies" / "policies"
+    policies_dir = repo_root / "policies"
 
     if not policies_dir.exists():
         print(f"✗ Policies directory not found: {policies_dir}", file=sys.stderr)
