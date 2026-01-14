@@ -82,7 +82,7 @@ def tag_exists(tag: str) -> bool:
     return bool(result.stdout.strip())
 
 
-def create_and_push_tag(version: str, skip_checks: bool = False) -> None:
+def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool = False) -> None:
     """Create and push a git tag for the given version."""
     tag = f"v{version}"
 
@@ -94,12 +94,23 @@ def create_and_push_tag(version: str, skip_checks: bool = False) -> None:
     check_git_status()
     branch = check_on_branch()
 
-    # Verify tag doesn't already exist
+    # Handle existing tag
     if tag_exists(tag):
-        print(f"✗ Tag {tag} already exists")
-        print("\nExisting tags:")
-        run_command(["git", "tag", "-l", "v*"])
-        sys.exit(1)
+        if recreate:
+            print(f"⚠ Tag {tag} already exists - deleting for recreation")
+            print(f"\n→ Deleting local tag {tag}...")
+            run_command(["git", "tag", "-d", tag])
+            print(f"✓ Local tag deleted")
+
+            print(f"\n→ Deleting remote tag {tag}...")
+            run_command(["git", "push", "origin", f":refs/tags/{tag}"])
+            print(f"✓ Remote tag deleted")
+        else:
+            print(f"✗ Tag {tag} already exists")
+            print("\nExisting tags:")
+            run_command(["git", "tag", "-l", "v*"])
+            print(f"\nUse --recreate to delete and recreate the tag")
+            sys.exit(1)
 
     # Run quality checks unless skipped
     if not skip_checks:
@@ -134,9 +145,10 @@ def create_tag() -> None:
     """Main entry point for the tag task."""
     # Parse command line arguments
     skip_checks = "--skip-checks" in sys.argv
+    recreate = "--recreate" in sys.argv
 
     version = get_current_version()
-    create_and_push_tag(version, skip_checks=skip_checks)
+    create_and_push_tag(version, skip_checks=skip_checks, recreate=recreate)
 
 
 if __name__ == "__main__":

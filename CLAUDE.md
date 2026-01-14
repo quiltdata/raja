@@ -347,10 +347,17 @@ The `./poe tag` command will:
 5. Create git tag `vX.Y.Z`
 6. Push tag to origin
 
-**Skip checks (not recommended):**
+**Additional options:**
 
 ```bash
+# Skip quality checks and tests (not recommended)
 ./poe tag --skip-checks
+
+# Recreate an existing tag (deletes old tag first)
+./poe tag --recreate
+
+# Combine flags
+./poe tag --recreate --skip-checks
 ```
 
 ### What Happens After Tagging
