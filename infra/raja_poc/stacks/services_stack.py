@@ -79,17 +79,20 @@ class ServicesStack(Stack):
             token_ttl=3600,
         )
 
-        api = apigateway.LambdaRestApi(
-            self,
-            "RajaApi",
-            handler=control_plane.function,
-            proxy=True,
+        api = apigateway.RestApi(self, "RajaApi", deploy=False)
+        api.root.add_proxy(
+            default_integration=apigateway.LambdaIntegration(control_plane.function),
+            any_method=True,
         )
-        api.deployment.add_to_logical_id(control_plane.function.current_version.version)
 
-        self.api_url = api.url
+        deployment = apigateway.Deployment(self, "RajaApiDeployment", api=api)
+        deployment.add_to_logical_id(control_plane.function.current_version.version)
+        stage = apigateway.Stage(self, "RajaApiStage", deployment=deployment, stage_name="prod")
+        self.api_url = (
+            f"https://{api.rest_api_id}.execute-api.{self.region}.amazonaws.com/{stage.stage_name}/"
+        )
 
-        CfnOutput(self, "ApiUrl", value=api.url)
+        CfnOutput(self, "ApiUrl", value=self.api_url)
         CfnOutput(self, "PolicyStoreId", value=policy_store_id)
         CfnOutput(self, "PolicyStoreArn", value=policy_store_arn)
         CfnOutput(self, "ControlPlaneLambdaArn", value=control_plane.function.function_arn)
