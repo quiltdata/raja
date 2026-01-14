@@ -32,6 +32,7 @@ request.startswith(grant)
 ```
 
 Then it becomes:
+
 - **Trivially correct** (no edge cases)
 - **Maximally fast** (O(1) string comparison)
 - **Perfectly transparent** (obvious what's allowed)
@@ -74,11 +75,13 @@ That's it. No wildcards, no pattern matching, no special cases.
 **Grant:** `s3:GetObject/my-bucket/`
 
 **Allowed:**
+
 - `s3:GetObject/my-bucket/document.txt` ✅
 - `s3:GetObject/my-bucket/subfolder/file.csv` ✅
 - `s3:GetObject/my-bucket/deeply/nested/path/data.json` ✅
 
 **Denied:**
+
 - `s3:PutObject/my-bucket/document.txt` ❌ (action mismatch)
 - `s3:GetObject/other-bucket/document.txt` ❌ (bucket mismatch)
 
@@ -87,10 +90,12 @@ That's it. No wildcards, no pattern matching, no special cases.
 **Grant:** `s3:PutObject/my-bucket/uploads/`
 
 **Allowed:**
+
 - `s3:PutObject/my-bucket/uploads/file.txt` ✅
 - `s3:PutObject/my-bucket/uploads/user123/avatar.png` ✅
 
 **Denied:**
+
 - `s3:PutObject/my-bucket/documents/file.txt` ❌ (prefix mismatch)
 - `s3:PutObject/my-bucket/upload/file.txt` ❌ (prefix mismatch - note "upload" vs "uploads")
 - `s3:GetObject/my-bucket/uploads/file.txt` ❌ (action mismatch)
@@ -98,6 +103,7 @@ That's it. No wildcards, no pattern matching, no special cases.
 #### Example 3: Multiple grants
 
 **Grants:**
+
 ```
 s3:GetObject/my-bucket/
 s3:PutObject/my-bucket/uploads/
@@ -105,6 +111,7 @@ s3:DeleteObject/my-bucket/uploads/
 ```
 
 **Behavior:**
+
 - Read anything in `my-bucket/` ✅
 - Write only to `my-bucket/uploads/*` ✅
 - Delete only from `my-bucket/uploads/*` ✅
@@ -115,9 +122,11 @@ s3:DeleteObject/my-bucket/uploads/
 **Grant:** `s3:GetObject/my-bucket/specific-file.txt`
 
 **Allowed:**
+
 - `s3:GetObject/my-bucket/specific-file.txt` ✅
 
 **Denied:**
+
 - `s3:GetObject/my-bucket/specific-file.txt.backup` ❌ (not exact match, no prefix)
 - `s3:GetObject/my-bucket/other-file.txt` ❌
 
@@ -302,6 +311,7 @@ Since the bucket and key are extracted from the URL path structure (not query pa
 **Prefix confusion prevention:**
 
 Always use trailing slashes for prefix grants:
+
 - ✅ `s3:GetObject/bucket/uploads/` (clear prefix)
 - ❌ `s3:GetObject/bucket/upload` (ambiguous - matches "upload" and "uploads")
 
