@@ -77,7 +77,7 @@ class ServicesStack(Stack):
             self,
             "HealthLambda",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="handler.lambda_handler",
+            handler="index.lambda_handler",
             code=lambda_.Code.from_inline(health_code),
         )
 
