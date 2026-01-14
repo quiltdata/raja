@@ -21,6 +21,7 @@ class CedarSchema:
     actions: set[str]
 
     def validate_policy(self, policy: CedarPolicy) -> None:
+        """Validate policy resource and action types against the schema."""
         resource_type, _ = _parse_entity(policy.resource)
         _, action_id = _parse_entity(policy.action)
 

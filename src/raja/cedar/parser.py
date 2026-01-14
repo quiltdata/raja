@@ -10,6 +10,7 @@ _FIELD_RE = re.compile(r"\b(principal|action|resource)\s*==\s*([^,\)]+)", re.IGN
 
 
 def parse_policy(policy_str: str) -> CedarPolicy:
+    """Parse a simplified Cedar policy string into a CedarPolicy model."""
     cleaned = policy_str.strip().rstrip(";")
     effect_match = _EFFECT_RE.match(cleaned)
     if not effect_match:

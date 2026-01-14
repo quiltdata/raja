@@ -13,6 +13,7 @@ class TokenValidationError(ValueError):
 
 
 def create_token(subject: str, scopes: list[str], ttl: int, secret: str) -> str:
+    """Create a signed JWT containing scope claims."""
     issued_at = int(time.time())
     expires_at = issued_at + ttl
     payload = {
@@ -25,6 +26,7 @@ def create_token(subject: str, scopes: list[str], ttl: int, secret: str) -> str:
 
 
 def validate_token(token_str: str, secret: str) -> Token:
+    """Validate a JWT signature and return the decoded Token model."""
     try:
         payload = jwt.decode(token_str, secret, algorithms=["HS256"])
     except jwt.ExpiredSignatureError as exc:
@@ -41,6 +43,7 @@ def validate_token(token_str: str, secret: str) -> Token:
 
 
 def decode_token(token_str: str) -> dict[str, Any]:
+    """Decode a JWT without validating signature or expiration."""
     payload = jwt.decode(
         token_str,
         options={"verify_signature": False, "verify_exp": False},
@@ -50,4 +53,5 @@ def decode_token(token_str: str) -> dict[str, Any]:
 
 
 def is_expired(token: Token) -> bool:
+    """Return True if the token is expired relative to current time."""
     return int(time.time()) >= token.expires_at

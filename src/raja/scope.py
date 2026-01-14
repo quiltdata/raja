@@ -9,6 +9,7 @@ _SCOPE_PATTERN = re.compile(r"^(?P<resource_type>[^:]+):(?P<resource_id>[^:]+):(
 
 
 def parse_scope(scope_str: str) -> Scope:
+    """Parse a scope string into a Scope model."""
     match = _SCOPE_PATTERN.match(scope_str)
     if not match:
         raise ValueError("scope must match 'ResourceType:ResourceId:Action'")
@@ -16,6 +17,7 @@ def parse_scope(scope_str: str) -> Scope:
 
 
 def format_scope(resource_type: str, resource_id: str, action: str) -> str:
+    """Format a scope string from its components."""
     return f"{resource_type}:{resource_id}:{action}"
 
 
@@ -30,6 +32,7 @@ def _normalize_scopes(scopes: Iterable[Scope | str]) -> set[str]:
 
 
 def is_subset(requested: Scope, granted: Sequence[Scope | str]) -> bool:
+    """Check whether a requested scope is present in the granted scopes."""
     requested_key = format_scope(requested.resource_type, requested.resource_id, requested.action)
     granted_keys = _normalize_scopes(granted)
     return requested_key in granted_keys

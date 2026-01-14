@@ -6,6 +6,7 @@ from .token import TokenValidationError, validate_token
 
 
 def check_scopes(request: AuthRequest, granted_scopes: list[str]) -> bool:
+    """Return True if the request scope is included in the granted scopes."""
     requested_scope = Scope(
         resource_type=request.resource_type,
         resource_id=request.resource_id,
@@ -15,6 +16,7 @@ def check_scopes(request: AuthRequest, granted_scopes: list[str]) -> bool:
 
 
 def enforce(token_str: str, request: AuthRequest, secret: str) -> Decision:
+    """Enforce authorization by validating a token and checking scopes."""
     try:
         token = validate_token(token_str, secret)
     except TokenValidationError as exc:

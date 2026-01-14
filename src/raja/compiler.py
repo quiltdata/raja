@@ -35,6 +35,7 @@ def _resource_parts(policy: CedarPolicy) -> tuple[str, str]:
 
 
 def compile_policy(cedar_policy: str) -> dict[str, list[str]]:
+    """Compile a Cedar policy statement into a principal-to-scopes mapping."""
     parsed = parse_policy(cedar_policy)
     if parsed.effect != "permit":
         return {}
@@ -47,6 +48,7 @@ def compile_policy(cedar_policy: str) -> dict[str, list[str]]:
 
 
 def compile_policies(policies: list[str]) -> dict[str, list[str]]:
+    """Compile multiple policies into a merged principal-to-scopes mapping."""
     compiled: dict[str, list[str]] = {}
     for policy in policies:
         mapping = compile_policy(policy)
