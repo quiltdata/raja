@@ -1,4 +1,5 @@
 # Changelog
+<!-- markdownlint-disable MD024 -->
 
 All notable changes to the RAJA project will be documented in this file.
 
@@ -6,6 +7,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.2.1] - 2026-01-14
+
+### Added
+
+- **Version management automation** (`scripts/version.py`): Comprehensive version and release tooling
+  - `./poe version`: Show current version from pyproject.toml
+  - `./poe bump`: Bump patch version (0.2.0 → 0.2.1) and commit
+  - `./poe bump-minor`: Bump minor version (0.2.0 → 0.3.0) and commit
+  - `./poe bump-major`: Bump major version (0.2.0 → 1.0.0) and commit
+  - `./poe tag`: Create and push git release tags with validation
+    - Verifies git working directory is clean
+    - Runs quality checks (`./poe check`) before tagging
+    - Runs unit tests (`./poe test-unit`) before tagging
+    - Supports `--recreate` flag to recreate existing tags
+    - Supports `--skip-checks` flag to bypass validation (not recommended)
+  - Automatic uv.lock updates when bumping versions
+  - Automatic git staging and committing of version changes
+
+### Changed
+
+- **Release workflow** (`.github/workflows/release.yml`):
+  - Added `environment: pypi` for trusted publishing to PyPI
+  - Added explicit `actions/checkout@v4` step before using local setup action
+
+### Documentation
+
+- **CLAUDE.md**: Added comprehensive release process documentation
+  - Version management workflow with semantic versioning examples
+  - Release creation steps (bump, push, tag)
+  - Automated release workflow explanation
+  - Manual release alternatives
 
 ## [0.2.0] - 2026-01-14
 
@@ -149,5 +182,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-01-13
 
 ### Project Initialized
+
 - Repository created with Apache 2.0 license
 - README with project description
