@@ -70,8 +70,8 @@ app = FastAPI(title="RAJA Control Plane", version="0.2.0")
 
 
 @app.get("/", response_class=HTMLResponse)
-def admin_home() -> str:
-    return """<!doctype html>
+def admin_home() -> HTMLResponse:
+    html = """<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -111,7 +111,8 @@ def admin_home() -> str:
           const data = await response.json();
           document.getElementById(target).textContent = JSON.stringify(data, null, 2);
         } catch (err) {
-          document.getElementById(target).textContent = String(err);
+          const url = buildUrl(endpoint);
+          document.getElementById(target).textContent = `${err} (${url})`;
         }
       }
       load('principals', 'principals');
@@ -120,6 +121,7 @@ def admin_home() -> str:
     </script>
   </body>
 </html>"""
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
