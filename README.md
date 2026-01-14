@@ -27,7 +27,7 @@ uv sync
 
 ```bash
 # Deploy infrastructure
-poe cdk-deploy --all
+./poe deploy
 
 # Load Cedar policies
 python scripts/load_policies.py
@@ -111,9 +111,9 @@ print(decision.allowed)  # True
 ### Run Tests
 
 ```bash
-poe test-unit      # Unit tests (no AWS)
-poe test           # All tests
-poe check-all      # Format, lint, typecheck
+./poe test-unit    # Unit tests (no AWS)
+./poe test         # All tests
+./poe check        # Format, lint, typecheck
 ```
 
 ## Scope Format

@@ -95,9 +95,10 @@ raja/
 │   └── policies/          # Policy files
 │
 ├── scripts/               # Utility scripts
-│   ├── deploy.sh          # CDK deployment helper
+│   ├── version.py         # Version management and releases
 │   ├── load_policies.py   # Load policies to AVP
-│   └── invoke_compiler.py # Trigger compiler Lambda
+│   ├── invoke_compiler.py # Trigger compiler Lambda
+│   └── seed_test_data.py  # Seed test data for integration tests
 │
 └── specs/                 # Design specifications
     └── 1-mvp/             # MVP documentation
@@ -137,8 +138,11 @@ See child CLAUDE.md files for detailed documentation:
 ### Local Development
 
 ```bash
-# Install dependencies
-./poe install
+# Install package locally
+uv pip install -e .
+
+# Run quality checks (format + lint + typecheck)
+./poe check
 
 # Run unit tests
 ./poe test-unit
@@ -146,24 +150,27 @@ See child CLAUDE.md files for detailed documentation:
 # Run all tests
 ./poe test
 
-# Format, lint, and typecheck
-./poe check-all
-
-# Watch mode for tests
-./poe test-watch
+# Tests with coverage
+./poe test-cov
 ```
 
 ### AWS Deployment
 
 ```bash
 # Deploy infrastructure
-./scripts/deploy.sh
+./poe deploy
 
 # Load Cedar policies to AVP
-python scripts/load_policies.py
+./poe load-policies
 
 # Trigger policy compilation
-python scripts/invoke_compiler.py
+./poe compile-policies
+
+# Seed test data (optional, for integration tests)
+./poe seed-test-data
+
+# Run integration tests (requires deployed resources)
+./poe test-integration
 ```
 
 ## Key Concepts
@@ -254,17 +261,20 @@ RAJA uses hypothesis tests to validate core properties:
 ### Running Tests
 
 ```bash
+# All tests
+./poe test
+
 # Unit tests only (fast, no AWS)
 ./poe test-unit
 
 # Integration tests (requires deployed AWS resources)
 ./poe test-integration
 
-# Hypothesis tests (property-based validation)
-./poe test-hypothesis
-
 # All tests with coverage
 ./poe test-cov
+
+# Advanced: Run specific test types directly with pytest
+pytest -m hypothesis tests/  # Property-based validation tests
 ```
 
 ## CI/CD Pipeline
@@ -300,29 +310,37 @@ RAJA uses hypothesis tests to validate core properties:
 
 ### Poe Tasks
 
-See `pyproject.toml` for full task definitions:
+Essential commands for development workflow:
 
 ```bash
-./poe install             # Install package locally
+# Quality checks
+./poe check               # Format + lint + typecheck (one command!)
+
+# Testing
 ./poe test                # Run all tests
 ./poe test-unit           # Unit tests only
-./poe test-integration    # Integration tests only
-./poe test-hypothesis     # Hypothesis tests only
+./poe test-integration    # Integration tests (requires AWS)
 ./poe test-cov            # Tests with coverage
-./poe test-watch          # Watch mode
-./poe format              # Format code
-./poe lint                # Lint code
-./poe typecheck           # Type check
-./poe check-all           # Format + lint + typecheck
-./poe cdk-synth           # Synthesize CDK
-./poe cdk-deploy          # Deploy CDK
-./poe cdk-destroy         # Destroy CDK
+
+# AWS deployment
+./poe deploy              # Deploy CDK stack to AWS
+./poe destroy             # Destroy CDK stack
+
+# Full workflow
+./poe all                 # Check → test → deploy → integration test
+
+# Version management
 ./poe version             # Show current version
 ./poe bump                # Bump patch version and commit
-./poe bump-minor          # Bump minor version and commit
-./poe bump-major          # Bump major version and commit
 ./poe tag                 # Create and push release tag
 ```
+
+**Advanced usage:** Users can run tools directly for custom flags:
+
+- `ruff format src/` - Format specific directory
+- `mypy --strict src/` - Stricter type checking
+- `pytest -k test_name` - Run specific tests
+- `cd infra && npx cdk diff` - Preview CDK changes
 
 ## Release Process
 
@@ -337,18 +355,16 @@ RAJA uses semantic versioning (MAJOR.MINOR.PATCH):
 # Bump patch version (0.2.0 → 0.2.1) - for bug fixes
 ./poe bump
 
-# Bump minor version (0.2.0 → 0.3.0) - for new features
-./poe bump-minor
-
-# Bump major version (0.2.0 → 1.0.0) - for breaking changes
-./poe bump-major
+# For minor/major versions, use the version script directly:
+python scripts/version.py bump minor  # 0.2.0 → 0.3.0
+python scripts/version.py bump major  # 0.2.0 → 1.0.0
 ```
 
-These commands automatically:
+The `./poe bump` command automatically:
 
-1. Update version in [pyproject.toml](pyproject.toml)
-2. Update `uv.lock` if it exists
-3. Stage and commit the changes
+1. Updates version in [pyproject.toml](pyproject.toml)
+2. Updates `uv.lock` if it exists
+3. Stages and commits the changes
 
 ### Creating a Release
 
@@ -356,7 +372,7 @@ To create a new release:
 
 ```bash
 # 1. Bump version and commit
-./poe bump        # or bump-minor / bump-major
+./poe bump
 
 # 2. Push the version bump
 git push
@@ -368,7 +384,7 @@ git push
 The `./poe tag` command will:
 
 1. Verify git working directory is clean
-2. Read version from pyproject.toml
+2. Read version from [pyproject.toml](pyproject.toml)
 3. Run quality checks (`./poe check`)
 4. Run unit tests (`./poe test-unit`)
 5. Create git tag `vX.Y.Z`
