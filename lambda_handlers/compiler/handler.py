@@ -6,6 +6,7 @@ and stores the mappings in DynamoDB for token issuance.
 
 import json
 import os
+import time
 from typing import Any
 
 import boto3
@@ -67,11 +68,12 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             # Store policy → scopes mapping
             for principal, scopes in principal_scope_map.items():
+                updated_at = int(time.time())
                 mappings_table.put_item(
                     Item={
                         "policy_id": policy_id,
-                        "principal": principal,
                         "scopes": scopes,
+                        "updated_at": updated_at,
                     }
                 )
 
@@ -88,6 +90,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 Item={
                     "principal": principal,
                     "scopes": list(scopes),
+                    "updated_at": int(time.time()),
                 }
             )
 
