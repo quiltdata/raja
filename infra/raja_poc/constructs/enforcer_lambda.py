@@ -20,7 +20,7 @@ class EnforcerLambda(Construct):
             "Function",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
-            code=lambda_.Code.from_asset("lambda_handlers/enforcer"),
+            code=lambda_.Code.from_asset("../lambda_handlers/enforcer"),
             environment={
                 "JWT_SECRET_ARN": jwt_secret.secret_arn,
             },

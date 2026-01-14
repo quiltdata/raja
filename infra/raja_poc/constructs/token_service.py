@@ -23,7 +23,7 @@ class TokenServiceLambda(Construct):
             "Function",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
-            code=lambda_.Code.from_asset("lambda_handlers/token_service"),
+            code=lambda_.Code.from_asset("../lambda_handlers/token_service"),
             environment={
                 "PRINCIPAL_TABLE": principal_table.table_name,
                 "JWT_SECRET_ARN": jwt_secret.secret_arn,

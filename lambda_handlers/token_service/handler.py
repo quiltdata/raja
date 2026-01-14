@@ -1,52 +1,96 @@
-from __future__ import annotations
+"""Token Service Lambda Handler.
+
+Issues JWT tokens with scopes based on principal lookups from DynamoDB.
+"""
 
 import json
 import os
 from typing import Any
 
 import boto3
-
 from raja import create_token
 
+# Environment variables
+PRINCIPAL_TABLE = os.environ["PRINCIPAL_TABLE"]
+JWT_SECRET_ARN = os.environ["JWT_SECRET_ARN"]
+TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 
-def _parse_body(event: dict[str, Any]) -> dict[str, Any]:
-    body = event.get("body")
-    if isinstance(body, str):
-        return json.loads(body)
-    if isinstance(body, dict):
-        return body
-    return {}
+# AWS clients
+dynamodb = boto3.resource("dynamodb")
+secrets_client = boto3.client("secretsmanager")
+principal_table = dynamodb.Table(PRINCIPAL_TABLE)
+
+# Cache JWT secret
+_jwt_secret_cache: str | None = None
+
+
+def get_jwt_secret() -> str:
+    """Retrieve JWT secret from Secrets Manager with caching."""
+    global _jwt_secret_cache
+    if _jwt_secret_cache is None:
+        response = secrets_client.get_secret_value(SecretId=JWT_SECRET_ARN)
+        _jwt_secret_cache = response["SecretString"]
+    return _jwt_secret_cache
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    principal_table_name = os.environ.get("PRINCIPAL_TABLE", "")
-    jwt_secret_arn = os.environ.get("JWT_SECRET_ARN", "")
-    token_ttl = int(os.environ.get("TOKEN_TTL", "3600"))
+    """Issue JWT token for a principal.
 
-    if not principal_table_name or not jwt_secret_arn:
-        return {"statusCode": 500, "body": "Missing configuration"}
+    Request body:
+        {"principal": "alice"}
 
-    body = _parse_body(event)
-    principal = body.get("principal")
-    if not principal:
-        return {"statusCode": 400, "body": "Missing principal"}
+    Response:
+        {"token": "eyJ..."}
 
-    dynamodb = boto3.resource("dynamodb")
-    table = dynamodb.Table(principal_table_name)
-    response = table.get_item(Key={"principal": principal})
-    item = response.get("Item")
-    if not item:
-        return {"statusCode": 404, "body": "Principal not found"}
+    Returns:
+        Response with JWT token or error
+    """
+    try:
+        # Parse request body
+        body = event.get("body", "{}")
+        if isinstance(body, str):
+            body = json.loads(body)
 
-    scopes = item.get("scopes", [])
+        principal = body.get("principal")
+        if not principal:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Missing required field: principal"}),
+            }
 
-    secrets = boto3.client("secretsmanager")
-    secret_response = secrets.get_secret_value(SecretId=jwt_secret_arn)
-    secret = secret_response.get("SecretString", "")
+        # Look up principal scopes in DynamoDB
+        response = principal_table.get_item(Key={"principal": principal})
+        item = response.get("Item")
 
-    token = create_token(principal, scopes, token_ttl, secret)
+        if not item:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": f"Principal not found: {principal}"}),
+            }
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps({"token": token}),
-    }
+        scopes = item.get("scopes", [])
+
+        # Get JWT secret
+        jwt_secret = get_jwt_secret()
+
+        # Create token
+        token = create_token(
+            subject=principal, scopes=scopes, ttl=TOKEN_TTL, secret=jwt_secret
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"token": token, "principal": principal, "scopes": scopes}),
+        }
+
+    except json.JSONDecodeError:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Invalid JSON in request body"}),
+        }
+    except Exception as e:
+        print(f"Error issuing token: {e}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)}),
+        }

@@ -23,7 +23,7 @@ class CompilerLambda(Construct):
             "Function",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
-            code=lambda_.Code.from_asset("lambda_handlers/compiler"),
+            code=lambda_.Code.from_asset("../lambda_handlers/compiler"),
             environment={
                 "POLICY_STORE_ID": policy_store_id,
                 "MAPPINGS_TABLE": mappings_table.table_name,

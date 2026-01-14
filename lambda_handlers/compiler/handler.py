@@ -1,78 +1,110 @@
-from __future__ import annotations
+"""Policy Compiler Lambda Handler.
+
+Loads Cedar policies from AVP Policy Store, compiles them to scopes,
+and stores the mappings in DynamoDB for token issuance.
+"""
 
 import json
 import os
 from typing import Any
 
 import boto3
-
 from raja import compile_policy
 
+# Environment variables
+POLICY_STORE_ID = os.environ["POLICY_STORE_ID"]
+MAPPINGS_TABLE = os.environ["MAPPINGS_TABLE"]
+PRINCIPAL_TABLE = os.environ["PRINCIPAL_TABLE"]
 
-def _load_policies(policy_store_id: str) -> list[dict[str, Any]]:
-    client = boto3.client("verifiedpermissions")
-    policies: list[dict[str, Any]] = []
-
-    response = client.list_policies(policyStoreId=policy_store_id)
-    policies.extend(response.get("policies", []))
-
-    for policy_meta in policies:
-        policy_id = policy_meta.get("policyId")
-        if not policy_id:
-            continue
-        policy = client.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
-        policy_meta["statement"] = (
-            policy.get("policy", {}).get("definition", {}).get("static", {}).get("statement", "")
-        )
-
-    return policies
+# AWS clients
+avp_client = boto3.client("verifiedpermissions")
+dynamodb = boto3.resource("dynamodb")
+mappings_table = dynamodb.Table(MAPPINGS_TABLE)
+principal_table = dynamodb.Table(PRINCIPAL_TABLE)
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    policy_store_id = os.environ.get("POLICY_STORE_ID", "")
-    mappings_table_name = os.environ.get("MAPPINGS_TABLE", "")
-    principal_table_name = os.environ.get("PRINCIPAL_TABLE", "")
+    """Compile Cedar policies from AVP to scopes and store in DynamoDB.
 
-    if not policy_store_id or not mappings_table_name or not principal_table_name:
-        return {"statusCode": 500, "body": "Missing configuration"}
+    Process:
+    1. List all policies from AVP Policy Store
+    2. For each policy, compile to scopes using raja.compile_policy
+    3. Store policy_id → scopes mapping in PolicyScopeMappings table
+    4. Aggregate all scopes by principal
+    5. Store principal → scopes mapping in PrincipalScopes table
 
-    policies = _load_policies(policy_store_id)
-    dynamodb = boto3.resource("dynamodb")
-    mappings_table = dynamodb.Table(mappings_table_name)
-    principal_table = dynamodb.Table(principal_table_name)
-
-    principal_scopes: dict[str, list[str]] = {}
-
-    for policy in policies:
-        policy_id = policy.get("policyId", "")
-        statement = policy.get("statement", "")
-        if not policy_id or not statement:
-            continue
-
-        compiled = compile_policy(statement)
-        scopes = list(next(iter(compiled.values()), []))
-        mappings_table.put_item(
-            Item={
-                "policy_id": policy_id,
-                "scopes": scopes,
-            }
+    Returns:
+        Response with count of policies compiled
+    """
+    try:
+        # List all policies from AVP
+        policies_response = avp_client.list_policies(
+            policyStoreId=POLICY_STORE_ID, maxResults=100
         )
 
-        for principal, scopes in compiled.items():
-            principal_scopes.setdefault(principal, [])
-            for scope in scopes:
-                if scope not in principal_scopes[principal]:
-                    principal_scopes[principal].append(scope)
+        policies_compiled = 0
+        principal_scopes: dict[str, set[str]] = {}
 
-    for principal, scopes in principal_scopes.items():
-        principal_table.put_item(
-            Item={
-                "principal": principal,
-                "scopes": scopes,
-            }
-        )
+        # Process each policy
+        for policy_item in policies_response.get("policies", []):
+            policy_id = policy_item["policyId"]
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps({"policies_compiled": len(policies)}),
-    }
+            # Get full policy details
+            policy_response = avp_client.get_policy(
+                policyStoreId=POLICY_STORE_ID, policyId=policy_id
+            )
+
+            # Extract Cedar policy statement
+            definition = policy_response.get("definition", {})
+            static_def = definition.get("static", {})
+            cedar_statement = static_def.get("statement", "")
+
+            if not cedar_statement:
+                continue
+
+            # Compile policy to scopes
+            principal_scope_map = compile_policy(cedar_statement)
+
+            # Store policy → scopes mapping
+            for principal, scopes in principal_scope_map.items():
+                mappings_table.put_item(
+                    Item={
+                        "policy_id": policy_id,
+                        "principal": principal,
+                        "scopes": scopes,
+                    }
+                )
+
+                # Aggregate scopes by principal
+                if principal not in principal_scopes:
+                    principal_scopes[principal] = set()
+                principal_scopes[principal].update(scopes)
+
+            policies_compiled += 1
+
+        # Store aggregated principal → scopes mappings
+        for principal, scopes in principal_scopes.items():
+            principal_table.put_item(
+                Item={
+                    "principal": principal,
+                    "scopes": list(scopes),
+                }
+            )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps(
+                {
+                    "message": "Policies compiled successfully",
+                    "policies_compiled": policies_compiled,
+                    "principals": len(principal_scopes),
+                }
+            ),
+        }
+
+    except Exception as e:
+        print(f"Error compiling policies: {e}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)}),
+        }

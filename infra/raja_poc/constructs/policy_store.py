@@ -39,4 +39,4 @@ class PolicyStore(Construct):
             )
 
         self.policy_store_id = policy_store.attr_policy_store_id
-        self.policy_store_arn = policy_store.attr_policy_store_arn
+        self.policy_store_arn = policy_store.attr_arn
