@@ -8,16 +8,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-01-14
+
 ### Added
 
-- S3 validation harness endpoints to mint, verify, and enforce RAJs without AWS calls
-- Admin UI redesign focused on S3 harness workflows
-- Poe task `./poe all` for lint → unit tests → deploy → integration tests
-- Integration tests can read `RAJA_API_URL` from CDK output files
+- **Core library modules**:
+  - `exceptions.py`: Centralized exception types for consistent error handling
+  - `cedar/entities.py`: Cedar entity type definitions and utilities
+- **Server architecture refactoring**:
+  - `server/routers/`: Modular router architecture with dedicated control plane and harness routers
+  - `server/dependencies.py`: Dependency injection module for AWS resource management with caching
+  - `server/logging_config.py`: Structured JSON logging for CloudWatch compatibility
+  - `server/templates/admin.html`: HTML template for admin interface
+- **Testing**:
+  - `test_cedar_schema_parser.py`: Comprehensive Cedar schema parsing tests with edge cases
+  - `test_dependencies.py`: Dependency injection and caching validation tests
+- **S3 validation harness**:
+  - S3 endpoints to mint, verify, and enforce RAJs without AWS calls
+  - Admin UI redesign focused on S3 harness workflows
+- **Tooling**:
+  - Poe task `./poe all` for lint → unit tests → deploy → integration tests
+  - Integration tests can read `RAJA_API_URL` from CDK output files
 
 ### Changed
 
-- CDK deploy task writes outputs to `infra/cdk-outputs.json` using an isolated output directory
+- **Core library improvements**:
+  - Enhanced scope parsing with better validation and wildcard support
+  - Improved token operations with explicit error types
+  - Strengthened enforcer with detailed error messages and logging
+  - Updated compiler with improved error handling
+  - Expanded public API exports in `__init__.py`
+  - Added comprehensive type hints throughout
+- **Server refactoring**:
+  - Extracted control plane endpoints into dedicated router
+  - Extracted harness/S3 endpoints into dedicated router
+  - Simplified main `app.py` to focus on FastAPI setup
+  - Improved code organization and maintainability
+  - Enhanced testability through dependency injection
+  - Better observability with structured logs
+- **Infrastructure**:
+  - Added `structlog>=24.1.0` to Lambda layer dependencies (fixes Runtime.ImportModuleError)
+  - Updated CDK constructs for new router architecture
+  - CDK deploy task writes outputs to `infra/cdk-outputs.json` using isolated output directory
+  - Improved policy store configuration with better defaults
+
+### Fixed
+
+- **Lambda execution failure**: Added missing `structlog` dependency to Lambda layer, resolving Runtime.ImportModuleError that caused 502 errors in integration tests
+
+### Documentation
+
+- Added `specs/1-mvp/09-refactoring-implementation.md`: Complete refactoring documentation with architecture decisions, module organization, migration path, and lessons learned
 
 ## [0.2.1] - 2026-01-14
 
