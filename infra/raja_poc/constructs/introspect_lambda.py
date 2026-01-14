@@ -18,6 +18,7 @@ class IntrospectLambda(Construct):
             self,
             "Function",
             runtime=lambda_.Runtime.PYTHON_3_12,
+            architecture=lambda_.Architecture.ARM_64,
             handler="handler.lambda_handler",
             code=lambda_.Code.from_asset("../lambda_handlers/introspect"),
             layers=[raja_layer],

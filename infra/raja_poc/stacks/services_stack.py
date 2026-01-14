@@ -32,6 +32,7 @@ class ServicesStack(Stack):
             self,
             "RajaLayer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
+            compatible_architectures=[lambda_.Architecture.ARM_64],
             code=lambda_.Code.from_asset(
                 str(repo_root),
                 bundling=BundlingOptions(
