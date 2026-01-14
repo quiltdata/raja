@@ -96,7 +96,7 @@ clean = { cmd = "rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .ruff_
 install = { cmd = "uv pip install -e .", help = "Install package locally" }
 cdk-synth-cmd = { cmd = "cd infra && npx cdk synth", help = "Synthesize CDK stack" }
 cdk-diff-cmd = { cmd = "cd infra && npx cdk diff", help = "Show CDK changes" }
-cdk-deploy-cmd = { cmd = "cd infra && npx cdk deploy --all --require-approval never", help = "Deploy CDK stack" }
+cdk-deploy-cmd = { shell = "cd infra && npx cdk deploy --all --require-approval never --progress bar", help = "Deploy CDK stack" }
 cdk-destroy-cmd = { cmd = "cd infra && npx cdk destroy --all --force", help = "Destroy CDK stack" }
 cdk-synth = { sequence = ["npx-verify", "cdk-synth-cmd"], help = "Synthesize CDK stack" }
 cdk-diff = { sequence = ["npx-verify", "cdk-diff-cmd"], help = "Show CDK changes" }
