@@ -84,11 +84,14 @@ markers = [
 [tool.poe.tasks]
 npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx not found; install Node.js to use CDK tasks\"; exit 1; }'", help = "Verify npx is available for CDK tasks" }
 format = { cmd = "ruff format src tests infra lambda_handlers", help = "Format code with ruff" }
-lint = { cmd = "ruff check src tests infra lambda_handlers", help = "Lint code with ruff" }
+format-check = { cmd = "ruff format src tests infra lambda_handlers --check", help = "Check formatting with ruff" }
+lint-check-only = { cmd = "ruff check src tests infra lambda_handlers", help = "Lint code with ruff" }
+lint = { sequence = ["format", "lint-fix", "typecheck"], help = "Format, fix lint, and run typecheck" }
+lint-check = { sequence = ["format-check", "lint-check-only", "typecheck"], help = "Check formatting, lint, and typecheck" }
 lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Auto-fix lint issues" }
 typecheck = { cmd = "mypy src", help = "Run type checker" }
-check = { sequence = ["lint", "typecheck"], help = "Run all quality checks" }
-check-all = { sequence = ["format", "lint", "typecheck"], help = "Format, lint, and typecheck" }
+check = { sequence = ["lint-check"], help = "Run all quality checks" }
+check-all = { sequence = ["lint"], help = "Format, lint, and typecheck" }
 test = { cmd = "pytest tests/ -v", help = "Run all tests" }
 test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integration tests" }
