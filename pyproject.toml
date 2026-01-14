@@ -99,6 +99,7 @@ test-hypothesis = { cmd = "pytest tests/hypothesis/ -v", help = "Run hypothesis 
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
 test-watch = { cmd = "pytest-watch tests/ -- -v", help = "Run tests in watch mode" }
 test-all-parallel = { parallel = ["test-unit", "test-integration"], help = "Run unit and integration tests in parallel" }
+all = { sequence = ["lint", "test-unit", "cdk-deploy", "test-integration"], help = "Lint, test locally, deploy, and run integration tests" }
 build = { cmd = "uv build", help = "Build package" }
 clean = { cmd = "rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .ruff_cache htmlcov/", help = "Clean build artifacts" }
 install = { cmd = "uv pip install -e .", help = "Install package locally" }
