@@ -120,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Poe the Poet tasks**: Standardized task runner for all development workflows
 - **Integration tooling**: Require AWS region for policy load and compiler invocation helpers
 - **Control plane API**: Replaced multi-Lambda API with a FastAPI control plane
+- **Admin UI**: Use stage-aware fetch URLs and disable caching to avoid stale endpoints
 - **Development dependencies**: Ruff (lint/format), mypy (typecheck), pytest (test), hypothesis (property tests)
 - **AWS dependencies**: boto3, aws-cdk-lib for infrastructure management
 - **Lambda configuration**: ARM64 architecture for cost optimization
