@@ -317,7 +317,66 @@ See `pyproject.toml` for full task definitions:
 ./poe cdk-synth        # Synthesize CDK
 ./poe cdk-deploy       # Deploy CDK
 ./poe cdk-destroy      # Destroy CDK
+./poe tag              # Create and push release tag
 ```
+
+## Release Process
+
+### Creating a Release
+
+To create a new release:
+
+```bash
+# 1. Update version in pyproject.toml
+# Edit pyproject.toml and change the version field
+
+# 2. Commit the version change
+git add pyproject.toml
+git commit -m "Bump version to X.Y.Z"
+
+# 3. Create and push the release tag
+./poe tag
+```
+
+The `./poe tag` command will:
+
+1. Verify git working directory is clean
+2. Read version from pyproject.toml
+3. Run quality checks (`./poe check`)
+4. Run unit tests (`./poe test-unit`)
+5. Create git tag `vX.Y.Z`
+6. Push tag to origin
+
+**Skip checks (not recommended):**
+
+```bash
+./poe tag --skip-checks
+```
+
+### What Happens After Tagging
+
+Once the tag is pushed, the GitHub Actions release workflow automatically:
+
+1. Verifies tag matches pyproject.toml version
+2. Runs quality checks and tests
+3. Builds the package
+4. Publishes to PyPI
+5. Uploads release assets to GitHub
+6. Updates release notes from CHANGELOG.md
+
+### Manual Release (Alternative)
+
+If you prefer to create the tag manually:
+
+```bash
+# Create tag
+git tag vX.Y.Z
+
+# Push tag
+git push origin vX.Y.Z
+```
+
+Or create a GitHub Release directly through the web interface.
 
 ## Design Principles
 
