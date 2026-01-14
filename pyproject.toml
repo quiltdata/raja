@@ -12,6 +12,7 @@ dependencies = [
     "PyJWT>=2.8.0",
     "fastapi>=0.110.0",
     "mangum>=0.17.0",
+    "structlog>=24.1.0",
 ]
 
 [project.optional-dependencies]
@@ -58,7 +59,9 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
-ignore = []
+ignore = [
+    "B008",  # FastAPI dependency injection pattern (function calls in defaults)
+]
 
 [tool.ruff.format]
 quote-style = "double"
