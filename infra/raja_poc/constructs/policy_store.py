@@ -20,34 +20,24 @@ class PolicyStore(Construct):
 
         # Convert Cedar schema to JSON format expected by AVP
         # The schema should be a JSON object with entity types and action definitions
-        schema_json = json.dumps({
-            "Raja": {
-                "entityTypes": {
-                    "User": {},
-                    "Document": {}
-                },
-                "actions": {
-                    "read": {
-                        "appliesTo": {
-                            "principalTypes": ["User"],
-                            "resourceTypes": ["Document"]
-                        }
+        schema_json = json.dumps(
+            {
+                "Raja": {
+                    "entityTypes": {"User": {}, "Document": {}},
+                    "actions": {
+                        "read": {
+                            "appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}
+                        },
+                        "write": {
+                            "appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}
+                        },
+                        "delete": {
+                            "appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}
+                        },
                     },
-                    "write": {
-                        "appliesTo": {
-                            "principalTypes": ["User"],
-                            "resourceTypes": ["Document"]
-                        }
-                    },
-                    "delete": {
-                        "appliesTo": {
-                            "principalTypes": ["User"],
-                            "resourceTypes": ["Document"]
-                        }
-                    }
                 }
             }
-        })
+        )
 
         policy_store = verifiedpermissions.CfnPolicyStore(
             self,
@@ -55,7 +45,9 @@ class PolicyStore(Construct):
             validation_settings=verifiedpermissions.CfnPolicyStore.ValidationSettingsProperty(
                 mode="STRICT"
             ),
-            schema=verifiedpermissions.CfnPolicyStore.SchemaDefinitionProperty(cedar_json=schema_json),
+            schema=verifiedpermissions.CfnPolicyStore.SchemaDefinitionProperty(
+                cedar_json=schema_json
+            ),
         )
 
         for name, statement in policies.items():

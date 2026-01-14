@@ -84,9 +84,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         except (KeyError, TypeError) as e:
             return {
                 "statusCode": 400,
-                "body": json.dumps(
-                    {"error": f"Invalid request format: {e}"}
-                ),
+                "body": json.dumps({"error": f"Invalid request format: {e}"}),
             }
 
         # Get JWT secret

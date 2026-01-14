@@ -39,9 +39,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """
     try:
         # List all policies from AVP
-        policies_response = avp_client.list_policies(
-            policyStoreId=POLICY_STORE_ID, maxResults=100
-        )
+        policies_response = avp_client.list_policies(policyStoreId=POLICY_STORE_ID, maxResults=100)
 
         policies_compiled = 0
         principal_scopes: dict[str, set[str]] = {}

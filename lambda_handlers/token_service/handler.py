@@ -74,9 +74,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         jwt_secret = get_jwt_secret()
 
         # Create token
-        token = create_token(
-            subject=principal, scopes=scopes, ttl=TOKEN_TTL, secret=jwt_secret
-        )
+        token = create_token(subject=principal, scopes=scopes, ttl=TOKEN_TTL, secret=jwt_secret)
 
         return {
             "statusCode": 200,

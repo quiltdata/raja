@@ -108,6 +108,9 @@ class ServicesStack(Stack):
         health_resource = api.root.add_resource("health")
         health_resource.add_method("GET", apigateway.LambdaIntegration(health_lambda))
 
+        # Store API URL for use by WebStack
+        self.api_url = api.url
+
         CfnOutput(self, "ApiUrl", value=api.url)
         CfnOutput(self, "PolicyStoreId", value=policy_store_id)
         CfnOutput(self, "PolicyStoreArn", value=policy_store_arn)
