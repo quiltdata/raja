@@ -4,7 +4,7 @@ import os
 import time
 from typing import Any
 
-import boto3
+import boto3  # type: ignore[import-untyped]
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -151,12 +151,12 @@ def compile_policies() -> dict[str, Any]:
 
         principal_scope_map = compile_policy(cedar_statement)
 
-        for principal, scopes in principal_scope_map.items():
+        for principal, scope_list in principal_scope_map.items():
             updated_at = int(time.time())
             mappings_table.put_item(
-                Item={"policy_id": policy_id, "scopes": scopes, "updated_at": updated_at}
+                Item={"policy_id": policy_id, "scopes": scope_list, "updated_at": updated_at}
             )
-            principal_scopes.setdefault(principal, set()).update(scopes)
+            principal_scopes.setdefault(principal, set()).update(scope_list)
 
         policies_compiled += 1
 
