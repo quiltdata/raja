@@ -79,18 +79,16 @@ class ServicesStack(Stack):
             token_ttl=3600,
         )
 
-        api = apigateway.RestApi(self, "RajaApi", deploy=False)
+        api = apigateway.RestApi(
+            self,
+            "RajaApi",
+            deploy_options=apigateway.StageOptions(stage_name="prod"),
+        )
         api.root.add_proxy(
             default_integration=apigateway.LambdaIntegration(control_plane.function),
             any_method=True,
         )
-
-        deployment = apigateway.Deployment(self, "RajaApiDeployment", api=api)
-        deployment.add_to_logical_id("control-plane-proxy-v2")
-        stage = apigateway.Stage(self, "RajaApiStage", deployment=deployment, stage_name="prod")
-        self.api_url = (
-            f"https://{api.rest_api_id}.execute-api.{self.region}.amazonaws.com/{stage.stage_name}/"
-        )
+        self.api_url = api.url
 
         CfnOutput(self, "ApiUrl", value=self.api_url)
         CfnOutput(self, "PolicyStoreId", value=policy_store_id)
