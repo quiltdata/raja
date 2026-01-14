@@ -318,9 +318,9 @@ See `pyproject.toml` for full task definitions:
 ./poe cdk-deploy          # Deploy CDK
 ./poe cdk-destroy         # Destroy CDK
 ./poe version             # Show current version
-./poe version-bump        # Bump patch version and commit
-./poe version-bump-minor  # Bump minor version and commit
-./poe version-bump-major  # Bump major version and commit
+./poe bump                # Bump patch version and commit
+./poe bump-minor          # Bump minor version and commit
+./poe bump-major          # Bump major version and commit
 ./poe tag                 # Create and push release tag
 ```
 
@@ -335,13 +335,13 @@ RAJA uses semantic versioning (MAJOR.MINOR.PATCH):
 ./poe version
 
 # Bump patch version (0.2.0 → 0.2.1) - for bug fixes
-./poe version-bump
+./poe bump
 
 # Bump minor version (0.2.0 → 0.3.0) - for new features
-./poe version-bump-minor
+./poe bump-minor
 
 # Bump major version (0.2.0 → 1.0.0) - for breaking changes
-./poe version-bump-major
+./poe bump-major
 ```
 
 These commands automatically:
@@ -356,7 +356,7 @@ To create a new release:
 
 ```bash
 # 1. Bump version and commit
-./poe version-bump        # or version-bump-minor / version-bump-major
+./poe bump        # or bump-minor / bump-major
 
 # 2. Push the version bump
 git push
@@ -378,13 +378,13 @@ The `./poe tag` command will:
 
 ```bash
 # Skip quality checks and tests (not recommended)
-./poe tag --skip-checks
+./poe tag -- --skip-checks
 
 # Recreate an existing tag (deletes old tag first)
-./poe tag --recreate
+./poe tag -- --recreate
 
 # Combine flags
-./poe tag --recreate --skip-checks
+./poe tag -- --recreate --skip-checks
 ```
 
 ### What Happens After Tagging

@@ -257,7 +257,7 @@ def show_version() -> None:
 def create_tag() -> None:
     """Main entry point for the tag task."""
     # Parse command line arguments
-    skip_checks = "--skip-checks" in sys.argv
+    skip_checks = any(arg in sys.argv for arg in ["--skip-checks", "--skip_checks"])
     recreate = "--recreate" in sys.argv
 
     version = get_current_version()
