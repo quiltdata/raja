@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import CfnOutput, Stack
+from aws_cdk import BundlingOptions, CfnOutput, Stack
 from aws_cdk import aws_apigateway as apigateway
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_lambda as lambda_
@@ -34,7 +34,7 @@ class ServicesStack(Stack):
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
             code=lambda_.Code.from_asset(
                 str(repo_root),
-                bundling=lambda_.BundlingOptions(
+                bundling=BundlingOptions(
                     image=lambda_.Runtime.PYTHON_3_12.bundling_image,
                     command=[
                         "bash",
