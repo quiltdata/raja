@@ -70,6 +70,7 @@ class ServicesStack(Stack):
             self,
             "ControlPlane",
             policy_store_id=policy_store_id,
+            policy_store_arn=policy_store_arn,
             mappings_table=mappings_table,
             principal_table=principal_table,
             raja_layer=raja_layer,

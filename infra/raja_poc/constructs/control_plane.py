@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aws_cdk import BundlingOptions, Duration
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_secretsmanager as secretsmanager
@@ -14,6 +15,7 @@ class ControlPlaneLambda(Construct):
         construct_id: str,
         *,
         policy_store_id: str,
+        policy_store_arn: str,
         mappings_table: dynamodb.Table,
         principal_table: dynamodb.Table,
         raja_layer: lambda_.ILayerVersion,
@@ -55,3 +57,14 @@ class ControlPlaneLambda(Construct):
         mappings_table.grant_read_write_data(self.function)
         principal_table.grant_read_write_data(self.function)
         jwt_secret.grant_read(self.function)
+
+        self.function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "verifiedpermissions:ListPolicies",
+                    "verifiedpermissions:GetPolicy",
+                    "verifiedpermissions:GetPolicyStore",
+                ],
+                resources=[policy_store_arn],
+            )
+        )
