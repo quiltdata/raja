@@ -15,6 +15,7 @@ class CompilerLambda(Construct):
         policy_store_id: str,
         mappings_table: dynamodb.Table,
         principal_table: dynamodb.Table,
+        raja_layer: lambda_.ILayerVersion,
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -24,6 +25,7 @@ class CompilerLambda(Construct):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
             code=lambda_.Code.from_asset("../lambda_handlers/compiler"),
+            layers=[raja_layer],
             environment={
                 "POLICY_STORE_ID": policy_store_id,
                 "MAPPINGS_TABLE": mappings_table.table_name,

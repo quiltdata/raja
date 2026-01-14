@@ -9,6 +9,8 @@ class IntrospectLambda(Construct):
         self,
         scope: Construct,
         construct_id: str,
+        *,
+        raja_layer: lambda_.ILayerVersion,
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -18,4 +20,5 @@ class IntrospectLambda(Construct):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
             code=lambda_.Code.from_asset("../lambda_handlers/introspect"),
+            layers=[raja_layer],
         )

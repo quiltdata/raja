@@ -13,6 +13,7 @@ class TokenServiceLambda(Construct):
         construct_id: str,
         *,
         principal_table: dynamodb.Table,
+        raja_layer: lambda_.ILayerVersion,
         jwt_secret: secretsmanager.Secret,
         token_ttl: int,
     ) -> None:
@@ -24,6 +25,7 @@ class TokenServiceLambda(Construct):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
             code=lambda_.Code.from_asset("../lambda_handlers/token_service"),
+            layers=[raja_layer],
             environment={
                 "PRINCIPAL_TABLE": principal_table.table_name,
                 "JWT_SECRET_ARN": jwt_secret.secret_arn,

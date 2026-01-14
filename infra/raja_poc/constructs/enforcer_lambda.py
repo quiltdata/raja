@@ -11,6 +11,7 @@ class EnforcerLambda(Construct):
         scope: Construct,
         construct_id: str,
         *,
+        raja_layer: lambda_.ILayerVersion,
         jwt_secret: secretsmanager.Secret,
     ) -> None:
         super().__init__(scope, construct_id)
@@ -21,6 +22,7 @@ class EnforcerLambda(Construct):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
             code=lambda_.Code.from_asset("../lambda_handlers/enforcer"),
+            layers=[raja_layer],
             environment={
                 "JWT_SECRET_ARN": jwt_secret.secret_arn,
             },

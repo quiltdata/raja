@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from aws_cdk import CfnOutput, Stack
 from aws_cdk import aws_apigateway as apigateway
 from aws_cdk import aws_dynamodb as dynamodb
@@ -24,6 +26,27 @@ class ServicesStack(Stack):
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        repo_root = Path(__file__).resolve().parents[3]
+        raja_layer = lambda_.LayerVersion(
+            self,
+            "RajaLayer",
+            compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
+            code=lambda_.Code.from_asset(
+                str(repo_root),
+                bundling=lambda_.BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_12.bundling_image,
+                    command=[
+                        "bash",
+                        "-c",
+                        "pip install -r infra/raja_poc/layers/raja/requirements.txt "
+                        "-t /asset-output/python "
+                        "&& cp -r src/raja /asset-output/python/raja",
+                    ],
+                ),
+            ),
+            description="Shared Raja library for Lambda handlers",
+        )
 
         mappings_table = dynamodb.Table(
             self,
@@ -51,6 +74,7 @@ class ServicesStack(Stack):
             policy_store_id=policy_store_id,
             mappings_table=mappings_table,
             principal_table=principal_table,
+            raja_layer=raja_layer,
         )
 
         token_service_lambda = TokenServiceLambda(
@@ -59,15 +83,21 @@ class ServicesStack(Stack):
             principal_table=principal_table,
             jwt_secret=jwt_secret,
             token_ttl=3600,
+            raja_layer=raja_layer,
         )
 
         enforcer_lambda = EnforcerLambda(
             self,
             "EnforcerLambda",
             jwt_secret=jwt_secret,
+            raja_layer=raja_layer,
         )
 
-        introspect_lambda = IntrospectLambda(self, "IntrospectLambda")
+        introspect_lambda = IntrospectLambda(
+            self,
+            "IntrospectLambda",
+            raja_layer=raja_layer,
+        )
 
         health_code = (
             'def lambda_handler(event, context):\n    return {"statusCode": 200, "body": "ok"}\n'
