@@ -203,6 +203,9 @@ cython_debug/
 cdk.context.json
 infra/cdk.context.json
 infra/cdk.out/
+
+# Local web artifacts
+web/
 .cursorignore
 .cursorindexingignore
 
