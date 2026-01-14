@@ -82,6 +82,9 @@ markers = [
 ]
 
 [tool.poe.tasks]
+# Clean build artifacts and caches
+clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage dist build *.egg-info infra/cdk.out* && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true'", help = "Remove build artifacts, caches, and CDK output" }
+
 # Quality checks - combine format + lint + typecheck
 check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lint, and typecheck" }
 
@@ -97,8 +100,8 @@ load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar po
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
-# Full workflow - check + test + deploy + integration test
-all = { sequence = ["check", "test-unit", "deploy", "test-integration"], help = "Full workflow: check, test, deploy, and run integration tests" }
+# Full workflow - clean + check + test + deploy + integration test
+all = { sequence = ["clean", "check", "test-unit", "deploy", "test-integration"], help = "Full workflow: clean, check, test, deploy, and run integration tests" }
 
 # Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }
