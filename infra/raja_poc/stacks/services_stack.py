@@ -85,6 +85,7 @@ class ServicesStack(Stack):
             handler=control_plane.function,
             proxy=True,
         )
+        api.deployment.add_to_logical_id(control_plane.function.current_version.version)
 
         self.api_url = api.url
 
