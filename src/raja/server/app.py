@@ -108,9 +108,9 @@ def admin_home() -> str:
           document.getElementById(target).textContent = String(err);
         }
       }
-      load('/principals', 'principals');
-      load('/policies', 'policies');
-      load('/audit', 'audit');
+      load('principals', 'principals');
+      load('policies', 'policies');
+      load('audit', 'audit');
     </script>
   </body>
 </html>"""
