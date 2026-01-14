@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 from aws_cdk import aws_verifiedpermissions as verifiedpermissions
@@ -17,13 +18,44 @@ class PolicyStore(Construct):
     ) -> None:
         super().__init__(scope, construct_id)
 
+        # Convert Cedar schema to JSON format expected by AVP
+        # The schema should be a JSON object with entity types and action definitions
+        schema_json = json.dumps({
+            "Raja": {
+                "entityTypes": {
+                    "User": {},
+                    "Document": {}
+                },
+                "actions": {
+                    "read": {
+                        "appliesTo": {
+                            "principalTypes": ["User"],
+                            "resourceTypes": ["Document"]
+                        }
+                    },
+                    "write": {
+                        "appliesTo": {
+                            "principalTypes": ["User"],
+                            "resourceTypes": ["Document"]
+                        }
+                    },
+                    "delete": {
+                        "appliesTo": {
+                            "principalTypes": ["User"],
+                            "resourceTypes": ["Document"]
+                        }
+                    }
+                }
+            }
+        })
+
         policy_store = verifiedpermissions.CfnPolicyStore(
             self,
             "PolicyStore",
             validation_settings=verifiedpermissions.CfnPolicyStore.ValidationSettingsProperty(
                 mode="STRICT"
             ),
-            schema=verifiedpermissions.CfnPolicyStore.SchemaDefinitionProperty(cedar_json=schema),
+            schema=verifiedpermissions.CfnPolicyStore.SchemaDefinitionProperty(cedar_json=schema_json),
         )
 
         for name, statement in policies.items():

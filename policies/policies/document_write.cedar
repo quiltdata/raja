@@ -1,5 +1,5 @@
 permit(
-  principal == User::"alice",
-  action == Action::"write",
-  resource == Document::"doc123"
+  principal == Raja::User::"alice",
+  action == Raja::Action::"write",
+  resource == Raja::Document::"doc123"
 );

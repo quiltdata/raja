@@ -1,5 +1,5 @@
 permit(
-  principal == User::"admin",
-  action == Action::"delete",
-  resource == Document::"doc123"
+  principal == Raja::User::"admin",
+  action == Raja::Action::"delete",
+  resource == Raja::Document::"doc123"
 );
