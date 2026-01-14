@@ -12,11 +12,16 @@ class Scope(BaseModel):
 
     @field_validator("resource_type", "resource_id", "action")
     @classmethod
-    def _no_empty_or_colon(cls, value: str) -> str:
+    def _no_empty(cls, value: str) -> str:
         if not value or value.strip() == "":
             raise ValueError("value must be non-empty")
+        return value
+
+    @field_validator("resource_type", "resource_id")
+    @classmethod
+    def _no_colon_in_resource(cls, value: str) -> str:
         if ":" in value:
-            raise ValueError("value must not contain ':'")
+            raise ValueError("resource_type and resource_id must not contain ':'")
         return value
 
 
@@ -28,11 +33,16 @@ class AuthRequest(BaseModel):
 
     @field_validator("resource_type", "resource_id", "action")
     @classmethod
-    def _no_empty_or_colon(cls, value: str) -> str:
+    def _no_empty(cls, value: str) -> str:
         if not value or value.strip() == "":
             raise ValueError("value must be non-empty")
+        return value
+
+    @field_validator("resource_type", "resource_id")
+    @classmethod
+    def _no_colon_in_resource(cls, value: str) -> str:
         if ":" in value:
-            raise ValueError("value must not contain ':'")
+            raise ValueError("resource_type and resource_id must not contain ':'")
         return value
 
 

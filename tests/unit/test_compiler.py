@@ -3,17 +3,17 @@ from raja.compiler import compile_policies, compile_policy
 
 def test_compile_policy_permit():
     policy = (
-        'permit(principal == User::"alice", action == Action::"read", '
-        'resource == Document::"doc1");'
+        'permit(principal == User::"alice", action == Action::"s3:GetObject", '
+        'resource == S3Object::"analytics-data/report.csv");'
     )
     compiled = compile_policy(policy)
-    assert compiled == {"alice": ["Document:doc1:read"]}
+    assert compiled == {"alice": ["S3Object:analytics-data/report.csv:s3:GetObject"]}
 
 
 def test_compile_policy_forbid_ignored():
     policy = (
-        'forbid(principal == User::"alice", action == Action::"read", '
-        'resource == Document::"doc1");'
+        'forbid(principal == User::"alice", action == Action::"s3:GetObject", '
+        'resource == S3Object::"analytics-data/report.csv");'
     )
     compiled = compile_policy(policy)
     assert compiled == {}
@@ -22,13 +22,18 @@ def test_compile_policy_forbid_ignored():
 def test_compile_policies_aggregates():
     policies = [
         (
-            'permit(principal == User::"alice", action == Action::"read", '
-            'resource == Document::"doc1");'
+            'permit(principal == User::"alice", action == Action::"s3:GetObject", '
+            'resource == S3Object::"analytics-data/report.csv");'
         ),
         (
-            'permit(principal == User::"alice", action == Action::"write", '
-            'resource == Document::"doc1");'
+            'permit(principal == User::"alice", action == Action::"s3:PutObject", '
+            'resource == S3Object::"raw-data/upload.csv");'
         ),
     ]
     compiled = compile_policies(policies)
-    assert compiled == {"alice": ["Document:doc1:read", "Document:doc1:write"]}
+    assert compiled == {
+        "alice": [
+            "S3Object:analytics-data/report.csv:s3:GetObject",
+            "S3Object:raw-data/upload.csv:s3:PutObject",
+        ]
+    }

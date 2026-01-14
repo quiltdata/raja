@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 
 from .models import Scope
 
-_SCOPE_PATTERN = re.compile(r"^(?P<resource_type>[^:]+):(?P<resource_id>[^:]+):(?P<action>[^:]+)$")
+_SCOPE_PATTERN = re.compile(r"^(?P<resource_type>[^:]+):(?P<resource_id>[^:]+):(?P<action>.+)$")
 
 
 def parse_scope(scope_str: str) -> Scope:
