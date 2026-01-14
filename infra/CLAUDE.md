@@ -112,6 +112,26 @@ Main application stack with API and Lambda functions:
 - `HarnessSecretArn` - S3 harness signing key ARN
 - `ControlPlaneLambdaArn` - Control plane Lambda ARN
 
+### 3. Rajee Envoy Stack (`stacks/rajee_envoy_stack.py`)
+
+ECS Fargate deployment for the RAJEE Envoy S3 proxy with a FastAPI authorizer
+sidecar. Uses an Application Load Balancer with optional TLS (ACM certificate ARN).
+
+**Resources:**
+
+1. **VPC + ECS Cluster**
+2. **Fargate Service**
+   - Envoy proxy container (custom config image)
+   - Authorizer sidecar (FastAPI)
+3. **ALB + Target Group**
+   - Health checks against Envoy admin port
+4. **Auto-scaling**
+
+**Inputs:**
+
+- `jwt_signing_secret` - Secrets Manager secret for JWT validation
+- `certificate_arn` (optional) - ACM certificate ARN for HTTPS
+
 ## CDK Constructs
 
 ### Control Plane Lambda (`constructs/control_plane.py`)

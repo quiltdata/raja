@@ -73,6 +73,9 @@ class ServicesStack(Stack):
             description="S3 harness signing secret for RAJA S3 authorization tokens",
         )
 
+        self.jwt_secret = jwt_secret
+        self.harness_secret = harness_secret
+
         control_plane = ControlPlaneLambda(
             self,
             "ControlPlane",
