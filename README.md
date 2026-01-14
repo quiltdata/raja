@@ -1,4 +1,5 @@
 # RAJA
+
 ![CI](https://github.com/quiltdata/raja/workflows/CI/badge.svg)
 ![Integration Tests](https://github.com/quiltdata/raja/workflows/Integration%20Tests/badge.svg)
 ![Coverage](https://codecov.io/gh/quiltdata/raja/branch/main/graph/badge.svg)
@@ -27,7 +28,7 @@ uv sync
 
 ```bash
 # Deploy infrastructure
-poe cdk-deploy --all
+./poe deploy
 
 # Load Cedar policies
 python scripts/load_policies.py
@@ -68,7 +69,7 @@ When deployed to AWS, RAJA provides:
 
 ```json
 {"principal": "alice"}
-→ {"token": "eyJ...", "scopes": ["Document:doc123:read"]}
+→ {"token": "eyJ...", "scopes": ["S3Object:analytics-data/*:s3:GetObject", "S3Bucket:analytics-data:s3:ListBucket"]}
 ```
 
 **GET /principals** - List principals and their scopes
@@ -83,6 +84,7 @@ When deployed to AWS, RAJA provides:
 ```
 
 **GET /audit** - View audit log entries
+
 ```
 
 ## Local Development
@@ -92,17 +94,24 @@ Use the Python library standalone (no AWS required):
 ```python
 from raja import AuthRequest, create_token, enforce
 
-# Create token with scopes
+# Create token with S3 scopes
 token = create_token(
     subject="alice",
-    scopes=["Document:doc123:read"],
+    scopes=[
+        "S3Object:analytics-data/*:s3:GetObject",
+        "S3Bucket:analytics-data:s3:ListBucket"
+    ],
     secret="your-secret"
 )
 
-# Check authorization
+# Check authorization for S3 GetObject
 decision = enforce(
     token_str=token,
-    request=AuthRequest(resource_type="Document", resource_id="doc123", action="read"),
+    request=AuthRequest(
+        resource_type="S3Object",
+        resource_id="analytics-data/reports/2024.csv",
+        action="s3:GetObject"
+    ),
     secret="your-secret"
 )
 print(decision.allowed)  # True
@@ -111,9 +120,9 @@ print(decision.allowed)  # True
 ### Run Tests
 
 ```bash
-poe test-unit      # Unit tests (no AWS)
-poe test           # All tests
-poe check-all      # Format, lint, typecheck
+./poe test-unit    # Unit tests (no AWS)
+./poe test         # All tests
+./poe check        # Format, lint, typecheck
 ```
 
 ## Scope Format
@@ -122,8 +131,9 @@ Scopes follow the pattern: `{ResourceType}:{ResourceId}:{Action}`
 
 Examples:
 
-- `Document:doc123:read` - Read document doc123
-- `Document:*:read` - Read all documents
+- `S3Object:analytics-data/reports/2024.csv:s3:GetObject` - Read specific S3 object
+- `S3Object:analytics-data/*:s3:GetObject` - Read all objects in bucket
+- `S3Bucket:analytics-data:s3:ListBucket` - List bucket contents
 - `*:*:*` - Full admin access
 
 ## Project Structure

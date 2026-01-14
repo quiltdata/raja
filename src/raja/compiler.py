@@ -1,37 +1,26 @@
 from __future__ import annotations
 
-import re
-
+from .cedar.entities import parse_entity
 from .cedar.parser import parse_policy
 from .models import CedarPolicy
 from .scope import format_scope
 
-_ENTITY_RE = re.compile(r"^(?P<type>.+)::\"(?P<id>[^\"]+)\"$")
-
-
-def _parse_entity(entity_str: str) -> tuple[str, str]:
-    match = _ENTITY_RE.match(entity_str.strip())
-    if not match:
-        raise ValueError('entity must be in the form Type::"id"')
-    raw_type = match.group("type")
-    return raw_type.split("::")[-1], match.group("id")
-
 
 def _action_id(action_str: str) -> str:
     try:
-        _, action_id = _parse_entity(action_str)
+        _, action_id = parse_entity(action_str)
         return action_id
     except ValueError:
         return action_str.strip().strip('"')
 
 
 def _principal_id(policy: CedarPolicy) -> str:
-    _, principal_id = _parse_entity(policy.principal)
+    _, principal_id = parse_entity(policy.principal)
     return principal_id
 
 
 def _resource_parts(policy: CedarPolicy) -> tuple[str, str]:
-    resource_type, resource_id = _parse_entity(policy.resource)
+    resource_type, resource_id = parse_entity(policy.resource)
     return resource_type, resource_id
 
 

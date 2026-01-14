@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.2.2"
+version = "0.2.3"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -12,6 +12,7 @@ dependencies = [
     "PyJWT>=2.8.0",
     "fastapi>=0.110.0",
     "mangum>=0.17.0",
+    "structlog>=24.1.0",
 ]
 
 [project.optional-dependencies]
@@ -58,7 +59,9 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
-ignore = []
+ignore = [
+    "B008",  # FastAPI dependency injection pattern (function calls in defaults)
+]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -82,46 +85,42 @@ markers = [
 ]
 
 [tool.poe.tasks]
-npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx not found; install Node.js to use CDK tasks\"; exit 1; }'", help = "Verify npx is available for CDK tasks" }
-format = { cmd = "ruff format src tests infra lambda_handlers", help = "Format code with ruff" }
-format-check = { cmd = "ruff format src tests infra lambda_handlers --check", help = "Check formatting with ruff" }
-lint-check-only = { cmd = "ruff check src tests infra lambda_handlers", help = "Lint code with ruff" }
-lint = { sequence = ["format", "lint-fix", "typecheck"], help = "Format, fix lint, and run typecheck" }
-lint-check = { sequence = ["format-check", "lint-check-only", "typecheck"], help = "Check formatting, lint, and typecheck" }
-lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Auto-fix lint issues" }
-typecheck = { cmd = "mypy src", help = "Run type checker" }
-check = { sequence = ["lint-check"], help = "Run all quality checks" }
-check-all = { sequence = ["lint"], help = "Format, lint, and typecheck" }
+# Clean build artifacts and caches
+clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage dist build *.egg-info infra/cdk.out* && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true'", help = "Remove build artifacts, caches, and CDK output" }
+
+# Quality checks - combine format + lint + typecheck
+check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lint, and typecheck" }
+
+# Testing
 test = { cmd = "pytest tests/ -v", help = "Run all tests" }
 test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
-test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integration tests" }
-test-hypothesis = { cmd = "pytest tests/hypothesis/ -v", help = "Run hypothesis validation tests" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
-test-watch = { cmd = "pytest-watch tests/ -- -v", help = "Run tests in watch mode" }
-test-all-parallel = { parallel = ["test-unit", "test-integration"], help = "Run unit and integration tests in parallel" }
-all = { sequence = ["lint", "test-unit", "cdk-deploy", "test-integration"], help = "Lint, test locally, deploy, and run integration tests" }
-build = { cmd = "uv build", help = "Build package" }
-clean = { cmd = "rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .ruff_cache htmlcov/", help = "Clean build artifacts" }
-install = { cmd = "uv pip install -e .", help = "Install package locally" }
-cdk-synth-cmd = { cmd = "cd infra && npx cdk synth", help = "Synthesize CDK stack" }
-cdk-diff-cmd = { cmd = "cd infra && npx cdk diff", help = "Show CDK changes" }
-cdk-deploy-cmd = { shell = "cd infra && npx cdk deploy --all --require-approval never --progress bar --outputs-file cdk-outputs.json --output cdk.out.deploy", help = "Deploy CDK stack" }
-cdk-destroy-cmd = { cmd = "cd infra && npx cdk destroy --all --force", help = "Destroy CDK stack" }
-cdk-synth = { sequence = ["npx-verify", "cdk-synth-cmd"], help = "Synthesize CDK stack" }
-cdk-diff = { sequence = ["npx-verify", "cdk-diff-cmd"], help = "Show CDK changes" }
-cdk-deploy = { sequence = ["npx-verify", "cdk-deploy-cmd"], help = "Deploy CDK stack" }
-cdk-destroy = { sequence = ["npx-verify", "cdk-destroy-cmd"], help = "Destroy CDK stack" }
+
+# AWS deployment
+deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }
+destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
-docs = { cmd = "cd docs && make html", help = "Build documentation (placeholder)" }
-repl = { cmd = "uv run python", help = "Start Python REPL" }
-shell = { cmd = "uv run bash", help = "Start project shell" }
+
+# Full workflow - clean + check + test + deploy + integration test
+all = { sequence = ["clean", "check", "test-unit", "deploy", "test-integration"], help = "Full workflow: clean, check, test, deploy, and run integration tests" }
+
+# Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }
-bump = { script = "scripts.version:bump_and_commit", help = "Bump patch version and commit (default)" }
-bump-minor = { cmd = "python scripts/version.py bump minor", help = "Bump minor version and commit" }
-bump-major = { cmd = "python scripts/version.py bump major", help = "Bump major version and commit" }
-tag = { script = "scripts.version:create_tag", help = "Create and push a git tag for release (runs checks first)" }
+bump = { script = "scripts.version:bump_and_commit", help = "Bump patch version and commit" }
+tag = { script = "scripts.version:create_tag", help = "Create and push release tag (runs checks first)" }
+
+# Integration test (kept separate as it requires deployed resources)
+test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integration tests (requires deployed AWS resources)" }
+
+# Internal tasks (prefixed with _)
+_npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx not found; install Node.js to use CDK tasks\"; exit 1; }'", help = "Internal: verify npx is available" }
+_format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
+_lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
+_typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
+_cdk-deploy = { shell = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy --all --require-approval never --progress bar --outputs-file cdk-outputs.json --output cdk.out.deploy", help = "Internal: deploy CDK" }
+_cdk-destroy = { cmd = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk destroy --all --force", help = "Internal: destroy CDK" }
 
 [tool.mypy]
 python_version = "3.12"

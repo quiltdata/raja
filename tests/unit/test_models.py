@@ -10,17 +10,24 @@ def test_scope_validation_rejects_empty():
 
 def test_scope_validation_rejects_colon():
     with pytest.raises(ValueError):
-        Scope(resource_type="Document", resource_id="doc:1", action="read")
+        Scope(resource_type="S3Object", resource_id="bucket:key", action="s3:GetObject")
 
 
 def test_auth_request_validation():
-    request = AuthRequest(resource_type="Document", resource_id="doc1", action="read")
-    assert request.resource_type == "Document"
+    request = AuthRequest(
+        resource_type="S3Object", resource_id="analytics-data/report.csv", action="s3:GetObject"
+    )
+    assert request.resource_type == "S3Object"
 
 
 def test_token_requires_subject():
     with pytest.raises(ValueError):
-        Token(subject=" ", scopes=["Document:doc1:read"], issued_at=1, expires_at=2)
+        Token(
+            subject=" ",
+            scopes=["S3Object:analytics-data/report.csv:s3:GetObject"],
+            issued_at=1,
+            expires_at=2,
+        )
 
 
 def test_cedar_policy_effect_validation():
@@ -28,6 +35,6 @@ def test_cedar_policy_effect_validation():
         CedarPolicy(
             effect="allow",
             principal='User::"alice"',
-            action='Action::"read"',
-            resource='Document::"doc1"',
+            action='Action::"s3:GetObject"',
+            resource='S3Object::"analytics-data/report.csv"',
         )

@@ -1,5 +1,6 @@
 import pytest
 
+from raja.exceptions import ScopeParseError
 from raja.models import Scope
 from raja.scope import format_scope, is_subset, parse_scope
 
@@ -12,7 +13,7 @@ def test_parse_scope_valid():
 
 
 def test_parse_scope_invalid():
-    with pytest.raises(ValueError):
+    with pytest.raises(ScopeParseError):
         parse_scope("Document-doc123-read")
 
 

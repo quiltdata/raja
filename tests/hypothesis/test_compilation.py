@@ -7,8 +7,8 @@ from raja import compile_policies, create_token, decode_token
 def test_compilation_token_scopes_match_policy():
     policies = [
         (
-            'permit(principal == User::"alice", action == Action::"read", '
-            'resource == Document::"doc1");'
+            'permit(principal == User::"alice", action == Action::"s3:GetObject", '
+            'resource == S3Object::"analytics-data/report.csv");'
         )
     ]
     compiled = compile_policies(policies)
