@@ -208,47 +208,483 @@ def admin_home() -> HTMLResponse:
     <meta charset="utf-8" />
     <title>RAJA Admin</title>
     <style>
-      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem; }
-      h1 { margin-bottom: 0.5rem; }
-      section { margin: 1.5rem 0; }
-      pre { background: #f6f8fa; padding: 1rem; border-radius: 8px; }
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+      :root {
+        color-scheme: light;
+        --bg: #f7f2e6;
+        --bg-strong: #f2e7d2;
+        --ink: #1d1b16;
+        --muted: #5a5345;
+        --accent: #ef6a44;
+        --accent-2: #3c7a6f;
+        --card: #fff8ee;
+        --border: #e7d7bf;
+        --shadow: rgba(48, 37, 20, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top, #fff4db 0%, var(--bg) 45%, #efe1c3 100%);
+        min-height: 100vh;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: linear-gradient(120deg, rgba(239, 106, 68, 0.15), rgba(60, 122, 111, 0.1));
+        pointer-events: none;
+        opacity: 0.7;
+      }
+      header {
+        padding: 3rem 7vw 1.5rem;
+        position: relative;
+        z-index: 1;
+      }
+      header h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(2.5rem, 3vw, 3.5rem);
+        letter-spacing: -0.02em;
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 620px;
+        font-size: 1.05rem;
+      }
+      main {
+        padding: 0 7vw 4rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        position: relative;
+        z-index: 1;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 1.5rem;
+        box-shadow: 0 20px 40px var(--shadow);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        animation: rise 0.6s ease forwards;
+        opacity: 0;
+        transform: translateY(10px);
+        animation-delay: var(--delay, 0s);
+      }
+      .card h2 {
+        margin: 0;
+        font-size: 1.35rem;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(239, 106, 68, 0.1);
+        color: var(--accent);
+        font-weight: 600;
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+      }
+      label {
+        font-size: 0.85rem;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 0.3rem;
+      }
+      input, select, textarea, button {
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        font-size: 0.95rem;
+      }
+      input, select, textarea {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 0.6rem 0.8rem;
+        background: #fffdfa;
+      }
+      textarea {
+        min-height: 110px;
+        resize: vertical;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.85rem;
+      }
+      .field-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.8rem;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+      }
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 0.6rem 1.2rem;
+        background: var(--accent);
+        color: #fffaf2;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      button.secondary {
+        background: #f1e3cb;
+        color: var(--ink);
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 16px rgba(239, 106, 68, 0.25);
+      }
+      pre {
+        background: #fffdfa;
+        border-radius: 12px;
+        border: 1px dashed var(--border);
+        padding: 0.8rem;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.8rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+      }
+      .status {
+        font-weight: 600;
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        background: rgba(60, 122, 111, 0.12);
+        color: var(--accent-2);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .status.deny {
+        background: rgba(239, 106, 68, 0.16);
+        color: var(--accent);
+      }
+      .control-plane {
+        border-style: dashed;
+        border-color: rgba(60, 122, 111, 0.3);
+      }
+      @keyframes rise {
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @media (max-width: 720px) {
+        header {
+          padding: 2rem 6vw 1rem;
+        }
+        main {
+          padding: 0 6vw 3rem;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card {
+          animation: none;
+          opacity: 1;
+          transform: none;
+        }
+      }
     </style>
   </head>
   <body>
-    <h1>RAJA Admin</h1>
-    <p>Live control-plane data from the API.</p>
-    <section>
-      <h2>Principals</h2>
-      <pre id="principals">Loading...</pre>
-    </section>
-    <section>
-      <h2>Policies</h2>
-      <pre id="policies">Loading...</pre>
-    </section>
-    <section>
-      <h2>Audit Log</h2>
-      <pre id="audit">Loading...</pre>
-    </section>
+    <header>
+      <div class="pill">S3 Validation Harness</div>
+      <h1>RAJA Admin</h1>
+      <p>Mint, verify, and enforce Resource Authorization JWTs for S3 without policy
+      evaluation or AWS calls.</p>
+    </header>
+    <main>
+      <section class="card" style="--delay: 0s;">
+        <h2>Issuer &amp; JWKS</h2>
+        <p>Live signing metadata for validation and key introspection.</p>
+        <div>
+          <label>Issuer</label>
+          <div class="status" id="issuer">Loading...</div>
+        </div>
+        <div>
+          <label>Audience</label>
+          <div class="status" id="audience">Loading...</div>
+        </div>
+        <div>
+          <label>JWKS</label>
+          <pre id="jwks">Loading...</pre>
+        </div>
+        <div class="actions">
+          <button class="secondary" id="refresh-config">Refresh metadata</button>
+        </div>
+      </section>
+      <section class="card" style="--delay: 0.05s;">
+        <h2>Mint RAJ</h2>
+        <p>Create a short-lived authorization for a single S3 action and resource.</p>
+        <form id="mint-form">
+          <div class="field-row">
+            <div>
+              <label for="mint-subject">Subject (sub)</label>
+              <input id="mint-subject" name="subject" placeholder="User::alice" />
+            </div>
+            <div>
+              <label for="mint-audience">Audience (aud)</label>
+              <input id="mint-audience" name="audience" placeholder="raja-s3" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="mint-bucket">Bucket</label>
+              <input id="mint-bucket" name="bucket" placeholder="my-bucket" />
+            </div>
+            <div>
+              <label for="mint-action">Action</label>
+              <select id="mint-action" name="action">
+                <option value="s3:GetObject">s3:GetObject</option>
+                <option value="s3:PutObject">s3:PutObject</option>
+                <option value="s3:ListBucket">s3:ListBucket</option>
+                <option value="s3:ListBucketMultipartUploads">s3:ListBucketMultipartUploads</option>
+                <option value="s3:ListMultipartUploadParts">s3:ListMultipartUploadParts</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="mint-key">Key (exact)</label>
+              <input id="mint-key" name="key" placeholder="reports/2024/summary.csv" />
+            </div>
+            <div>
+              <label for="mint-prefix">Prefix (starts with)</label>
+              <input id="mint-prefix" name="prefix" placeholder="reports/2024/" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="mint-ttl">TTL (seconds)</label>
+              <input id="mint-ttl" name="ttl" type="number" min="60" placeholder="300" />
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit">Mint RAJ</button>
+          </div>
+        </form>
+        <div>
+          <label>Token</label>
+          <textarea id="mint-token" readonly placeholder="Your RAJ will appear here."></textarea>
+        </div>
+        <div>
+          <label>Claims</label>
+          <pre id="mint-claims">Waiting for mint.</pre>
+        </div>
+      </section>
+      <section class="card" style="--delay: 0.1s;">
+        <h2>Verify RAJ</h2>
+        <p>Confirm signature, issuer, audience, and expiration.</p>
+        <form id="verify-form">
+          <div>
+            <label for="verify-token">Token</label>
+            <textarea id="verify-token" name="token"
+              placeholder="Paste a RAJ to verify."></textarea>
+          </div>
+          <div>
+            <label for="verify-aud">Audience (aud)</label>
+            <input id="verify-aud" name="audience" placeholder="raja-s3" />
+          </div>
+          <div class="actions">
+            <button type="submit">Verify token</button>
+          </div>
+        </form>
+        <div>
+          <label>Verification result</label>
+          <pre id="verify-output">Waiting for token.</pre>
+        </div>
+      </section>
+      <section class="card" style="--delay: 0.15s;">
+        <h2>Simulate Enforcement</h2>
+        <p>Check Request ⊆ Authority and see why it fails.</p>
+        <form id="enforce-form">
+          <div>
+            <label for="enforce-token">Token</label>
+            <textarea id="enforce-token" name="token"
+              placeholder="Paste or use the minted RAJ."></textarea>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="enforce-aud">Audience (aud)</label>
+              <input id="enforce-aud" name="audience" placeholder="raja-s3" />
+            </div>
+            <div>
+              <label for="enforce-action">Action</label>
+              <select id="enforce-action" name="action">
+                <option value="s3:GetObject">s3:GetObject</option>
+                <option value="s3:PutObject">s3:PutObject</option>
+                <option value="s3:ListBucket">s3:ListBucket</option>
+                <option value="s3:ListBucketMultipartUploads">s3:ListBucketMultipartUploads</option>
+                <option value="s3:ListMultipartUploadParts">s3:ListMultipartUploadParts</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div>
+              <label for="enforce-bucket">Bucket</label>
+              <input id="enforce-bucket" name="bucket" placeholder="my-bucket" />
+            </div>
+            <div>
+              <label for="enforce-key">Key</label>
+              <input id="enforce-key" name="key" placeholder="reports/2024/summary.csv" />
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit">Simulate decision</button>
+          </div>
+        </form>
+        <div>
+          <label>Decision</label>
+          <pre id="enforce-output">Waiting for request.</pre>
+        </div>
+      </section>
+      <section class="card control-plane" style="--delay: 0.2s;">
+        <h2>Control Plane (Optional)</h2>
+        <p>Fetches live AWS control-plane data only when requested.</p>
+        <div class="actions">
+          <button class="secondary" id="load-control-plane">Load control-plane data</button>
+        </div>
+        <div>
+          <label>Principals</label>
+          <pre id="principals">Not loaded.</pre>
+        </div>
+        <div>
+          <label>Policies</label>
+          <pre id="policies">Not loaded.</pre>
+        </div>
+        <div>
+          <label>Audit Log</label>
+          <pre id="audit">Not loaded.</pre>
+        </div>
+      </section>
+    </main>
     <script>
+      const select = (id) => document.getElementById(id);
       function buildUrl(endpoint) {
-        const basePath = window.location.pathname.endsWith('/')
+        const basePath = window.location.pathname.endsWith("/")
           ? window.location.pathname
           : `${window.location.pathname}/`;
         return new URL(endpoint, `${window.location.origin}${basePath}`);
       }
-      async function load(endpoint, target) {
-        try {
-          const response = await fetch(buildUrl(endpoint));
-          const data = await response.json();
-          document.getElementById(target).textContent = JSON.stringify(data, null, 2);
-        } catch (err) {
-          const url = buildUrl(endpoint);
-          document.getElementById(target).textContent = `${err} (${url})`;
+      function writeJson(id, data) {
+        select(id).textContent = JSON.stringify(data, null, 2);
+      }
+      function setInputDefault(id, value) {
+        const el = select(id);
+        if (!el.value) {
+          el.value = value;
         }
       }
-      load('principals', 'principals');
-      load('policies', 'policies');
-      load('audit', 'audit');
+      async function refreshConfig() {
+        try {
+          const response = await fetch(buildUrl("s3-harness/config"));
+          const data = await response.json();
+          select("issuer").textContent = data.issuer;
+          select("audience").textContent = data.audience;
+          writeJson("jwks", data.jwks);
+          setInputDefault("mint-audience", data.audience);
+          setInputDefault("verify-aud", data.audience);
+          setInputDefault("enforce-aud", data.audience);
+        } catch (err) {
+          select("issuer").textContent = "Unavailable";
+          select("audience").textContent = "Unavailable";
+          select("jwks").textContent = String(err);
+        }
+      }
+      async function postJson(endpoint, payload) {
+        const response = await fetch(buildUrl(endpoint), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        return { ok: response.ok, data };
+      }
+      select("refresh-config").addEventListener("click", refreshConfig);
+      select("mint-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = {
+          subject: select("mint-subject").value.trim() || "User::demo",
+          audience: select("mint-audience").value.trim() || "raja-s3",
+          action: select("mint-action").value,
+          bucket: select("mint-bucket").value.trim() || "demo-bucket",
+        };
+        const key = select("mint-key").value.trim();
+        const prefix = select("mint-prefix").value.trim();
+        if (key && prefix) {
+          writeJson("mint-claims", { error: "Provide a key OR prefix, not both." });
+          return;
+        }
+        if (!key && !prefix) {
+          writeJson("mint-claims", { error: "Provide a key or prefix." });
+          return;
+        }
+        if (key) {
+          payload.key = key;
+        } else {
+          payload.prefix = prefix;
+        }
+        const ttl = Number(select("mint-ttl").value);
+        if (ttl) {
+          payload.ttl = ttl;
+        }
+        const result = await postJson("s3-harness/mint", payload);
+        if (!result.ok) {
+          writeJson("mint-claims", result.data);
+          return;
+        }
+        select("mint-token").value = result.data.token;
+        select("verify-token").value = result.data.token;
+        select("enforce-token").value = result.data.token;
+        writeJson("mint-claims", result.data);
+      });
+      select("verify-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = {
+          token: select("verify-token").value.trim(),
+          audience: select("verify-aud").value.trim() || undefined,
+        };
+        const result = await postJson("s3-harness/verify", payload);
+        writeJson("verify-output", result.data);
+      });
+      select("enforce-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = {
+          token: select("enforce-token").value.trim(),
+          audience: select("enforce-aud").value.trim() || undefined,
+          action: select("enforce-action").value,
+          bucket: select("enforce-bucket").value.trim(),
+          key: select("enforce-key").value.trim(),
+        };
+        const result = await postJson("s3-harness/enforce", payload);
+        writeJson("enforce-output", result.data);
+      });
+      select("load-control-plane").addEventListener("click", async () => {
+        const targets = [
+          { endpoint: "principals", id: "principals" },
+          { endpoint: "policies", id: "policies" },
+          { endpoint: "audit", id: "audit" },
+        ];
+        for (const target of targets) {
+          try {
+            const response = await fetch(buildUrl(target.endpoint));
+            const data = await response.json();
+            writeJson(target.id, data);
+          } catch (err) {
+            select(target.id).textContent = String(err);
+          }
+        }
+      });
+      refreshConfig();
     </script>
   </body>
 </html>"""
