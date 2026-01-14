@@ -303,21 +303,114 @@ RAJA uses hypothesis tests to validate core properties:
 See `pyproject.toml` for full task definitions:
 
 ```bash
-./poe install          # Install package locally
-./poe test             # Run all tests
-./poe test-unit        # Unit tests only
-./poe test-integration # Integration tests only
-./poe test-hypothesis  # Hypothesis tests only
-./poe test-cov         # Tests with coverage
-./poe test-watch       # Watch mode
-./poe format           # Format code
-./poe lint             # Lint code
-./poe typecheck        # Type check
-./poe check-all        # Format + lint + typecheck
-./poe cdk-synth        # Synthesize CDK
-./poe cdk-deploy       # Deploy CDK
-./poe cdk-destroy      # Destroy CDK
+./poe install             # Install package locally
+./poe test                # Run all tests
+./poe test-unit           # Unit tests only
+./poe test-integration    # Integration tests only
+./poe test-hypothesis     # Hypothesis tests only
+./poe test-cov            # Tests with coverage
+./poe test-watch          # Watch mode
+./poe format              # Format code
+./poe lint                # Lint code
+./poe typecheck           # Type check
+./poe check-all           # Format + lint + typecheck
+./poe cdk-synth           # Synthesize CDK
+./poe cdk-deploy          # Deploy CDK
+./poe cdk-destroy         # Destroy CDK
+./poe version             # Show current version
+./poe bump                # Bump patch version and commit
+./poe bump-minor          # Bump minor version and commit
+./poe bump-major          # Bump major version and commit
+./poe tag                 # Create and push release tag
 ```
+
+## Release Process
+
+### Version Management
+
+RAJA uses semantic versioning (MAJOR.MINOR.PATCH):
+
+```bash
+# Show current version
+./poe version
+
+# Bump patch version (0.2.0 → 0.2.1) - for bug fixes
+./poe bump
+
+# Bump minor version (0.2.0 → 0.3.0) - for new features
+./poe bump-minor
+
+# Bump major version (0.2.0 → 1.0.0) - for breaking changes
+./poe bump-major
+```
+
+These commands automatically:
+
+1. Update version in [pyproject.toml](pyproject.toml)
+2. Update `uv.lock` if it exists
+3. Stage and commit the changes
+
+### Creating a Release
+
+To create a new release:
+
+```bash
+# 1. Bump version and commit
+./poe bump        # or bump-minor / bump-major
+
+# 2. Push the version bump
+git push
+
+# 3. Create and push the release tag
+./poe tag
+```
+
+The `./poe tag` command will:
+
+1. Verify git working directory is clean
+2. Read version from pyproject.toml
+3. Run quality checks (`./poe check`)
+4. Run unit tests (`./poe test-unit`)
+5. Create git tag `vX.Y.Z`
+6. Push tag to origin
+
+**Additional options:**
+
+```bash
+# Skip quality checks and tests (not recommended)
+./poe tag -- --skip-checks
+
+# Recreate an existing tag (deletes old tag first)
+./poe tag -- --recreate
+
+# Combine flags
+./poe tag -- --recreate --skip-checks
+```
+
+### What Happens After Tagging
+
+Once the tag is pushed, the GitHub Actions release workflow automatically:
+
+1. Verifies tag matches pyproject.toml version
+2. Runs quality checks and tests
+3. Builds the package
+4. Publishes to PyPI
+5. Uploads release assets to GitHub
+6. Updates release notes from CHANGELOG.md
+
+### Manual Release (Alternative)
+
+If you prefer to create the tag manually:
+
+```bash
+# Create tag
+git tag vX.Y.Z
+
+# Push tag
+git push origin vX.Y.Z
+```
+
+Or create a GitHub Release directly through the web interface.
 
 ## Design Principles
 

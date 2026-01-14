@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.2.0"
+version = "0.2.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -116,6 +116,11 @@ seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integr
 docs = { cmd = "cd docs && make html", help = "Build documentation (placeholder)" }
 repl = { cmd = "uv run python", help = "Start Python REPL" }
 shell = { cmd = "uv run bash", help = "Start project shell" }
+version = { script = "scripts.version:show_version", help = "Show current version" }
+bump = { script = "scripts.version:bump_and_commit", help = "Bump patch version and commit (default)" }
+bump-minor = { cmd = "python scripts/version.py bump minor", help = "Bump minor version and commit" }
+bump-major = { cmd = "python scripts/version.py bump major", help = "Bump major version and commit" }
+tag = { script = "scripts.version:create_tag", help = "Create and push a git tag for release (runs checks first)" }
 
 [tool.mypy]
 python_version = "3.12"

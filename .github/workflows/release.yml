@@ -15,7 +15,10 @@ jobs:
   publish:
     name: Build and Publish
     runs-on: ubuntu-latest
+    environment: pypi
     steps:
+      - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup-raja
         with:
           python-version: '3.12'
