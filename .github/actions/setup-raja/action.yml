@@ -1,0 +1,72 @@
+name: setup-raja
+description: Reusable setup for RAJA workflows
+
+inputs:
+  python-version:
+    description: Python version to use
+    required: false
+    default: '3.12'
+  install-extras:
+    description: Comma-separated extras to install
+    required: false
+    default: dev
+  cache:
+    description: Enable dependency caching
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup UV
+      uses: astral-sh/setup-uv@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV
+      if: ${{ inputs.cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/uv
+          ~/.cache/pip
+        key: ${{ runner.os }}-uv-${{ inputs.python-version }}-${{ hashFiles('uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-${{ inputs.python-version }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        extras_raw="${{ inputs.install-extras }}"
+        if [ -z "$extras_raw" ]; then
+          uv sync
+          exit 0
+        fi
+
+        args=()
+        IFS=',' read -ra extras <<< "$extras_raw"
+        for extra in "${extras[@]}"; do
+          extra_trimmed="$(echo "$extra" | xargs)"
+          if [ -n "$extra_trimmed" ]; then
+            args+=(--extra "$extra_trimmed")
+          fi
+        done
+
+        if [ ${#args[@]} -eq 0 ]; then
+          uv sync
+        else
+          uv sync "${args[@]}"
+        fi
+
+    - name: Ensure poe shim executable
+      shell: bash
+      run: |
+        if [ -f "./poe" ]; then
+          chmod +x ./poe
+        fi

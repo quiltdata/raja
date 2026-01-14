@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Poe the Poet shim script
+# Usage: ./poe <task> [args...]
+
+set -euo pipefail
+
+# Ensure dependencies are installed for common workflows.
+uv sync --extra dev --extra aws --extra test
+
+exec uv run poe "$@"

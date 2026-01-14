@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAJA Authorization Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🔐 RAJA Authorization Demo</h1>
+            <p class="subtitle">Resource Authorization with JWT and Scopes</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="intro">
+            <p>
+                RAJA (Resource Authorization with JWT and Scopes) compiles Cedar policies into JWT token scopes
+                for deterministic, transparent authorization decisions.
+            </p>
+        </div>
+
+        <!-- Token Issuance Panel -->
+        <section class="panel">
+            <h2>1. Token Issuance</h2>
+            <p class="panel-description">Request a JWT token for a principal (user). The token contains all scopes granted to that principal.</p>
+
+            <div class="form-group">
+                <label for="principal">Principal (User):</label>
+                <div class="input-with-examples">
+                    <input type="text" id="principal" placeholder="e.g., alice" value="alice">
+                    <div class="examples">
+                        <button type="button" onclick="setPrincipal('alice')" class="btn-example">alice</button>
+                        <button type="button" onclick="setPrincipal('bob')" class="btn-example">bob</button>
+                        <button type="button" onclick="setPrincipal('admin')" class="btn-example">admin</button>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="requestToken()" class="btn-primary">Request Token</button>
+
+            <div id="token-result" class="result-box hidden">
+                <div class="result-header">
+                    <strong>Token Issued:</strong>
+                    <button onclick="copyToken()" class="btn-copy">Copy Token</button>
+                </div>
+                <div id="token-display" class="token-display"></div>
+                <div class="result-details">
+                    <strong>Scopes Granted:</strong>
+                    <div id="scopes-display" class="scopes-list"></div>
+                </div>
+            </div>
+
+            <div id="token-error" class="error-box hidden"></div>
+        </section>
+
+        <!-- Authorization Testing Panel -->
+        <section class="panel">
+            <h2>2. Authorization Testing</h2>
+            <p class="panel-description">Test whether a token grants access to a specific resource and action.</p>
+
+            <div class="form-group">
+                <label for="auth-token">Token:</label>
+                <textarea id="auth-token" rows="3" placeholder="Paste token from above or enter manually"></textarea>
+                <button type="button" onclick="useIssuedToken()" class="btn-example">Use Token from Step 1</button>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="resource-type">Resource Type:</label>
+                    <input type="text" id="resource-type" placeholder="e.g., Document" value="Document">
+                </div>
+                <div class="form-group">
+                    <label for="resource-id">Resource ID:</label>
+                    <input type="text" id="resource-id" placeholder="e.g., doc123" value="doc123">
+                </div>
+                <div class="form-group">
+                    <label for="action">Action:</label>
+                    <input type="text" id="action" placeholder="e.g., read" value="read">
+                </div>
+            </div>
+
+            <div class="examples">
+                <strong>Try these examples:</strong>
+                <button type="button" onclick="setAuthRequest('Document', 'doc123', 'read')" class="btn-example">Document:doc123:read</button>
+                <button type="button" onclick="setAuthRequest('Document', 'doc123', 'write')" class="btn-example">Document:doc123:write</button>
+                <button type="button" onclick="setAuthRequest('Document', 'doc456', 'read')" class="btn-example">Document:doc456:read</button>
+            </div>
+
+            <button onclick="checkAuthorization()" class="btn-primary">Check Authorization</button>
+
+            <div id="auth-result" class="result-box hidden">
+                <div id="auth-decision" class="decision"></div>
+                <div class="result-details">
+                    <div><strong>Reason:</strong> <span id="auth-reason"></span></div>
+                    <div id="auth-matched-scope-container" class="hidden">
+                        <strong>Matched Scope:</strong> <span id="auth-matched-scope"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="auth-error" class="error-box hidden"></div>
+        </section>
+
+        <!-- Token Introspection Panel -->
+        <section class="panel">
+            <h2>3. Token Introspection</h2>
+            <p class="panel-description">Decode and inspect a JWT token to view its claims and scopes (transparency in action).</p>
+
+            <div class="form-group">
+                <label for="introspect-token">Token:</label>
+                <textarea id="introspect-token" rows="3" placeholder="Paste token to inspect"></textarea>
+                <button type="button" onclick="useIssuedTokenForIntrospect()" class="btn-example">Use Token from Step 1</button>
+            </div>
+
+            <button onclick="introspectToken()" class="btn-primary">Inspect Token</button>
+
+            <div id="introspect-result" class="result-box hidden">
+                <strong>Token Claims:</strong>
+                <pre id="introspect-claims" class="json-display"></pre>
+            </div>
+
+            <div id="introspect-error" class="error-box hidden"></div>
+        </section>
+
+        <!-- About Section -->
+        <section class="about">
+            <h2>About RAJA</h2>
+            <p>
+                RAJA demonstrates four key hypotheses of the Scope-based Distributed Authorization (SDA) pattern:
+            </p>
+            <ul>
+                <li><strong>Determinism:</strong> Same token + same request = same decision, always</li>
+                <li><strong>Compilation:</strong> Cedar policies compile to explicit, inspectable scopes</li>
+                <li><strong>Fail-Closed:</strong> Unknown requests are explicitly denied (no default allow)</li>
+                <li><strong>Transparency:</strong> Token inspection reveals exact authorities granted</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>RAJA MVP - Resource Authorization with JWT and Scopes</p>
+        </div>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

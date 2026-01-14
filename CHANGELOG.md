@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Core RAJA library modules for models, scopes, tokens, Cedar parsing, compilation, and enforcement
+- Unit and hypothesis test suites plus integration test scaffolding
+- Local tooling and scripts (Poe shim, test-local, policy load/invoke helpers)
+- Infrastructure scaffolding with CDK app, stacks, constructs, Lambda handlers, and sample policies
+- CI/CD workflows (CI, integration, deploy, release) and composite setup action
+- Placeholder docs Makefile for `./poe docs`
+
+### Changed
+- Expanded dev/test/aws dependency extras and standardized Poe tasks
+- Added Ruff, mypy, and pytest configurations for consistent quality checks
 - Initial project structure with UV Python 3.12
 - Comprehensive MVP specification documents in `specs/1-mvp/`:
   - `01-mvp-spec.md`: Core RAJA/SDA hypothesis and minimal viable product definition

@@ -7,8 +7,116 @@ authors = [
     { name = "Dr. Ernie Prabhakar", email = "ernest@quilt.bio" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.7.0",
+    "PyJWT>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.7.0",
+    "poethepoet>=0.24.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-watch>=4.2.0",
+    "ruff>=0.1.0",
+]
+
+aws = [
+    "aws-cdk-lib>=2.100.0",
+    "boto3>=1.34.0",
+    "constructs>=10.0.0",
+]
+
+test = [
+    "moto>=4.2.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.17,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["infra/cdk.out"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+]
+markers = [
+    "unit: Unit tests (no external dependencies)",
+    "integration: tests that require deployed AWS resources",
+    "hypothesis: tests that validate RAJA claims",
+    "slow: Slow-running tests",
+]
+
+[tool.poe.tasks]
+npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx not found; install Node.js to use CDK tasks\"; exit 1; }'", help = "Verify npx is available for CDK tasks" }
+format = { cmd = "ruff format src tests infra lambda_handlers", help = "Format code with ruff" }
+lint = { cmd = "ruff check src tests infra lambda_handlers", help = "Lint code with ruff" }
+lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Auto-fix lint issues" }
+typecheck = { cmd = "mypy src", help = "Run type checker" }
+check = { sequence = ["lint", "typecheck"], help = "Run all quality checks" }
+check-all = { sequence = ["format", "lint", "typecheck"], help = "Format, lint, and typecheck" }
+test = { cmd = "pytest tests/ -v", help = "Run all tests" }
+test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
+test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integration tests" }
+test-hypothesis = { cmd = "pytest tests/hypothesis/ -v", help = "Run hypothesis validation tests" }
+test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
+test-watch = { cmd = "pytest-watch tests/ -- -v", help = "Run tests in watch mode" }
+test-all-parallel = { parallel = ["test-unit", "test-integration"], help = "Run unit and integration tests in parallel" }
+build = { cmd = "uv build", help = "Build package" }
+clean = { cmd = "rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .ruff_cache htmlcov/", help = "Clean build artifacts" }
+install = { cmd = "uv pip install -e .", help = "Install package locally" }
+cdk-synth-cmd = { cmd = "cd infra && npx cdk synth", help = "Synthesize CDK stack" }
+cdk-diff-cmd = { cmd = "cd infra && npx cdk diff", help = "Show CDK changes" }
+cdk-deploy-cmd = { shell = "cd infra && npx cdk deploy --all --require-approval never --progress bar", help = "Deploy CDK stack" }
+cdk-destroy-cmd = { cmd = "cd infra && npx cdk destroy --all --force", help = "Destroy CDK stack" }
+cdk-synth = { sequence = ["npx-verify", "cdk-synth-cmd"], help = "Synthesize CDK stack" }
+cdk-diff = { sequence = ["npx-verify", "cdk-diff-cmd"], help = "Show CDK changes" }
+cdk-deploy = { sequence = ["npx-verify", "cdk-deploy-cmd"], help = "Deploy CDK stack" }
+cdk-destroy = { sequence = ["npx-verify", "cdk-destroy-cmd"], help = "Destroy CDK stack" }
+load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
+compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
+docs = { cmd = "cd docs && make html", help = "Build documentation (placeholder)" }
+repl = { cmd = "uv run python", help = "Start Python REPL" }
+shell = { cmd = "uv run bash", help = "Start project shell" }
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
