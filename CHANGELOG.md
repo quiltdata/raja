@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deployment** (`scripts/deploy.sh`): CDK deployment helper with progress indicators
 - **Policy management** (`scripts/load_policies.py`): Load Cedar policies to AVP policy store
 - **Compiler invocation** (`scripts/invoke_compiler.py`): Trigger policy compilation Lambda
+- **Test data seeding** (`scripts/seed_test_data.py`): Seed DynamoDB principals for integration tests
 - **Local testing** (`scripts/test_local.py`): Local development test script
 - **Poe shim** (`poe`): Shell wrapper for Poe the Poet task runner
 
@@ -110,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python 3.12 requirement**: Set via `.python-version` and `pyproject.toml`
 - **UV package manager**: Fast dependency resolution and environment management
 - **Poe the Poet tasks**: Standardized task runner for all development workflows
+- **Integration tooling**: Require AWS region for policy load and compiler invocation helpers
 - **Development dependencies**: Ruff (lint/format), mypy (typecheck), pytest (test), hypothesis (property tests)
 - **AWS dependencies**: boto3, aws-cdk-lib for infrastructure management
 - **Lambda configuration**: ARM64 architecture for cost optimization
