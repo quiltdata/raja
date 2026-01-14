@@ -67,6 +67,12 @@ class ServicesStack(Stack):
             description="JWT signing secret for RAJA token issuance",
         )
 
+        harness_secret = secretsmanager.Secret(
+            self,
+            "HarnessSigningKey",
+            description="S3 harness signing secret for RAJA S3 authorization tokens",
+        )
+
         control_plane = ControlPlaneLambda(
             self,
             "ControlPlane",
@@ -76,6 +82,7 @@ class ServicesStack(Stack):
             principal_table=principal_table,
             raja_layer=raja_layer,
             jwt_secret=jwt_secret,
+            harness_secret=harness_secret,
             token_ttl=3600,
         )
 
@@ -97,3 +104,5 @@ class ServicesStack(Stack):
         CfnOutput(self, "ControlPlaneLambdaArn", value=control_plane.function.function_arn)
         CfnOutput(self, "MappingsTableName", value=mappings_table.table_name)
         CfnOutput(self, "PrincipalTableName", value=principal_table.table_name)
+        CfnOutput(self, "JWTSecretArn", value=jwt_secret.secret_arn)
+        CfnOutput(self, "HarnessSecretArn", value=harness_secret.secret_arn)

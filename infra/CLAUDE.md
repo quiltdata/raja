@@ -92,6 +92,7 @@ Main application stack with API and Lambda functions:
 
 2. **Secrets Manager**
    - `JWTSigningKey` - JWT signing secret (auto-generated)
+   - `HarnessSigningKey` - S3 harness signing secret (auto-generated)
    - Rotated via Lambda (optional future enhancement)
 
 3. **Lambda Function**
@@ -108,6 +109,7 @@ Main application stack with API and Lambda functions:
 - `MappingsTableName` - PolicyScopeMappings table name
 - `PrincipalTableName` - PrincipalScopes table name
 - `JWTSecretArn` - JWT signing key ARN
+- `HarnessSecretArn` - S3 harness signing key ARN
 - `ControlPlaneLambdaArn` - Control plane Lambda ARN
 
 ## CDK Constructs
@@ -124,12 +126,13 @@ Main application stack with API and Lambda functions:
 - `MAPPINGS_TABLE` - DynamoDB table for policy mappings
 - `PRINCIPAL_TABLE` - DynamoDB table for principal mappings
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
+- `HARNESS_SECRET_ARN` - Secrets Manager ARN for S3 harness secret
 
 **IAM Permissions:**
 
 - `verifiedpermissions:ListPolicies`, `verifiedpermissions:GetPolicy`
 - `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:Scan`
-- `secretsmanager:GetSecretValue`
+- `secretsmanager:GetSecretValue` (for both JWT and harness secrets)
 
 ### Policy Store (`constructs/policy_store.py`)
 
@@ -238,7 +241,10 @@ Lambda functions use these environment variables:
 - `MAPPINGS_TABLE` - PolicyScopeMappings table name
 - `PRINCIPAL_TABLE` - PrincipalScopes table name
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
+- `HARNESS_SECRET_ARN` - Secrets Manager ARN for S3 harness secret
 - `LOG_LEVEL` - Logging level (default: INFO)
+
+For local development, you can use the `RAJ_HARNESS_SECRET` environment variable instead of `HARNESS_SECRET_ARN` to provide the harness signing key directly without AWS Secrets Manager.
 
 ### CDK Synthesis
 
@@ -305,9 +311,11 @@ Lambda functions follow least-privilege principle:
 
 ### Secrets Management
 
-- JWT signing key stored in Secrets Manager
-- Auto-generated on first deployment
-- Can be rotated via Secrets Manager rotation Lambda (future)
+- JWT signing key stored in Secrets Manager (auto-generated on first deployment)
+- S3 harness signing key stored in Secrets Manager (auto-generated on first deployment)
+- Both secrets are automatically generated with secure random values
+- Can be rotated via Secrets Manager rotation Lambda (future enhancement)
+- For local development, use `RAJ_HARNESS_SECRET` environment variable to bypass Secrets Manager
 
 ### API Authentication
 

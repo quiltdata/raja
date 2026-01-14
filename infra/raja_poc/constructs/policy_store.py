@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
+from pathlib import Path
 
 from aws_cdk import aws_verifiedpermissions as verifiedpermissions
 from constructs import Construct
@@ -18,26 +18,24 @@ class PolicyStore(Construct):
     ) -> None:
         super().__init__(scope, construct_id)
 
-        # Convert Cedar schema to JSON format expected by AVP
-        # The schema should be a JSON object with entity types and action definitions
-        schema_json = json.dumps(
-            {
-                "Raja": {
-                    "entityTypes": {"User": {}, "Document": {}},
-                    "actions": {
-                        "read": {
-                            "appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}
-                        },
-                        "write": {
-                            "appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}
-                        },
-                        "delete": {
-                            "appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}
-                        },
-                    },
-                }
-            }
-        )
+        # Dynamically parse Cedar schema to AVP JSON format
+        # This eliminates hardcoded schema drift risk
+        try:
+            # Import here to avoid circular dependencies and keep CDK dependencies separate
+            import sys
+
+            # Add src directory to path to import raja modules
+            repo_root = Path(__file__).parent.parent.parent.parent
+            sys.path.insert(0, str(repo_root / "src"))
+
+            from raja.cedar import parse_cedar_schema_to_avp_json
+
+            # Parse the Cedar schema text to AVP-compatible JSON
+            schema_json = parse_cedar_schema_to_avp_json(schema, namespace="Raja")
+
+        except Exception as e:
+            # Fail fast with clear error message if schema parsing fails
+            raise ValueError(f"Failed to parse Cedar schema: {e}") from e
 
         policy_store = verifiedpermissions.CfnPolicyStore(
             self,
