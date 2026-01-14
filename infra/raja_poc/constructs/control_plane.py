@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from aws_cdk import BundlingOptions, Duration
-from aws_cdk import aws_iam as iam
 from aws_cdk import aws_dynamodb as dynamodb
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
