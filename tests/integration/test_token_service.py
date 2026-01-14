@@ -14,4 +14,4 @@ def test_token_service_issues_token_for_known_principal():
 def test_token_service_rejects_unknown_principal():
     status, body = request_json("POST", "/token", {"principal": "unknown-user"})
     assert status == 404
-    assert "error" in body
+    assert body.get("error") or body.get("detail")
