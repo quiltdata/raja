@@ -22,7 +22,10 @@ def reset_caches() -> None:
 
 def test_get_avp_client_caches_result() -> None:
     """Test that AVP client is created once and cached."""
-    with patch("boto3.client") as mock_client:
+    with (
+        patch.dict("os.environ", {"AWS_REGION": "us-east-1"}),
+        patch("boto3.client") as mock_client,
+    ):
         mock_avp = MagicMock()
         mock_client.return_value = mock_avp
 
@@ -39,7 +42,10 @@ def test_get_avp_client_caches_result() -> None:
 
 def test_get_dynamodb_resource_caches_result() -> None:
     """Test that DynamoDB resource is created once and cached."""
-    with patch("boto3.resource") as mock_resource:
+    with (
+        patch.dict("os.environ", {"AWS_REGION": "us-east-1"}),
+        patch("boto3.resource") as mock_resource,
+    ):
         mock_dynamodb = MagicMock()
         mock_resource.return_value = mock_dynamodb
 
@@ -123,7 +129,10 @@ def test_get_jwt_secret_caches_result() -> None:
     mock_client.get_secret_value.return_value = {"SecretString": "test-jwt-secret"}
 
     with (
-        patch.dict("os.environ", {"JWT_SECRET_ARN": "arn:aws:secretsmanager:..."}),
+        patch.dict(
+            "os.environ",
+            {"JWT_SECRET_ARN": "arn:aws:secretsmanager:...", "AWS_REGION": "us-east-1"},
+        ),
         patch("boto3.client", return_value=mock_client),
     ):
         # First call should retrieve secret
