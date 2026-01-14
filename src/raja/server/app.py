@@ -99,9 +99,15 @@ def admin_home() -> str:
       <pre id="audit">Loading...</pre>
     </section>
     <script>
+      function buildUrl(endpoint) {
+        const basePath = window.location.pathname.endsWith('/')
+          ? window.location.pathname
+          : `${window.location.pathname}/`;
+        return new URL(endpoint, `${window.location.origin}${basePath}`);
+      }
       async function load(endpoint, target) {
         try {
-          const response = await fetch(endpoint);
+          const response = await fetch(buildUrl(endpoint));
           const data = await response.json();
           document.getElementById(target).textContent = JSON.stringify(data, null, 2);
         } catch (err) {
