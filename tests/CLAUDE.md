@@ -22,12 +22,9 @@ tests/
 │
 ├── integration/                   # AWS integration tests
 │   ├── __init__.py
-│   ├── conftest.py                # Integration test fixtures
 │   ├── helpers.py                 # Test helper functions
-│   ├── test_end_to_end.py         # Full authorization flow
-│   ├── test_policy_store.py       # AVP policy store operations
-│   ├── test_token_service.py      # Token service Lambda
-│   └── test_enforcement_service.py # Enforcer Lambda
+│   ├── test_control_plane.py      # Control plane endpoints
+│   └── test_token_service.py      # Token issuance via API
 │
 └── hypothesis/                    # Property-based tests
     ├── __init__.py
@@ -275,7 +272,12 @@ Integration tests require **deployed AWS infrastructure** and test the full stac
 
 # Set environment variables (or use .env file)
 export POLICY_STORE_ID="..."
-export API_URL="..."
+export RAJA_API_URL="..."
+export AWS_REGION="us-east-1"
+export PRINCIPAL_TABLE="..."
+
+# Seed test data
+./poe seed-test-data
 
 # Run integration tests
 ./poe test-integration
@@ -283,40 +285,21 @@ export API_URL="..."
 
 ### Test Coverage
 
-#### 1. End-to-End (`test_end_to_end.py`)
+#### 1. Control Plane (`test_control_plane.py`)
 
-Full authorization flow:
-
-```python
-@pytest.mark.integration
-def test_full_authorization_flow(api_url, policy_store_id):
-    """Test complete flow: compile → token → enforce"""
-    # 1. Load policy to AVP
-    # 2. Trigger compiler Lambda
-    # 3. Request token from Token Service
-    # 4. Check authorization via Enforcer
-    # 5. Verify result
-```
-
-#### 2. Policy Store (`test_policy_store.py`)
-
-AVP policy store operations:
+Control plane endpoints:
 
 ```python
 @pytest.mark.integration
-def test_create_policy(policy_store_id):
-    """Test creating policy in AVP"""
+def test_control_plane_compiles_policies():
+    """Compile Cedar policies via POST /compile"""
 
 @pytest.mark.integration
-def test_update_policy(policy_store_id):
-    """Test updating existing policy"""
-
-@pytest.mark.integration
-def test_list_policies(policy_store_id):
-    """Test listing all policies"""
+def test_control_plane_lists_principals():
+    """List principals via GET /principals"""
 ```
 
-#### 3. Token Service (`test_token_service.py`)
+#### 2. Token Service (`test_token_service.py`)
 
 Token service Lambda tests:
 
@@ -330,26 +313,6 @@ def test_request_token(api_url):
     )
     assert response.status_code == 200
     assert "token" in response.json()
-```
-
-#### 4. Enforcement Service (`test_enforcement_service.py`)
-
-Enforcer Lambda tests:
-
-```python
-@pytest.mark.integration
-def test_enforce_via_api(api_url, valid_token):
-    """Test authorization check via API"""
-    response = requests.post(
-        f"{api_url}/authorize",
-        json={
-            "token": valid_token,
-            "resource": "Document::doc123",
-            "action": "read"
-        }
-    )
-    assert response.status_code == 200
-    assert response.json()["decision"] in ["ALLOW", "DENY"]
 ```
 
 ## Property-Based Tests
@@ -473,19 +436,10 @@ def sample_token(test_secret) -> str:
     )
 ```
 
-Integration test fixtures in `integration/conftest.py`:
+Integration tests read configuration from environment variables:
 
-```python
-@pytest.fixture(scope="session")
-def api_url() -> str:
-    """API Gateway URL from environment or CloudFormation"""
-    return os.getenv("API_URL") or get_stack_output("ApiUrl")
-
-@pytest.fixture(scope="session")
-def policy_store_id() -> str:
-    """AVP policy store ID from environment or CloudFormation"""
-    return os.getenv("POLICY_STORE_ID") or get_stack_output("PolicyStoreId")
-```
+- `RAJA_API_URL` for the API Gateway base URL
+- `POLICY_STORE_ID` for the Verified Permissions policy store
 
 ## Running Tests
 

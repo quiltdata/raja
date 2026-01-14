@@ -19,14 +19,8 @@ jobs:
           python-version: '3.12'
           install-extras: dev
 
-      - name: Check formatting
-        run: ./poe format --check
-
-      - name: Lint
-        run: ./poe lint
-
-      - name: Typecheck
-        run: ./poe typecheck
+      - name: Quality checks
+        run: ./poe lint-check
 
   test-unit:
     name: Unit Tests

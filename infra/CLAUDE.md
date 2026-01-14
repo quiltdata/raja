@@ -11,14 +11,13 @@ The `infra/` directory contains AWS CDK infrastructure for deploying RAJA as a m
 │  API Gateway     │  (REST API)
 └────────┬─────────┘
          │
-    ┌────┴────┬────────────┬─────────────┐
-    ▼         ▼            ▼             ▼
-┌────────┐ ┌────────┐ ┌──────────┐ ┌──────────┐
-│ Token  │ │ Enforce│ │ Compiler │ │Introspect│ (Lambda Functions)
-│Service │ │  API   │ │  Lambda  │ │  Lambda  │
-└───┬────┘ └────┬───┘ └─────┬────┘ └──────────┘
-    │           │            │
-    ▼           ▼            ▼
+         ▼
+┌──────────────────┐
+│ Control Plane    │  (FastAPI + Mangum)
+│ Lambda           │
+└────────┬─────────┘
+         │
+         ▼
 ┌────────────────────────────────┐
 │         DynamoDB Tables        │
 │  - PolicyScopeMappings         │
@@ -55,10 +54,7 @@ infra/
     │   └── services_stack.py         # API, Lambda, DynamoDB stack
     └── constructs/
         ├── __init__.py
-        ├── compiler_lambda.py        # Compiler Lambda construct
-        ├── enforcer_lambda.py        # Enforcer Lambda construct
-        ├── token_service.py          # Token service Lambda construct
-        ├── introspect_lambda.py      # Token introspection construct
+        ├── control_plane.py          # FastAPI control plane Lambda
         └── policy_store.py           # AVP policy store construct
 ```
 
@@ -98,21 +94,13 @@ Main application stack with API and Lambda functions:
    - `JWTSigningKey` - JWT signing secret (auto-generated)
    - Rotated via Lambda (optional future enhancement)
 
-3. **Lambda Functions**
-   - Compiler - Compile Cedar policies to scopes
-   - Enforcer - Validate tokens and check authorization
-   - Token Service - Issue JWT tokens
-   - Introspect - Decode and return token claims
+3. **Lambda Function**
+   - Control Plane - FastAPI app for compile/token/policy/principal operations
 
 4. **API Gateway**
    - REST API with CloudWatch logging
    - CORS enabled for development
-   - Endpoints:
-     - `POST /token` → Token Service
-     - `POST /authorize` → Enforcer
-     - `POST /compile` → Compiler (admin only)
-     - `GET /introspect` → Introspect
-     - `GET /health` → Health check
+   - Proxy routing to the FastAPI control plane
 
 **Outputs:**
 
@@ -120,176 +108,30 @@ Main application stack with API and Lambda functions:
 - `MappingsTableName` - PolicyScopeMappings table name
 - `PrincipalTableName` - PrincipalScopes table name
 - `JWTSecretArn` - JWT signing key ARN
+- `ControlPlaneLambdaArn` - Control plane Lambda ARN
 
 ## CDK Constructs
 
-### 1. Compiler Lambda (`constructs/compiler_lambda.py`)
+### Control Plane Lambda (`constructs/control_plane.py`)
 
-**Purpose:** Compile Cedar policies from AVP to scope strings
+**Purpose:** Serve the FastAPI control plane via API Gateway.
 
-**Handler:** `lambda_handlers/compiler/handler.py`
+**Handler:** `lambda_handlers/control_plane/handler.py`
 
 **Environment Variables:**
 
 - `POLICY_STORE_ID` - AVP policy store ID
 - `MAPPINGS_TABLE` - DynamoDB table for policy mappings
 - `PRINCIPAL_TABLE` - DynamoDB table for principal mappings
-
-**IAM Permissions:**
-
-- `verifiedpermissions:ListPolicies` - Read policies from AVP
-- `verifiedpermissions:GetPolicy` - Get policy details
-- `dynamodb:PutItem` - Write compiled scopes to DynamoDB
-
-**Triggers:**
-
-- EventBridge rule (periodic compilation, e.g., every 5 minutes)
-- Manual invocation via API or CLI
-
-**Process:**
-
-1. Fetch all policies from AVP policy store
-2. For each policy, call `raja.compile_policy()`
-3. Store policy_id → scopes mapping in `PolicyScopeMappings` table
-4. Store principal → scopes mapping in `PrincipalScopes` table
-5. Log compilation results
-
-### 2. Token Service Lambda (`constructs/token_service.py`)
-
-**Purpose:** Issue JWT tokens with scopes for principals
-
-**Handler:** `lambda_handlers/token_service/handler.py`
-
-**Environment Variables:**
-
-- `PRINCIPAL_TABLE` - DynamoDB table with principal scopes
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
 
 **IAM Permissions:**
 
-- `dynamodb:GetItem` - Read principal scopes from DynamoDB
-- `secretsmanager:GetSecretValue` - Read JWT signing secret
+- `verifiedpermissions:ListPolicies`, `verifiedpermissions:GetPolicy`
+- `dynamodb:PutItem`, `dynamodb:GetItem`, `dynamodb:Scan`
+- `secretsmanager:GetSecretValue`
 
-**API Endpoint:** `POST /token`
-
-**Request Body:**
-
-```json
-{
-  "principal": "User::alice"
-}
-```
-
-**Response:**
-
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "principal": "User::alice",
-  "scopes": ["Document:doc123:read", "Document:doc456:write"],
-  "expires_in": 3600
-}
-```
-
-**Process:**
-
-1. Extract principal from request
-2. Query `PrincipalScopes` table for principal's scopes
-3. Retrieve JWT signing secret from Secrets Manager
-4. Call `raja.create_token()` with principal and scopes
-5. Return token with metadata
-
-### 3. Enforcer Lambda (`constructs/enforcer_lambda.py`)
-
-**Purpose:** Validate tokens and check authorization via subset checking
-
-**Handler:** `lambda_handlers/enforcer/handler.py`
-
-**Environment Variables:**
-
-- `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
-
-**IAM Permissions:**
-
-- `secretsmanager:GetSecretValue` - Read JWT signing secret
-
-**API Endpoint:** `POST /authorize`
-
-**Request Body:**
-
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "resource": "Document::doc123",
-  "action": "read"
-}
-```
-
-**Response:**
-
-```json
-{
-  "decision": "ALLOW",
-  "reason": "Requested scope Document:doc123:read is covered by granted scope Document:*:read",
-  "requested_scope": "Document:doc123:read",
-  "granted_scopes": ["Document:*:read", "Document:doc456:write"]
-}
-```
-
-**Process:**
-
-1. Extract token, resource, action from request
-2. Retrieve JWT signing secret from Secrets Manager
-3. Call `raja.enforce()` with token, resource, action
-4. Return authorization decision
-
-**Performance:**
-
-- No DynamoDB queries - all data in token
-- No policy evaluation - pure subset checking
-- Sub-100ms latency typical
-
-### 4. Introspect Lambda (`constructs/introspect_lambda.py`)
-
-**Purpose:** Decode JWT tokens and return claims (for debugging/monitoring)
-
-**Handler:** `lambda_handlers/introspect/handler.py`
-
-**Environment Variables:**
-
-- `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
-
-**IAM Permissions:**
-
-- `secretsmanager:GetSecretValue` - Read JWT signing secret
-
-**API Endpoint:** `GET /introspect`
-
-**Request Headers:**
-
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-**Response:**
-
-```json
-{
-  "principal": "User::alice",
-  "scopes": ["Document:doc123:read", "Document:doc456:write"],
-  "iat": 1704067200,
-  "exp": 1704070800,
-  "active": true
-}
-```
-
-**Use Cases:**
-
-- Debugging token issues
-- Monitoring token usage
-- Auditing token contents
-
-### 5. Policy Store (`constructs/policy_store.py`)
+### Policy Store (`constructs/policy_store.py`)
 
 **Purpose:** Manage AVP policy store and schema
 
@@ -362,19 +204,16 @@ aws cloudformation describe-stacks \
 # Health check
 curl https://<api-url>/health
 
+# Compile policies
+curl -X POST https://<api-url>/compile
+
 # Request token
 curl -X POST https://<api-url>/token \
   -H "Content-Type: application/json" \
   -d '{"principal": "User::alice"}'
 
-# Check authorization
-curl -X POST https://<api-url>/authorize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "<token-from-above>",
-    "resource": "Document::doc123",
-    "action": "read"
-  }'
+# List principals
+curl https://<api-url>/principals
 ```
 
 ## Configuration
@@ -421,7 +260,7 @@ Typical monthly costs (low traffic):
 - **Secrets Manager:** ~$0.40 per secret per month
 - **AVP:** ~$15 per million authorization requests (if using AVP API)
 
-**RAJA Advantage:** Enforcement uses Lambda + DynamoDB, not AVP API, so authorization is ~10x cheaper.
+**RAJA Advantage:** Enforcement is library-first (no service calls) and only control-plane operations touch AWS APIs.
 
 ## Monitoring
 
@@ -462,10 +301,7 @@ Typical monthly costs (low traffic):
 
 Lambda functions follow least-privilege principle:
 
-- Compiler: Read AVP + Write DynamoDB
-- Token Service: Read DynamoDB + Read Secrets
-- Enforcer: Read Secrets only
-- Introspect: Read Secrets only
+- Control plane: Read AVP + Read/Write DynamoDB + Read Secrets
 
 ### Secrets Management
 
