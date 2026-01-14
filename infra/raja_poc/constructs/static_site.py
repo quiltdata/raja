@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import CfnOutput, RemovalPolicy
+from aws_cdk import CfnOutput, Duration, RemovalPolicy
 from aws_cdk import aws_cloudfront as cloudfront
 from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_s3 as s3
@@ -52,25 +52,12 @@ class StaticSite(Construct):
             auto_delete_objects=True,
         )
 
-        # Create Origin Access Identity for CloudFront
-        oai = cloudfront.OriginAccessIdentity(
-            self,
-            "OAI",
-            comment=f"OAI for {construct_id}",
-        )
-
-        # Grant CloudFront read access to S3 bucket
-        website_bucket.grant_read(oai)
-
         # Create CloudFront distribution
         distribution = cloudfront.Distribution(
             self,
             "Distribution",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.S3Origin(
-                    website_bucket,
-                    origin_access_identity=oai,
-                ),
+                origin=origins.S3BucketOrigin.with_origin_access_control(website_bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
             ),
@@ -80,13 +67,13 @@ class StaticSite(Construct):
                     http_status=404,
                     response_http_status=200,
                     response_page_path="/index.html",
-                    ttl=300,
+                    ttl=Duration.minutes(5),
                 ),
                 cloudfront.ErrorResponse(
                     http_status=403,
                     response_http_status=200,
                     response_page_path="/index.html",
-                    ttl=300,
+                    ttl=Duration.minutes(5),
                 ),
             ],
         )
