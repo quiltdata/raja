@@ -23,7 +23,7 @@ cd raja
 uv sync
 ```
 
-### Deploy to AWS
+### Deploy to AWS (Control Plane)
 
 ```bash
 # Deploy infrastructure
@@ -33,33 +33,36 @@ poe cdk-deploy --all
 python scripts/load_policies.py
 
 # Compile policies to scopes
+export RAJA_API_URL="https://your-api.execute-api.us-east-1.amazonaws.com/prod"
 python scripts/invoke_compiler.py
 ```
 
-### Try the Web Interface
+### Control Plane UI
 
-After deployment, the CDK outputs will include a CloudFront URL. Open it in your browser to:
-
-1. Request JWT tokens for different users (alice, bob, admin)
-2. Test authorization decisions
-3. Inspect token claims
-
-See [web/README.md](web/README.md) for details.
+After deployment, open the API Gateway URL in your browser. The root path (`/`) renders a
+simple admin UI with live data from `/principals`, `/policies`, and `/audit`.
 
 ## How It Works
 
 ```text
-Cedar Policies → Compiler → JWT Scopes → Enforcer → ALLOW/DENY
+Cedar Policies → Compiler → JWT Scopes → Library Enforcement
 ```
 
 1. **Write Cedar policies** that define who can do what
 2. **Compiler** converts policies into scope strings (e.g., `Document:doc123:read`)
 3. **Token Service** issues JWTs containing these scopes
-4. **Enforcer** checks if requested scope is in the token
+4. **Applications** validate tokens and check scopes locally
 
 ## API Endpoints
 
 When deployed to AWS, RAJA provides:
+
+**POST /compile** - Compile Cedar policies into scopes
+
+```json
+{}
+→ {"message": "Policies compiled successfully", "policies_compiled": 3}
+```
 
 **POST /token** - Issue a JWT token
 
@@ -68,18 +71,18 @@ When deployed to AWS, RAJA provides:
 → {"token": "eyJ...", "scopes": ["Document:doc123:read"]}
 ```
 
-**POST /authorize** - Check authorization
-
-```json
-{"token": "eyJ...", "request": {"resource_type": "Document", "resource_id": "doc123", "action": "read"}}
-→ {"allowed": true, "reason": "Scope found in token"}
-```
-
-**GET /introspect** - Inspect token
+**GET /principals** - List principals and their scopes
 
 ```text
-?token=eyJ...
-→ {"claims": {"sub": "alice", "scopes": [...]}}
+→ {"principals": [{"principal": "alice", "scopes": [...]}]}
+
+**GET /policies** - List Cedar policies
+
+```json
+→ {"policies": [{"policyId": "..."}]}
+```
+
+**GET /audit** - View audit log entries
 ```
 
 ## Local Development
@@ -87,7 +90,7 @@ When deployed to AWS, RAJA provides:
 Use the Python library standalone (no AWS required):
 
 ```python
-from raja import create_token, enforce
+from raja import AuthRequest, create_token, enforce
 
 # Create token with scopes
 token = create_token(
@@ -98,9 +101,8 @@ token = create_token(
 
 # Check authorization
 decision = enforce(
-    token=token,
-    resource="Document::doc123",
-    action="read",
+    token_str=token,
+    request=AuthRequest(resource_type="Document", resource_id="doc123", action="read"),
     secret="your-secret"
 )
 print(decision.allowed)  # True
@@ -129,9 +131,8 @@ Examples:
 ```text
 raja/
 ├── src/raja/           # Core Python library
-├── lambda_handlers/    # AWS Lambda functions
+├── lambda_handlers/    # AWS Lambda handlers
 ├── infra/             # CDK infrastructure
-├── web/               # Web demo interface
 ├── policies/          # Sample Cedar policies
 └── tests/             # Test suite
 ```
@@ -139,7 +140,6 @@ raja/
 ## Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** - Developer guide and architecture
-- **[web/README.md](web/README.md)** - Web interface documentation
 - **[specs/](specs/)** - Design specifications
 - **Module READMEs** - See CLAUDE.md files in subdirectories
 

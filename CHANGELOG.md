@@ -65,10 +65,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deployment** (`scripts/deploy.sh`): CDK deployment helper with progress indicators
 - **Policy management** (`scripts/load_policies.py`): Load Cedar policies to AVP policy store
-- **Compiler invocation** (`scripts/invoke_compiler.py`): Trigger policy compilation Lambda
+- **Compiler invocation** (`scripts/invoke_compiler.py`): Trigger policy compilation via the control plane
 - **Test data seeding** (`scripts/seed_test_data.py`): Seed DynamoDB principals for integration tests
 - **Local testing** (`scripts/test_local.py`): Local development test script
 - **Poe shim** (`poe`): Shell wrapper for Poe the Poet task runner
+
+#### Control Plane (`src/raja/server/`)
+
+- **FastAPI app** (`app.py`): Control-plane endpoints for compile/token/policies/principals/audit
+- **Mangum handler** (`lambda_handlers/control_plane`): Lambda entrypoint for the control plane
 
 #### CI/CD Workflows (`.github/workflows/`)
 
@@ -114,11 +119,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UV package manager**: Fast dependency resolution and environment management
 - **Poe the Poet tasks**: Standardized task runner for all development workflows
 - **Integration tooling**: Require AWS region for policy load and compiler invocation helpers
+- **Control plane API**: Replaced multi-Lambda API with a FastAPI control plane
 - **Development dependencies**: Ruff (lint/format), mypy (typecheck), pytest (test), hypothesis (property tests)
 - **AWS dependencies**: boto3, aws-cdk-lib for infrastructure management
 - **Lambda configuration**: ARM64 architecture for cost optimization
 - **Exclusions**: Added `cdk.out/` and `web/local/` to `.gitignore` and linting exclusions
 - **README structure**: Simplified to focus on user documentation and quick start
+
+### Removed
+
+- **Static web demo**: Removed CloudFront/S3 web stack and static web assets
+- **Enforcement API**: Removed enforcer/introspect Lambda endpoints (library-first enforcement)
 
 ### Design Decisions
 

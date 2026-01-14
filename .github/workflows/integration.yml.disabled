@@ -56,7 +56,6 @@ jobs:
             if value:
               print(f"{key}={value}")
           emit("POLICY_STORE_ID", values.get("PolicyStoreId"))
-          emit("COMPILER_FUNCTION_NAME", values.get("CompilerLambdaArn"))
           emit("RAJA_API_URL", values.get("ApiUrl"))
           emit("PRINCIPAL_TABLE", values.get("PrincipalTableName"))
           PY
@@ -107,7 +106,6 @@ jobs:
             if value:
               print(f"{key}={value}")
           emit("POLICY_STORE_ID", values.get("PolicyStoreId"))
-          emit("COMPILER_FUNCTION_NAME", values.get("CompilerLambdaArn"))
           emit("RAJA_API_URL", values.get("ApiUrl"))
           emit("PRINCIPAL_TABLE", values.get("PrincipalTableName"))
           PY
@@ -159,7 +157,6 @@ jobs:
             if value:
               print(f"{key}={value}")
           emit("POLICY_STORE_ID", values.get("PolicyStoreId"))
-          emit("COMPILER_FUNCTION_NAME", values.get("CompilerLambdaArn"))
           emit("RAJA_API_URL", values.get("ApiUrl"))
           emit("PRINCIPAL_TABLE", values.get("PrincipalTableName"))
           PY
