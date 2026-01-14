@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- S3 validation harness endpoints to mint, verify, and enforce RAJs without AWS calls
+- Admin UI redesign focused on S3 harness workflows
+- Poe task `./poe all` for lint → unit tests → deploy → integration tests
+- Integration tests can read `RAJA_API_URL` from CDK output files
+
+### Changed
+
+- CDK deploy task writes outputs to `infra/cdk-outputs.json` using an isolated output directory
+
 ## [0.2.1] - 2026-01-14
 
 ### Added
