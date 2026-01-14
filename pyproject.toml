@@ -93,6 +93,9 @@ test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
+load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
+compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
+seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
 # Full workflow - check + test + deploy + integration test
 all = { sequence = ["check", "test-unit", "deploy", "test-integration"], help = "Full workflow: check, test, deploy, and run integration tests" }
