@@ -1,40 +1,33 @@
-# raja
+# RAJA
 ![CI](https://github.com/quiltdata/raja/workflows/CI/badge.svg)
 ![Integration Tests](https://github.com/quiltdata/raja/workflows/Integration%20Tests/badge.svg)
 ![Coverage](https://codecov.io/gh/quiltdata/raja/branch/main/graph/badge.svg)
 
-Resource Authorization JWT Authority for Software-Defined Authorization
+**Resource Authorization JWT Authority** - Compile Cedar policies into JWT tokens for deterministic authorization.
 
-## Overview
+## What is RAJA?
 
-RAJA (Resource Authorization with JWT and Scopes) is an implementation of the Scope-based Distributed Authorization (SDA) pattern. It compiles Cedar policies into JWT token scopes for deterministic, transparent authorization decisions.
+RAJA compiles Cedar authorization policies into JWT tokens with explicit scopes. This means:
 
-### Key Features
-
-- **Cedar Policy Compilation**: Convert Cedar policies to explicit JWT scopes
-- **Deterministic Authorization**: Same token + same request = same decision, always
-- **Transparent**: Token inspection reveals exact authorities granted
-- **Fail-Closed**: Unknown requests are explicitly denied
-- **AWS Integration**: Built on AWS Verified Permissions, Lambda, and DynamoDB
+- Authorization decisions are **deterministic** (same token + request = same result)
+- Tokens are **transparent** (you can see exactly what permissions are granted)
+- Enforcement is **fast** (simple scope checking, no policy evaluation)
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Clone repository
 git clone https://github.com/quiltdata/raja.git
 cd raja
-
-# Install dependencies with UV
 uv sync
 ```
 
-### Deploy Infrastructure
+### Deploy to AWS
 
 ```bash
-# Deploy AWS infrastructure
-poe cdk deploy --all
+# Deploy infrastructure
+poe cdk-deploy --all
 
 # Load Cedar policies
 python scripts/load_policies.py
@@ -43,245 +36,116 @@ python scripts/load_policies.py
 python scripts/invoke_compiler.py
 ```
 
-### Access Web Interface
+### Try the Web Interface
 
-After deployment, find the CloudFront URL in the CDK outputs:
+After deployment, the CDK outputs will include a CloudFront URL. Open it in your browser to:
 
-```bash
-poe cdk deploy RajaWebStack --outputs-file outputs.json
-```
+1. Request JWT tokens for different users (alice, bob, admin)
+2. Test authorization decisions
+3. Inspect token claims
 
-Open the CloudFront URL in your browser to access the interactive demo interface.
+See [web/README.md](web/README.md) for details.
 
-## Web Interface
-
-RAJA includes a web-based demo interface for interactive exploration:
-
-### Features
-
-- **Token Issuance Panel**: Request JWT tokens for different principals (alice, bob, admin)
-- **Authorization Testing Panel**: Test ALLOW/DENY decisions with tokens and requests
-- **Token Introspection Panel**: Decode and inspect JWT token claims
-
-### Usage
-
-1. **Request a Token**: Enter a principal name and click "Request Token"
-2. **Test Authorization**: Paste the token and test resource access
-3. **Inspect Token**: View decoded claims to verify scopes
-
-### Example Workflow
+## How It Works
 
 ```text
-1. Request token for "alice"
-   → Receives JWT with scopes: ["Document:doc123:read", "Document:doc123:write"]
-
-2. Test authorization: Document:doc123:read
-   → Result: ALLOWED (scope found in token)
-
-3. Test authorization: Document:doc456:read
-   → Result: DENIED (scope not found in token)
-
-4. Introspect token
-   → View claims: {sub: "alice", scopes: [...], exp: 1234567890}
+Cedar Policies → Compiler → JWT Scopes → Enforcer → ALLOW/DENY
 ```
 
-See [web/README.md](web/README.md) for detailed web interface documentation.
-
-## Architecture
-
-### Components
-
-```text
-┌─────────────────┐
-│ Cedar Policies  │ (AWS Verified Permissions)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Policy Compiler │ (Lambda + DynamoDB)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐       ┌──────────────┐
-│ Token Service   │──────→│ JWT Tokens   │
-└─────────────────┘       └──────┬───────┘
-                                 │
-                                 ▼
-                          ┌──────────────┐
-                          │  Enforcer    │
-                          └──────────────┘
-```
-
-### AWS Services
-
-- **Amazon Verified Permissions (AVP)**: Cedar policy storage and validation
-- **AWS Lambda**: Policy compiler, token service, enforcer, introspection
-- **Amazon DynamoDB**: Cached policy-to-scope mappings
-- **Amazon API Gateway**: REST API endpoints
-- **AWS Secrets Manager**: JWT signing key storage
-- **Amazon S3 + CloudFront**: Static web interface hosting
+1. **Write Cedar policies** that define who can do what
+2. **Compiler** converts policies into scope strings (e.g., `Document:doc123:read`)
+3. **Token Service** issues JWTs containing these scopes
+4. **Enforcer** checks if requested scope is in the token
 
 ## API Endpoints
 
-### POST /token
+When deployed to AWS, RAJA provides:
 
-Issue a JWT token for a principal.
-
-**Request:**
+**POST /token** - Issue a JWT token
 
 ```json
-{
-  "principal": "alice"
-}
+{"principal": "alice"}
+→ {"token": "eyJ...", "scopes": ["Document:doc123:read"]}
 ```
 
-**Response:**
+**POST /authorize** - Check authorization
 
 ```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "principal": "alice",
-  "scopes": [
-    "Document:doc123:read",
-    "Document:doc123:write"
-  ]
-}
+{"token": "eyJ...", "request": {"resource_type": "Document", "resource_id": "doc123", "action": "read"}}
+→ {"allowed": true, "reason": "Scope found in token"}
 ```
 
-### POST /authorize
-
-Check authorization for a request.
-
-**Request:**
-
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "request": {
-    "resource_type": "Document",
-    "resource_id": "doc123",
-    "action": "read"
-  }
-}
-```
-
-**Response:**
-
-```json
-{
-  "allowed": true,
-  "reason": "Scope found in token",
-  "matched_scope": "Document:doc123:read"
-}
-```
-
-### GET /introspect
-
-Decode and inspect a JWT token.
-
-**Request:**
+**GET /introspect** - Inspect token
 
 ```text
-GET /introspect?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+?token=eyJ...
+→ {"claims": {"sub": "alice", "scopes": [...]}}
 ```
 
-**Response:**
+## Local Development
 
-```json
-{
-  "claims": {
-    "sub": "alice",
-    "scopes": ["Document:doc123:read"],
-    "iat": 1234567890,
-    "exp": 1234571490
-  }
-}
-```
-
-## Development
-
-### Running Tests
-
-```bash
-# Unit tests (no AWS required)
-poe test-unit
-
-# Integration tests (requires deployed infrastructure)
-poe test-integration
-
-# All tests
-poe test
-```
-
-### Local Development
-
-The `raja` Python package can be used independently of AWS:
+Use the Python library standalone (no AWS required):
 
 ```python
-from raja import compile_policy, create_token, enforce
+from raja import create_token, enforce
 
-# Compile Cedar policy to scopes
-scopes = compile_policy(cedar_policy_string)
+# Create token with scopes
+token = create_token(
+    subject="alice",
+    scopes=["Document:doc123:read"],
+    secret="your-secret"
+)
 
-# Create JWT token
-token = create_token(subject="alice", scopes=scopes, ttl=3600, secret="secret")
-
-# Enforce authorization
-decision = enforce(token, request, secret="secret")
-print(decision.allowed)  # True or False
+# Check authorization
+decision = enforce(
+    token=token,
+    resource="Document::doc123",
+    action="read",
+    secret="your-secret"
+)
+print(decision.allowed)  # True
 ```
 
-### Cedar Policies
+### Run Tests
 
-Sample policies are in [policies/](policies/):
+```bash
+poe test-unit      # Unit tests (no AWS)
+poe test           # All tests
+poe check-all      # Format, lint, typecheck
+```
 
-- `document_read.cedar` - Read access to specific documents
-- `document_write.cedar` - Write access to specific documents
-- `admin_full.cedar` - Full admin access
+## Scope Format
 
-Edit these policies and redeploy to test different authorization scenarios.
+Scopes follow the pattern: `{ResourceType}:{ResourceId}:{Action}`
+
+Examples:
+
+- `Document:doc123:read` - Read document doc123
+- `Document:*:read` - Read all documents
+- `*:*:*` - Full admin access
 
 ## Project Structure
 
 ```text
 raja/
-├── src/raja/              # Core Python library
-│   ├── models.py          # Data models (Pydantic)
-│   ├── token.py           # JWT operations
-│   ├── compiler.py        # Cedar → Scopes compiler
-│   ├── enforcer.py        # Authorization enforcement
-│   └── cedar/             # Cedar policy parsing
-├── lambda_handlers/       # AWS Lambda functions
-│   ├── compiler/          # Policy compilation Lambda
-│   ├── token_service/     # Token issuance Lambda
-│   ├── enforcer/          # Authorization Lambda
-│   └── introspect/        # Token introspection Lambda
-├── infra/raja_poc/        # AWS CDK infrastructure
-│   ├── stacks/            # CDK stacks
-│   └── constructs/        # Reusable constructs
-├── web/                   # Web interface (S3 + CloudFront)
-│   ├── index.html         # Main UI
-│   ├── app.js             # Frontend logic
-│   └── styles.css         # Styling
-├── policies/              # Sample Cedar policies
-└── tests/                 # Test suite
-
+├── src/raja/           # Core Python library
+├── lambda_handlers/    # AWS Lambda functions
+├── infra/             # CDK infrastructure
+├── web/               # Web demo interface
+├── policies/          # Sample Cedar policies
+└── tests/             # Test suite
 ```
 
-## RAJA Hypotheses
+## Documentation
 
-The RAJA MVP validates four core hypotheses of the SDA pattern:
-
-1. **Determinism**: Same token + same request → same decision, always
-2. **Compilation**: Cedar policies compile to explicit, inspectable scopes
-3. **Fail-Closed**: Unknown requests are explicitly denied (no default allow)
-4. **Transparency**: Token inspection reveals exact authorities granted
-
-All hypotheses are validated through the test suite in [tests/hypothesis/](tests/hypothesis/).
+- **[CLAUDE.md](CLAUDE.md)** - Developer guide and architecture
+- **[web/README.md](web/README.md)** - Web interface documentation
+- **[specs/](specs/)** - Design specifications
+- **Module READMEs** - See CLAUDE.md files in subdirectories
 
 ## Contributing
 
-See [specs/1-mvp/](specs/1-mvp/) for design documentation.
+See [CLAUDE.md](CLAUDE.md) for development guidelines.
 
 ## License
 
