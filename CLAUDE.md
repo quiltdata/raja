@@ -7,6 +7,7 @@
 ### Core Hypothesis
 
 Authorization can be **compiled** once and **enforced** efficiently:
+
 - **Control Plane:** Cedar policies → JWT tokens with explicit scopes
 - **Data Plane:** Pure subset checking without policy evaluation
 - **Result:** Predictable, transparent, fail-closed authorization
@@ -103,6 +104,7 @@ raja/
 ```
 
 See child CLAUDE.md files for detailed documentation:
+
 - [src/raja/CLAUDE.md](src/raja/CLAUDE.md) - Core library documentation
 - [infra/CLAUDE.md](infra/CLAUDE.md) - Infrastructure documentation
 - [tests/CLAUDE.md](tests/CLAUDE.md) - Testing documentation
@@ -111,16 +113,19 @@ See child CLAUDE.md files for detailed documentation:
 ## Technology Stack
 
 ### Core Dependencies
+
 - **Python 3.12+** - Modern Python features
 - **Pydantic** (>=2.7.0) - Data validation and serialization
 - **PyJWT** (>=2.8.0) - JWT token operations
 
 ### AWS (Optional)
+
 - **AWS CDK** (>=2.100.0) - Infrastructure as Code
 - **boto3** (>=1.34.0) - AWS SDK
 - **Amazon Verified Permissions** - Cedar policy store
 
 ### Development Tools
+
 - **UV** - Fast Python package manager
 - **Poe the Poet** - Task runner
 - **pytest** - Testing framework
@@ -170,6 +175,7 @@ Scopes are the fundamental unit of authorization in RAJA:
 **Format:** `{ResourceType}:{ResourceId}:{Action}`
 
 **Examples:**
+
 - `Document:doc123:read` - Read access to document doc123
 - `Document:*:read` - Read access to all documents
 - `*:*:*` - Admin access (all resources, all actions)
@@ -316,21 +322,27 @@ See `pyproject.toml` for full task definitions:
 ## Design Principles
 
 ### 1. Fail-Closed by Default
+
 Unknown or ambiguous requests automatically DENY. Never guess or assume permissions.
 
 ### 2. Compilation Over Interpretation
+
 Policies are compiled once, enforced many times. No runtime policy evaluation.
 
 ### 3. Pure Subset Checking
+
 Enforcement is purely checking if requested scope is a subset of granted scopes.
 
 ### 4. Output Transparency
+
 Every decision includes the reason and relevant scopes.
 
 ### 5. Type Safety
+
 Full type hints with Pydantic models. Mypy strict mode enabled.
 
 ### 6. Separation of Concerns
+
 - Core library is pure Python (no AWS dependencies)
 - Infrastructure is optional
 - Testing is comprehensive and isolated
@@ -354,8 +366,8 @@ When deployed to AWS, RAJA exposes these endpoints:
 ## Resources
 
 - **Specs:** See `specs/1-mvp/` for detailed design documents
-- **Cedar:** https://www.cedarpolicy.com/
-- **Amazon Verified Permissions:** https://aws.amazon.com/verified-permissions/
+- **Cedar:** <https://www.cedarpolicy.com/>
+- **Amazon Verified Permissions:** <https://aws.amazon.com/verified-permissions/>
 
 ## License
 

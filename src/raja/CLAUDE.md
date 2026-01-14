@@ -49,6 +49,7 @@ from raja import (
 Pydantic models for type-safe data handling:
 
 #### Scope
+
 ```python
 class Scope(BaseModel):
     resource_type: str    # e.g., "Document"
@@ -67,6 +68,7 @@ class Scope(BaseModel):
 ```
 
 #### AuthRequest
+
 ```python
 class AuthRequest(BaseModel):
     principal: str       # e.g., "User::alice"
@@ -75,6 +77,7 @@ class AuthRequest(BaseModel):
 ```
 
 #### Decision
+
 ```python
 class Decision(BaseModel):
     decision: Literal["ALLOW", "DENY"]
@@ -84,6 +87,7 @@ class Decision(BaseModel):
 ```
 
 #### Token
+
 ```python
 class Token(BaseModel):
     principal: str
@@ -94,6 +98,7 @@ class Token(BaseModel):
 ```
 
 #### CompilationResult
+
 ```python
 class CompilationResult(BaseModel):
     policy_id: str
@@ -103,6 +108,7 @@ class CompilationResult(BaseModel):
 ```
 
 #### CedarPolicy
+
 ```python
 class CedarPolicy(BaseModel):
     id: str
@@ -410,15 +416,19 @@ results = compile_multiple_policies(policies)
 ## Design Patterns
 
 ### Fail-Closed
+
 All enforcement defaults to DENY. Only explicit subset matches result in ALLOW.
 
 ### Immutable Tokens
+
 Tokens are immutable once issued. Changes require new token issuance.
 
 ### Pure Functions
+
 Core functions are pure - same inputs always produce same outputs.
 
 ### Type Safety
+
 Full Pydantic models with strict validation. Mypy strict mode enabled.
 
 ## Testing
@@ -440,10 +450,12 @@ pytest tests/unit/test_scope.py
 ## Dependencies
 
 ### Required
+
 - **pydantic** (>=2.7.0) - Data validation
 - **PyJWT** (>=2.8.0) - JWT operations
 
 ### Optional
+
 None - core library is self-contained
 
 ## Error Handling
@@ -460,19 +472,23 @@ All exceptions should be caught and handled by calling code.
 ## Performance Considerations
 
 ### Token Creation
+
 - O(1) - Constant time JWT encoding
 - Lightweight operation, suitable for high-frequency use
 
 ### Token Validation
+
 - O(1) - Constant time JWT decoding and signature verification
 - Minimal overhead
 
 ### Scope Checking
+
 - O(n) - Linear in number of granted scopes
 - Optimized for typical use cases (< 100 scopes per token)
 - No policy evaluation - pure string/pattern matching
 
 ### Compilation
+
 - O(m) - Linear in policy complexity
 - One-time operation per policy
 - Results cached in DynamoDB (when using AWS infrastructure)

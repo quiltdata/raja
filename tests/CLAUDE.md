@@ -557,6 +557,7 @@ open htmlcov/index.html
 ### GitHub Actions Workflows
 
 1. **CI Workflow** (`.github/workflows/ci.yml`)
+
    ```yaml
    - Format check (ruff)
    - Lint (ruff)
@@ -566,6 +567,7 @@ open htmlcov/index.html
    ```
 
 2. **Integration Workflow** (`.github/workflows/integration.yml`)
+
    ```yaml
    - Deploy infrastructure
    - Load test policies

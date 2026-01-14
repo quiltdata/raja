@@ -104,21 +104,25 @@ def create_response(status_code: int, body: dict) -> dict:
 **Purpose:** Compile Cedar policies from AVP to scope strings and store in DynamoDB
 
 **Trigger:**
+
 - EventBridge scheduled rule (e.g., every 5 minutes)
 - Manual invocation via API or CLI
 - AVP policy update events (future)
 
 **Environment Variables:**
+
 - `POLICY_STORE_ID` - AVP policy store identifier
 - `MAPPINGS_TABLE` - DynamoDB table for policy → scopes mappings
 - `PRINCIPAL_TABLE` - DynamoDB table for principal → scopes mappings
 
 **IAM Permissions:**
+
 - `verifiedpermissions:ListPolicies`
 - `verifiedpermissions:GetPolicy`
 - `dynamodb:PutItem` (both tables)
 
 **Event Format:**
+
 ```json
 {
   "source": "aws.events",
@@ -221,6 +225,7 @@ def store_principal_mapping(principal: str, scopes: list[str], timestamp: str):
 ```
 
 **Response:**
+
 ```json
 {
   "statusCode": 200,
@@ -238,14 +243,17 @@ def store_principal_mapping(principal: str, scopes: list[str], timestamp: str):
 **API Endpoint:** `POST /token`
 
 **Environment Variables:**
+
 - `PRINCIPAL_TABLE` - DynamoDB table with principal → scopes mappings
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT signing key
 
 **IAM Permissions:**
+
 - `dynamodb:GetItem` (PRINCIPAL_TABLE)
 - `secretsmanager:GetSecretValue` (JWT_SECRET_ARN)
 
 **Request Body:**
+
 ```json
 {
   "principal": "User::alice",
@@ -320,6 +328,7 @@ def lambda_handler(event, context):
 ```
 
 **Response:**
+
 ```json
 {
   "statusCode": 200,
@@ -339,12 +348,15 @@ def lambda_handler(event, context):
 **API Endpoint:** `POST /authorize`
 
 **Environment Variables:**
+
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT signing key
 
 **IAM Permissions:**
+
 - `secretsmanager:GetSecretValue` (JWT_SECRET_ARN)
 
 **Request Body:**
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -409,6 +421,7 @@ def lambda_handler(event, context):
 ```
 
 **Response:**
+
 ```json
 {
   "statusCode": 200,
@@ -428,12 +441,15 @@ def lambda_handler(event, context):
 **API Endpoint:** `GET /introspect`
 
 **Environment Variables:**
+
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT signing key
 
 **IAM Permissions:**
+
 - `secretsmanager:GetSecretValue` (JWT_SECRET_ARN)
 
 **Request Headers:**
+
 ```
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
@@ -499,6 +515,7 @@ def lambda_handler(event, context):
 ```
 
 **Response (Success):**
+
 ```json
 {
   "statusCode": 200,
@@ -513,6 +530,7 @@ def lambda_handler(event, context):
 ```
 
 **Response (Expired):**
+
 ```json
 {
   "statusCode": 401,

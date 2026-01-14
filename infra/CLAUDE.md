@@ -69,13 +69,16 @@ infra/
 Creates Amazon Verified Permissions resources:
 
 **Resources:**
+
 - **Policy Store** - Stores Cedar policies and schema
 - **Schema** - Defines entities and actions (from `policies/schema.cedar`)
 
 **Outputs:**
+
 - `PolicyStoreId` - Policy store identifier for Lambda functions
 
 **Purpose:**
+
 - Central repository for Cedar policies
 - Schema validation for policies
 - Policy versioning and management
@@ -112,6 +115,7 @@ Main application stack with API and Lambda functions:
      - `GET /health` → Health check
 
 **Outputs:**
+
 - `ApiUrl` - API Gateway endpoint URL
 - `MappingsTableName` - PolicyScopeMappings table name
 - `PrincipalTableName` - PrincipalScopes table name
@@ -126,20 +130,24 @@ Main application stack with API and Lambda functions:
 **Handler:** `lambda_handlers/compiler/handler.py`
 
 **Environment Variables:**
+
 - `POLICY_STORE_ID` - AVP policy store ID
 - `MAPPINGS_TABLE` - DynamoDB table for policy mappings
 - `PRINCIPAL_TABLE` - DynamoDB table for principal mappings
 
 **IAM Permissions:**
+
 - `verifiedpermissions:ListPolicies` - Read policies from AVP
 - `verifiedpermissions:GetPolicy` - Get policy details
 - `dynamodb:PutItem` - Write compiled scopes to DynamoDB
 
 **Triggers:**
+
 - EventBridge rule (periodic compilation, e.g., every 5 minutes)
 - Manual invocation via API or CLI
 
 **Process:**
+
 1. Fetch all policies from AVP policy store
 2. For each policy, call `raja.compile_policy()`
 3. Store policy_id → scopes mapping in `PolicyScopeMappings` table
@@ -153,16 +161,19 @@ Main application stack with API and Lambda functions:
 **Handler:** `lambda_handlers/token_service/handler.py`
 
 **Environment Variables:**
+
 - `PRINCIPAL_TABLE` - DynamoDB table with principal scopes
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
 
 **IAM Permissions:**
+
 - `dynamodb:GetItem` - Read principal scopes from DynamoDB
 - `secretsmanager:GetSecretValue` - Read JWT signing secret
 
 **API Endpoint:** `POST /token`
 
 **Request Body:**
+
 ```json
 {
   "principal": "User::alice"
@@ -170,6 +181,7 @@ Main application stack with API and Lambda functions:
 ```
 
 **Response:**
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -180,6 +192,7 @@ Main application stack with API and Lambda functions:
 ```
 
 **Process:**
+
 1. Extract principal from request
 2. Query `PrincipalScopes` table for principal's scopes
 3. Retrieve JWT signing secret from Secrets Manager
@@ -193,14 +206,17 @@ Main application stack with API and Lambda functions:
 **Handler:** `lambda_handlers/enforcer/handler.py`
 
 **Environment Variables:**
+
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
 
 **IAM Permissions:**
+
 - `secretsmanager:GetSecretValue` - Read JWT signing secret
 
 **API Endpoint:** `POST /authorize`
 
 **Request Body:**
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -210,6 +226,7 @@ Main application stack with API and Lambda functions:
 ```
 
 **Response:**
+
 ```json
 {
   "decision": "ALLOW",
@@ -220,12 +237,14 @@ Main application stack with API and Lambda functions:
 ```
 
 **Process:**
+
 1. Extract token, resource, action from request
 2. Retrieve JWT signing secret from Secrets Manager
 3. Call `raja.enforce()` with token, resource, action
 4. Return authorization decision
 
 **Performance:**
+
 - No DynamoDB queries - all data in token
 - No policy evaluation - pure subset checking
 - Sub-100ms latency typical
@@ -237,19 +256,23 @@ Main application stack with API and Lambda functions:
 **Handler:** `lambda_handlers/introspect/handler.py`
 
 **Environment Variables:**
+
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
 
 **IAM Permissions:**
+
 - `secretsmanager:GetSecretValue` - Read JWT signing secret
 
 **API Endpoint:** `GET /introspect`
 
 **Request Headers:**
+
 ```
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Response:**
+
 ```json
 {
   "principal": "User::alice",
@@ -261,6 +284,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Use Cases:**
+
 - Debugging token issues
 - Monitoring token usage
 - Auditing token contents
@@ -270,14 +294,17 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **Purpose:** Manage AVP policy store and schema
 
 **Resources:**
+
 - CfnPolicyStore - AVP policy store
 - CfnSchema - Cedar schema (from `policies/schema.cedar`)
 
 **Configuration:**
+
 - Validation mode: STRICT (enforce schema compliance)
 - Description: Metadata about policy store
 
 **Management:**
+
 - Policies loaded via `scripts/load_policies.py`
 - Schema updates via CDK deployment
 
@@ -434,6 +461,7 @@ Typical monthly costs (low traffic):
 ### IAM Policies
 
 Lambda functions follow least-privilege principle:
+
 - Compiler: Read AVP + Write DynamoDB
 - Token Service: Read DynamoDB + Read Secrets
 - Enforcer: Read Secrets only
