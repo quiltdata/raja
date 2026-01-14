@@ -10,8 +10,11 @@ def main() -> None:
     function_name = os.environ.get("COMPILER_FUNCTION_NAME")
     if not function_name:
         raise SystemExit("COMPILER_FUNCTION_NAME is required")
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if not region:
+        raise SystemExit("AWS_REGION is required")
 
-    client = boto3.client("lambda")
+    client = boto3.client("lambda", region_name=region)
     response = client.invoke(
         FunctionName=function_name,
         InvocationType="RequestResponse",
