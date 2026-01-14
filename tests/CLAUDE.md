@@ -275,7 +275,12 @@ Integration tests require **deployed AWS infrastructure** and test the full stac
 
 # Set environment variables (or use .env file)
 export POLICY_STORE_ID="..."
-export API_URL="..."
+export RAJA_API_URL="..."
+export AWS_REGION="us-east-1"
+export PRINCIPAL_TABLE="..."
+
+# Seed test data
+./poe seed-test-data
 
 # Run integration tests
 ./poe test-integration
@@ -473,19 +478,10 @@ def sample_token(test_secret) -> str:
     )
 ```
 
-Integration test fixtures in `integration/conftest.py`:
+Integration tests read configuration from environment variables:
 
-```python
-@pytest.fixture(scope="session")
-def api_url() -> str:
-    """API Gateway URL from environment or CloudFormation"""
-    return os.getenv("API_URL") or get_stack_output("ApiUrl")
-
-@pytest.fixture(scope="session")
-def policy_store_id() -> str:
-    """AVP policy store ID from environment or CloudFormation"""
-    return os.getenv("POLICY_STORE_ID") or get_stack_output("PolicyStoreId")
-```
+- `RAJA_API_URL` for the API Gateway base URL
+- `POLICY_STORE_ID` for the Verified Permissions policy store
 
 ## Running Tests
 
