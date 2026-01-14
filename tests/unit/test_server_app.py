@@ -1,8 +1,9 @@
+import importlib
 import os
 
 from fastapi.testclient import TestClient
 
-import raja.server.app as server_app
+server_app = importlib.import_module("raja.server.app")
 
 app = server_app.app
 
