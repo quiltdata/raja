@@ -104,6 +104,7 @@ cdk-deploy = { sequence = ["npx-verify", "cdk-deploy-cmd"], help = "Deploy CDK s
 cdk-destroy = { sequence = ["npx-verify", "cdk-destroy-cmd"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
+seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 docs = { cmd = "cd docs && make html", help = "Build documentation (placeholder)" }
 repl = { cmd = "uv run python", help = "Start Python REPL" }
 shell = { cmd = "uv run bash", help = "Start project shell" }
