@@ -86,7 +86,7 @@ class ServicesStack(Stack):
         )
 
         deployment = apigateway.Deployment(self, "RajaApiDeployment", api=api)
-        deployment.add_to_logical_id(control_plane.function.current_version.version)
+        deployment.add_to_logical_id("control-plane-proxy-v2")
         stage = apigateway.Stage(self, "RajaApiStage", deployment=deployment, stage_name="prod")
         self.api_url = (
             f"https://{api.rest_api_id}.execute-api.{self.region}.amazonaws.com/{stage.stage_name}/"
