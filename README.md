@@ -91,7 +91,7 @@ See [web/README.md](web/README.md) for detailed web interface documentation.
 
 ### Components
 
-```
+```text
 ┌─────────────────┐
 │ Cedar Policies  │ (AWS Verified Permissions)
 └────────┬────────┘
@@ -128,6 +128,7 @@ See [web/README.md](web/README.md) for detailed web interface documentation.
 Issue a JWT token for a principal.
 
 **Request:**
+
 ```json
 {
   "principal": "alice"
@@ -135,6 +136,7 @@ Issue a JWT token for a principal.
 ```
 
 **Response:**
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -151,6 +153,7 @@ Issue a JWT token for a principal.
 Check authorization for a request.
 
 **Request:**
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -163,6 +166,7 @@ Check authorization for a request.
 ```
 
 **Response:**
+
 ```json
 {
   "allowed": true,
@@ -176,11 +180,13 @@ Check authorization for a request.
 Decode and inspect a JWT token.
 
 **Request:**
-```
+
+```text
 GET /introspect?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Response:**
+
 ```json
 {
   "claims": {
@@ -237,7 +243,7 @@ Edit these policies and redeploy to test different authorization scenarios.
 
 ## Project Structure
 
-```
+```text
 raja/
 ├── src/raja/              # Core Python library
 │   ├── models.py          # Data models (Pydantic)
