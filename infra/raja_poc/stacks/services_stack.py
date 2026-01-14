@@ -37,7 +37,8 @@ class ServicesStack(Stack):
                     command=[
                         "bash",
                         "-c",
-                        "pip install -r infra/raja_poc/layers/raja/requirements.txt "
+                        "pip install --default-timeout=120 --retries=3 "
+                        "-r infra/raja_poc/layers/raja/requirements.txt "
                         "-t /asset-output/python "
                         "&& cp -r src/raja /asset-output/python/raja",
                     ],

@@ -39,7 +39,8 @@ class ControlPlaneLambda(Construct):
                     command=[
                         "bash",
                         "-c",
-                        "pip install -r requirements.txt -t /asset-output "
+                        "pip install --default-timeout=120 --retries=3 "
+                        "-r requirements.txt -t /asset-output "
                         "&& cp -r . /asset-output",
                     ],
                 ),
