@@ -133,3 +133,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AVP as control plane**: Amazon Verified Permissions manages policies but doesn't evaluate at runtime
 - **Type safety**: Full type hints with Pydantic models, mypy strict mode
 - **Separation of concerns**: Core library is standalone, infrastructure is optional
+
+## [0.1.0] - 2026-01-13
+
+### Project Initialized
+- Repository created with Apache 2.0 license
+- README with project description
