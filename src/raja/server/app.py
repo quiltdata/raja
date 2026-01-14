@@ -4,7 +4,7 @@ import os
 import time
 from typing import Any
 
-import boto3  # type: ignore[import-untyped]
+import boto3
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
