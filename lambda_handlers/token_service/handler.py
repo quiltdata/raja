@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 import boto3
+
 from raja import create_token
 
 # Environment variables

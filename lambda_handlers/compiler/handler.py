@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 import boto3
+
 from raja import compile_policy
 
 # Environment variables

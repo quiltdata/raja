@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from aws_cdk import CfnOutput, Duration, RemovalPolicy
 from aws_cdk import aws_cloudfront as cloudfront
 from aws_cdk import aws_cloudfront_origins as origins
@@ -79,7 +77,7 @@ class StaticSite(Construct):
         )
 
         # Deploy website files to S3
-        deployment = s3deploy.BucketDeployment(
+        s3deploy.BucketDeployment(
             self,
             "DeployWebsite",
             sources=[s3deploy.Source.asset(site_path)],

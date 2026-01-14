@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 import boto3
+
 from raja import AuthRequest, enforce
 
 # Environment variables
