@@ -84,6 +84,7 @@ class ServicesStack(Stack):
             "RajaApi",
             deploy_options=apigateway.StageOptions(stage_name="prod"),
         )
+        api.root.add_method("ANY", apigateway.LambdaIntegration(control_plane.function))
         api.root.add_proxy(
             default_integration=apigateway.LambdaIntegration(control_plane.function),
             any_method=True,
