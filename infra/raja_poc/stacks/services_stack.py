@@ -10,6 +10,7 @@ from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
 from ..constructs.control_plane import ControlPlaneLambda
+from ..utils.platform import detect_platform
 
 
 class ServicesStack(Stack):
@@ -24,12 +25,15 @@ class ServicesStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        # Detect platform at synth time
+        _, _, lambda_arch = detect_platform()
+
         repo_root = Path(__file__).resolve().parents[3]
         raja_layer = lambda_.LayerVersion(
             self,
             "RajaLayer",
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
-            compatible_architectures=[lambda_.Architecture.ARM_64],
+            compatible_architectures=[lambda_arch],
             code=lambda_.Code.from_asset(
                 str(repo_root),
                 bundling=BundlingOptions(
