@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from raja import compile_policy, create_token
 from raja.server import dependencies
+from raja.server.audit import build_audit_item
 from raja.server.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -41,14 +43,24 @@ def _require_env(value: str | None, name: str) -> str:
     return value
 
 
+def _get_request_id(request: Request) -> str:
+    return (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-amzn-requestid")
+        or str(uuid.uuid4())
+    )
+
+
 router = APIRouter(prefix="", tags=["control-plane"])
 
 
 @router.post("/compile")
 def compile_policies(
+    request: Request,
     avp: Any = Depends(dependencies.get_avp_client),
     mappings_table: Any = Depends(dependencies.get_mappings_table),
     principal_table: Any = Depends(dependencies.get_principal_table),
+    audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     logger.info("policy_compilation_started")
     policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
@@ -103,6 +115,20 @@ def compile_policies(
         principals_count=len(principal_scopes),
     )
 
+    try:
+        audit_table.put_item(
+            Item=build_audit_item(
+                principal="system",
+                action="policy.compile",
+                resource=policy_store_id,
+                decision="SUCCESS",
+                policy_store_id=policy_store_id,
+                request_id=_get_request_id(request),
+            )
+        )
+    except Exception as exc:
+        logger.warning("audit_log_write_failed", error=str(exc))
+
     return {
         "message": "Policies compiled successfully",
         "policies_compiled": policies_compiled,
@@ -112,21 +138,37 @@ def compile_policies(
 
 @router.post("/token")
 def issue_token(
-    request: TokenRequest,
+    request: Request,
+    payload: TokenRequest,
     table: Any = Depends(dependencies.get_principal_table),
+    audit_table: Any = Depends(dependencies.get_audit_table),
     secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
-    logger.info("token_requested", principal=request.principal)
+    logger.info("token_requested", principal=payload.principal)
 
-    response = table.get_item(Key={"principal": request.principal})
+    policy_store_id = POLICY_STORE_ID
+    response = table.get_item(Key={"principal": payload.principal})
     item = response.get("Item")
     if not item:
-        logger.warning("token_request_principal_not_found", principal=request.principal)
-        raise HTTPException(status_code=404, detail=f"Principal not found: {request.principal}")
+        logger.warning("token_request_principal_not_found", principal=payload.principal)
+        try:
+            audit_table.put_item(
+                Item=build_audit_item(
+                    principal=payload.principal,
+                    action="token.issue",
+                    resource=payload.principal,
+                    decision="DENY",
+                    policy_store_id=policy_store_id,
+                    request_id=_get_request_id(request),
+                )
+            )
+        except Exception as exc:
+            logger.warning("audit_log_write_failed", error=str(exc))
+        raise HTTPException(status_code=404, detail=f"Principal not found: {payload.principal}")
 
     scopes = item.get("scopes", [])
     token = create_token(
-        subject=request.principal,
+        subject=payload.principal,
         scopes=scopes,
         ttl=TOKEN_TTL,
         secret=secret,
@@ -134,12 +176,26 @@ def issue_token(
 
     logger.info(
         "token_issued",
-        principal=request.principal,
+        principal=payload.principal,
         scopes_count=len(scopes),
         ttl=TOKEN_TTL,
     )
 
-    return {"token": token, "principal": request.principal, "scopes": scopes}
+    try:
+        audit_table.put_item(
+            Item=build_audit_item(
+                principal=payload.principal,
+                action="token.issue",
+                resource=payload.principal,
+                decision="SUCCESS",
+                policy_store_id=policy_store_id,
+                request_id=_get_request_id(request),
+            )
+        )
+    except Exception as exc:
+        logger.warning("audit_log_write_failed", error=str(exc))
+
+    return {"token": token, "principal": payload.principal, "scopes": scopes}
 
 
 @router.get("/principals")

@@ -16,6 +16,7 @@ def reset_caches() -> None:
     dependencies._dynamodb_resource = None
     dependencies._principal_table = None
     dependencies._mappings_table = None
+    dependencies._audit_table = None
     dependencies._jwt_secret_cache = None
     dependencies._harness_secret_cache = None
 
@@ -112,6 +113,32 @@ def test_get_mappings_table_caches_result() -> None:
 
         # Second call should return cached table
         table2 = dependencies.get_mappings_table()
+        assert table2 is mock_table
+        assert mock_resource.Table.call_count == 1
+
+
+def test_get_audit_table_requires_env_var() -> None:
+    """Test that get_audit_table fails without AUDIT_TABLE env var."""
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(RuntimeError, match="AUDIT_TABLE is required"):
+            dependencies.get_audit_table()
+
+
+def test_get_audit_table_caches_result() -> None:
+    """Test that audit table is created once and cached."""
+    mock_table = MagicMock()
+    mock_resource = MagicMock()
+    mock_resource.Table.return_value = mock_table
+
+    with (
+        patch.dict("os.environ", {"AUDIT_TABLE": "test-audit-table"}),
+        patch.object(dependencies, "get_dynamodb_resource", return_value=mock_resource),
+    ):
+        table1 = dependencies.get_audit_table()
+        assert table1 is mock_table
+        assert mock_resource.Table.call_count == 1
+
+        table2 = dependencies.get_audit_table()
         assert table2 is mock_table
         assert mock_resource.Table.call_count == 1
 

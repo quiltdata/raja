@@ -17,6 +17,7 @@ _avp_client: Any | None = None
 _dynamodb_resource: Any | None = None
 _principal_table: Any | None = None
 _mappings_table: Any | None = None
+_audit_table: Any | None = None
 _jwt_secret_cache: str | None = None
 _harness_secret_cache: str | None = None
 
@@ -114,6 +115,22 @@ def get_mappings_table() -> Any:
         table_name = _require_env(os.environ.get("MAPPINGS_TABLE"), "MAPPINGS_TABLE")
         _mappings_table = get_dynamodb_resource().Table(table_name)
     return _mappings_table
+
+
+def get_audit_table() -> Any:
+    """Get cached DynamoDB audit log table.
+
+    Returns:
+        boto3 DynamoDB Table resource for audit log entries
+
+    Raises:
+        RuntimeError: If AUDIT_TABLE environment variable is not set
+    """
+    global _audit_table
+    if _audit_table is None:
+        table_name = _require_env(os.environ.get("AUDIT_TABLE"), "AUDIT_TABLE")
+        _audit_table = get_dynamodb_resource().Table(table_name)
+    return _audit_table
 
 
 def get_jwt_secret() -> str:

@@ -86,6 +86,19 @@ When deployed to AWS, RAJA provides:
 **GET /audit** - View audit log entries
 
 ```
+Query params:
+  principal=<principal>
+  action=<action>
+  resource=<resource>
+  start_time=<epoch-seconds>
+  end_time=<epoch-seconds>
+  limit=<1-200>
+  next_token=<pagination-token>
+
+Response fields include: timestamp, principal, action, resource, decision,
+policy_store_id, request_id.
+
+```
 
 ## Local Development
 

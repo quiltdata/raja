@@ -23,3 +23,30 @@ def test_control_plane_lists_policies():
     status, body = request_json("GET", "/policies")
     assert status == 200
     assert len(body.get("policies", [])) >= 1
+
+
+@pytest.mark.integration
+def test_control_plane_audit_log_entries():
+    request_json("POST", "/compile")
+    token_status, _ = request_json("POST", "/token", {"principal": "alice"})
+    assert token_status == 200
+
+    status, body = request_json(
+        "GET",
+        "/audit",
+        query={"principal": "alice", "limit": "10"},
+    )
+    assert status == 200
+    entries = body.get("entries", [])
+    assert any(entry.get("principal") == "alice" for entry in entries)
+    for entry in entries[:1]:
+        for field in [
+            "timestamp",
+            "principal",
+            "action",
+            "resource",
+            "decision",
+            "policy_store_id",
+            "request_id",
+        ]:
+            assert field in entry

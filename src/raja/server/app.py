@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, model_validator
 
+from raja.server import audit, dependencies
 from raja.server.logging_config import configure_logging, get_logger
 from raja.server.routers import control_plane_router, harness_router
 
@@ -111,6 +112,29 @@ def health() -> dict[str, str]:
 
 
 @app.get("/audit")
-def audit_log() -> dict[str, Any]:
-    """Audit log endpoint (placeholder)."""
-    return {"entries": [], "message": "Audit log not configured"}
+def audit_log(
+    limit: int = Query(default=50, ge=1, le=200),
+    next_token: str | None = None,
+    principal: str | None = None,
+    action: str | None = None,
+    resource: str | None = None,
+    start_time: int | None = Query(default=None, ge=0),
+    end_time: int | None = Query(default=None, ge=0),
+    table: Any = Depends(dependencies.get_audit_table),
+) -> dict[str, Any]:
+    """Audit log endpoint."""
+    try:
+        entries, token = audit.query_audit_entries(
+            table=table,
+            limit=limit,
+            next_token=next_token,
+            principal=principal,
+            action=action,
+            resource=resource,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except Exception as exc:
+        logger.warning("audit_query_failed", error=str(exc))
+        raise HTTPException(status_code=400, detail="Invalid audit query") from exc
+    return {"entries": entries, "next_token": token}
