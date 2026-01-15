@@ -8,6 +8,8 @@ from botocore.exceptions import ClientError
 
 from .helpers import require_rajee_endpoint, require_rajee_test_bucket
 
+S3_UPSTREAM_HOST = "s3.us-east-1.amazonaws.com"
+
 
 @pytest.mark.integration
 def test_rajee_test_bucket_exists() -> None:
@@ -29,6 +31,10 @@ def test_rajee_envoy_s3_roundtrip_auth_disabled() -> None:
         endpoint_url=endpoint,
         region_name=region,
         config=Config(s3={"addressing_style": "path"}),
+    )
+    s3.meta.events.register(
+        "before-sign.s3",
+        lambda request, **_: request.headers.__setitem__("Host", S3_UPSTREAM_HOST),
     )
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
