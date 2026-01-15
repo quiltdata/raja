@@ -7,6 +7,8 @@ from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
+from ..utils.platform import detect_platform
+
 
 class ControlPlaneLambda(Construct):
     def __init__(
@@ -25,11 +27,14 @@ class ControlPlaneLambda(Construct):
     ) -> None:
         super().__init__(scope, construct_id)
 
+        # Detect platform at synth time
+        _, _, lambda_arch = detect_platform()
+
         self.function = lambda_.Function(
             self,
             "Function",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            architecture=lambda_.Architecture.ARM_64,
+            architecture=lambda_arch,
             handler="handler.handler",
             timeout=Duration.seconds(15),
             memory_size=512,

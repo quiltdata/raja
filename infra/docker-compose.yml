@@ -1,0 +1,42 @@
+services:
+  authorizer:
+    build:
+      context: ..
+      dockerfile: lambda_handlers/authorizer/Dockerfile
+    ports:
+      - "9000:9000"
+    environment:
+      - JWT_SECRET=test-secret-key-for-local-development-only
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/docs')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - rajee-net
+
+  envoy:
+    build:
+      context: ..
+      dockerfile: infra/raja_poc/assets/envoy/Dockerfile
+    ports:
+      - "10000:10000"  # Main proxy port
+      - "9901:9901"    # Admin port
+    environment:
+      - ENVOY_LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      authorizer:
+        condition: service_healthy
+    networks:
+      - rajee-net
+
+networks:
+  rajee-net:
+    driver: bridge

@@ -112,6 +112,26 @@ Main application stack with API and Lambda functions:
 - `HarnessSecretArn` - S3 harness signing key ARN
 - `ControlPlaneLambdaArn` - Control plane Lambda ARN
 
+### 3. Rajee Envoy Stack (`stacks/rajee_envoy_stack.py`)
+
+ECS Fargate deployment for the RAJEE Envoy S3 proxy with a FastAPI authorizer
+sidecar. Uses an Application Load Balancer with optional TLS (ACM certificate ARN).
+
+**Resources:**
+
+1. **VPC + ECS Cluster**
+2. **Fargate Service**
+   - Envoy proxy container (custom config image)
+   - Authorizer sidecar (FastAPI)
+3. **ALB + Target Group**
+   - Health checks against Envoy admin port
+4. **Auto-scaling**
+
+**Inputs:**
+
+- `jwt_signing_secret` - Secrets Manager secret for JWT validation
+- `certificate_arn` (optional) - ACM certificate ARN for HTTPS
+
 ## CDK Constructs
 
 ### Control Plane Lambda (`constructs/control_plane.py`)
@@ -153,6 +173,83 @@ Main application stack with API and Lambda functions:
 - Policies loaded via `scripts/load_policies.py`
 - Schema updates via CDK deployment
 
+## Local Testing
+
+Before deploying to AWS, test Docker containers locally to validate health checks and configuration.
+
+### Quick Start
+
+```bash
+# From repo root
+./poe test-docker
+
+# Or directly from infra directory
+cd infra
+./test-docker.sh
+```
+
+### Available Commands
+
+```bash
+# Start containers (default)
+./poe test-docker
+./test-docker.sh up
+
+# View logs
+ARGS=logs ./poe test-docker
+./test-docker.sh logs
+./test-docker.sh logs envoy      # Only Envoy logs
+./test-docker.sh logs authorizer # Only authorizer logs
+
+# Stop containers
+ARGS=down ./poe test-docker
+./test-docker.sh down
+
+# Check status
+./test-docker.sh status
+```
+
+### What Gets Tested
+
+The local Docker environment validates:
+- Container build processes
+- Health check endpoints (Envoy `/ready`, Authorizer `/docs`)
+- Inter-container communication (Envoy → Authorizer)
+- Envoy configuration
+- Authorizer FastAPI app startup
+
+### Architecture
+
+```
+┌─────────────────────────────────────────┐
+│  Docker Compose Network (rajee-net)     │
+│                                         │
+│  ┌──────────────┐    ┌──────────────┐  │
+│  │ Authorizer   │    │   Envoy      │  │
+│  │ (FastAPI)    │◄───│   Proxy      │  │
+│  │              │    │              │  │
+│  │ Port: 9000   │    │ Port: 10000  │  │
+│  └──────────────┘    │ Admin: 9901  │  │
+│                      └──────────────┘  │
+└─────────────────────────────────────────┘
+           ▲
+           │
+     localhost:10000
+```
+
+**Available endpoints:**
+- Envoy Proxy: `http://localhost:10000`
+- Envoy Admin: `http://localhost:9901`
+- Authorizer API docs: `http://localhost:9000/docs`
+
+### Differences from AWS
+
+Local testing uses simplified configuration:
+1. **JWT Secret:** Hardcoded test secret (not Secrets Manager)
+2. **S3 Access:** No IAM role credentials
+3. **Networking:** Docker bridge network (not VPC)
+4. **Load Balancer:** Direct Envoy access (no ALB)
+
 ## Deployment
 
 ### Prerequisites
@@ -171,6 +268,9 @@ pip install -r infra/requirements.txt
 
 # Configure AWS credentials
 aws configure
+
+# Optional: Test containers locally first
+./poe test-docker
 ```
 
 ### Deploy Infrastructure

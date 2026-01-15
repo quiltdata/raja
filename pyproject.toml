@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.2.3"
+version = "0.3.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -95,6 +95,7 @@ check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lin
 test = { cmd = "pytest tests/ -v", help = "Run all tests" }
 test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
+test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name = "action", positional = true, default = "up" }], help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }
@@ -103,12 +104,12 @@ load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar po
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
-# Full workflow - clean + check + test + deploy + integration test
-all = { sequence = ["clean", "check", "test-unit", "deploy", "test-integration"], help = "Full workflow: clean, check, test, deploy, and run integration tests" }
+# Full workflow - clean + check + test + docker + deploy + integration test
+all = { sequence = ["clean", "check", "test-unit", "test-docker", "deploy", "test-integration"], help = "Full workflow: clean, check, test, docker test, deploy, and run integration tests" }
 
 # Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }
-bump = { script = "scripts.version:bump_and_commit", help = "Bump patch version and commit" }
+bump = { cmd = "python scripts/version.py bump ${part}", args = [{ name = "part", positional = true, default = "patch" }], help = "Bump version and commit (args: patch|minor|major, default: patch)" }
 tag = { script = "scripts.version:create_tag", help = "Create and push release tag (runs checks first)" }
 
 # Integration test (kept separate as it requires deployed resources)
