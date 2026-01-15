@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import Duration, Stack
+from aws_cdk import CfnOutput, Duration, Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
@@ -11,6 +11,8 @@ from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
+
+from ..utils.platform import detect_platform, get_platform_string
 
 
 class RajeeEnvoyStack(Stack):
@@ -26,6 +28,10 @@ class RajeeEnvoyStack(Stack):
         **kwargs: object,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        # Detect platform at synth time
+        ecs_arch, docker_platform, _ = detect_platform()
+        print(f"[RAJEE] Deploying for platform: {get_platform_string()}")
 
         repo_root = Path(__file__).resolve().parents[3]
         asset_excludes = [
@@ -56,6 +62,10 @@ class RajeeEnvoyStack(Stack):
             "RajeeTask",
             memory_limit_mib=512,
             cpu=256,
+            runtime_platform=ecs.RuntimePlatform(
+                cpu_architecture=ecs_arch,
+                operating_system_family=ecs.OperatingSystemFamily.LINUX,
+            ),
         )
 
         task_definition.add_to_task_role_policy(
@@ -79,6 +89,7 @@ class RajeeEnvoyStack(Stack):
                 str(repo_root),
                 file="infra/raja_poc/assets/envoy/Dockerfile",
                 exclude=asset_excludes,
+                platform=docker_platform,
             ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
             environment={"ENVOY_LOG_LEVEL": "info"},
@@ -87,6 +98,13 @@ class RajeeEnvoyStack(Stack):
             ecs.PortMapping(container_port=10000, protocol=ecs.Protocol.TCP),
             ecs.PortMapping(container_port=9901, protocol=ecs.Protocol.TCP),
         )
+        envoy_container.add_health_check(
+            command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],
+            interval=Duration.seconds(30),
+            timeout=Duration.seconds(5),
+            retries=3,
+            start_period=Duration.seconds(60),
+        )
 
         authorizer_container = task_definition.add_container(
             "Authorizer",
@@ -94,6 +112,7 @@ class RajeeEnvoyStack(Stack):
                 str(repo_root),
                 file="lambda_handlers/authorizer/Dockerfile",
                 exclude=asset_excludes,
+                platform=docker_platform,
             ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="authorizer"),
             secrets={
@@ -154,6 +173,13 @@ class RajeeEnvoyStack(Stack):
             "RequestScaling",
             requests_per_target=1000,
             target_group=alb_service.target_group,
+        )
+
+        CfnOutput(
+            self,
+            "DeploymentPlatform",
+            value=get_platform_string(),
+            description="Platform architecture used for this deployment",
         )
 
         self.load_balancer = alb_service.load_balancer
