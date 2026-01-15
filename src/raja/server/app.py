@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from raja.server import audit, dependencies
@@ -90,6 +91,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 # Create FastAPI app and include routers
 app = FastAPI(title="RAJA Control Plane", version="0.2.0", lifespan=lifespan)
+
+# Mount static assets for the admin UI.
+static_dir = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Include domain-specific routers
 app.include_router(control_plane_router)
