@@ -4,6 +4,7 @@ from pathlib import Path
 
 from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_certificatemanager as acm
+from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
@@ -101,6 +102,14 @@ class RajeeEnvoyStack(Stack):
             )
         )
 
+        task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["cloudwatch:PutMetricData"],
+                resources=["*"],
+                conditions={"StringEquals": {"cloudwatch:namespace": "RAJEE"}},
+            )
+        )
+
         if task_definition.execution_role is not None:
             jwt_signing_secret.grant_read(task_definition.execution_role)
 
@@ -112,6 +121,8 @@ class RajeeEnvoyStack(Stack):
                 exclude=asset_excludes,
                 platform=docker_platform,
             ),
+            cpu=128,
+            memory_limit_mib=256,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
             environment={"ENVOY_LOG_LEVEL": "info"},
             health_check=ecs.HealthCheck(
@@ -135,13 +146,28 @@ class RajeeEnvoyStack(Stack):
                 exclude=asset_excludes,
                 platform=docker_platform,
             ),
+            cpu=128,
+            memory_limit_mib=256,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="authorizer"),
             secrets={
                 "JWT_SECRET": ecs.Secret.from_secrets_manager(jwt_signing_secret),
             },
+            health_check=ecs.HealthCheck(
+                command=["CMD-SHELL", "curl -f http://localhost:9000/health || exit 1"],
+                interval=Duration.seconds(30),
+                timeout=Duration.seconds(5),
+                retries=3,
+                start_period=Duration.seconds(60),
+            ),
         )
         authorizer_container.add_port_mappings(
             ecs.PortMapping(container_port=9000, protocol=ecs.Protocol.TCP)
+        )
+        envoy_container.add_container_dependencies(
+            ecs.ContainerDependency(
+                container=authorizer_container,
+                condition=ecs.ContainerDependencyCondition.HEALTHY,
+            )
         )
 
         certificate = None
@@ -201,6 +227,39 @@ class RajeeEnvoyStack(Stack):
             "RequestScaling",
             requests_per_target=1000,
             target_group=alb_service.target_group,
+        )
+
+        dashboard = cloudwatch.Dashboard(
+            self,
+            "RajeeDashboard",
+            dashboard_name="RAJEE-Monitoring",
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="Authorization Decisions",
+                left=[
+                    cloudwatch.Metric(
+                        namespace="RAJEE",
+                        metric_name="AuthorizationAllow",
+                        statistic="Sum",
+                    ),
+                    cloudwatch.Metric(
+                        namespace="RAJEE",
+                        metric_name="AuthorizationDeny",
+                        statistic="Sum",
+                    ),
+                ],
+            ),
+            cloudwatch.GraphWidget(
+                title="Authorization Latency",
+                left=[
+                    cloudwatch.Metric(
+                        namespace="RAJEE",
+                        metric_name="AuthorizationLatency",
+                        statistic="Average",
+                    ),
+                ],
+            ),
         )
 
         CfnOutput(
