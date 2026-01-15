@@ -11,7 +11,6 @@ from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
 from ..utils.platform import detect_platform, get_platform_string
@@ -25,7 +24,6 @@ class RajeeEnvoyStack(Stack):
         scope: Construct,
         construct_id: str,
         *,
-        jwt_signing_secret: secretsmanager.ISecret,
         certificate_arn: str | None = None,
         **kwargs: object,
     ) -> None:
@@ -70,15 +68,6 @@ class RajeeEnvoyStack(Stack):
             ),
         )
 
-        disable_auth_checks = CfnParameter(
-            self,
-            "DISABLE_AUTH_CHECKS",
-            type="String",
-            default="true",
-            allowed_values=["true", "false"],
-            description="Disable authorization checks in the authorizer sidecar.",
-        )
-
         test_bucket = s3.Bucket(
             self,
             "RajeeTestBucket",
@@ -119,8 +108,14 @@ class RajeeEnvoyStack(Stack):
             )
         )
 
-        if task_definition.execution_role is not None:
-            jwt_signing_secret.grant_read(task_definition.execution_role)
+        auth_disabled = CfnParameter(
+            self,
+            "AUTH_DISABLED",
+            type="String",
+            default="true",
+            allowed_values=["true", "false"],
+            description="Disable authorization checks in Envoy (fail-open for bootstrap).",
+        )
 
         envoy_container = task_definition.add_container(
             "EnvoyProxy",
@@ -133,7 +128,10 @@ class RajeeEnvoyStack(Stack):
             cpu=128,
             memory_limit_mib=256,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
-            environment={"ENVOY_LOG_LEVEL": "info"},
+            environment={
+                "ENVOY_LOG_LEVEL": "info",
+                "AUTH_DISABLED": auth_disabled.value_as_string,
+            },
             health_check=ecs.HealthCheck(
                 command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],
                 interval=Duration.seconds(30),
@@ -145,41 +143,6 @@ class RajeeEnvoyStack(Stack):
         envoy_container.add_port_mappings(
             ecs.PortMapping(container_port=10000, protocol=ecs.Protocol.TCP),
             ecs.PortMapping(container_port=9901, protocol=ecs.Protocol.TCP),
-        )
-
-        authorizer_container = task_definition.add_container(
-            "Authorizer",
-            image=ecs.ContainerImage.from_asset(
-                str(repo_root),
-                file="lambda_handlers/authorizer/Dockerfile",
-                exclude=asset_excludes,
-                platform=docker_platform,
-            ),
-            cpu=128,
-            memory_limit_mib=256,
-            logging=ecs.LogDrivers.aws_logs(stream_prefix="authorizer"),
-            environment={
-                "DISABLE_AUTH_CHECKS": disable_auth_checks.value_as_string,
-            },
-            secrets={
-                "JWT_SECRET": ecs.Secret.from_secrets_manager(jwt_signing_secret),
-            },
-            health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -f http://localhost:9000/health || exit 1"],
-                interval=Duration.seconds(30),
-                timeout=Duration.seconds(5),
-                retries=3,
-                start_period=Duration.seconds(60),
-            ),
-        )
-        authorizer_container.add_port_mappings(
-            ecs.PortMapping(container_port=9000, protocol=ecs.Protocol.TCP)
-        )
-        envoy_container.add_container_dependencies(
-            ecs.ContainerDependency(
-                container=authorizer_container,
-                condition=ecs.ContainerDependencyCondition.HEALTHY,
-            )
         )
 
         certificate = None

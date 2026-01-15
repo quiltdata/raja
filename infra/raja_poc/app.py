@@ -14,11 +14,7 @@ services_stack = ServicesStack(
     policy_store_arn=avp_stack.policy_store_arn,
 )
 
-rajee_envoy_stack = RajeeEnvoyStack(
-    app,
-    "RajeeEnvoyStack",
-    jwt_signing_secret=services_stack.jwt_secret,
-)
+rajee_envoy_stack = RajeeEnvoyStack(app, "RajeeEnvoyStack")
 rajee_envoy_stack.add_dependency(services_stack)
 
 app.synth()
