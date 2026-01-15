@@ -249,6 +249,12 @@ class RajeeEnvoyStack(Stack):
             value=test_bucket.bucket_name,
             description="S3 bucket for RAJEE proxy testing",
         )
+        CfnOutput(
+            self,
+            "RajeeEndpoint",
+            value=f"{'https' if certificate else 'http'}://{alb_service.load_balancer.load_balancer_dns_name}",
+            description="Base URL for the RAJEE Envoy S3 proxy",
+        )
 
         self.load_balancer = alb_service.load_balancer
         self.service = alb_service.service

@@ -55,6 +55,21 @@ def _load_rajee_bucket_from_outputs(repo_root: Path) -> str | None:
     return None
 
 
+def _load_rajee_endpoint_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        endpoint = _extract_output_value(payload, "RajeeEndpoint")
+        if endpoint:
+            return endpoint
+    return None
+
+
 def require_api_url() -> str:
     api_url = os.environ.get("RAJA_API_URL")
     if not api_url:
@@ -73,6 +88,16 @@ def require_rajee_test_bucket() -> str:
     if not bucket:
         pytest.skip("RAJEE_TEST_BUCKET not set")
     return bucket
+
+
+def require_rajee_endpoint() -> str:
+    endpoint = os.environ.get("RAJEE_ENDPOINT")
+    if not endpoint:
+        repo_root = Path(__file__).resolve().parents[2]
+        endpoint = _load_rajee_endpoint_from_outputs(repo_root)
+    if not endpoint:
+        pytest.skip("RAJEE_ENDPOINT not set")
+    return endpoint.rstrip("/")
 
 
 def request_json(
