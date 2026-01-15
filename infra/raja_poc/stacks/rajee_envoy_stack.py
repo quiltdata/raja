@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import CfnOutput, Duration, RemovalPolicy, Stack
+from aws_cdk import CfnOutput, CfnParameter, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
@@ -68,6 +68,15 @@ class RajeeEnvoyStack(Stack):
                 cpu_architecture=ecs_arch,
                 operating_system_family=ecs.OperatingSystemFamily.LINUX,
             ),
+        )
+
+        disable_auth_checks = CfnParameter(
+            self,
+            "DISABLE_AUTH_CHECKS",
+            type="String",
+            default="true",
+            allowed_values=["true", "false"],
+            description="Disable authorization checks in the authorizer sidecar.",
         )
 
         test_bucket = s3.Bucket(
@@ -149,6 +158,9 @@ class RajeeEnvoyStack(Stack):
             cpu=128,
             memory_limit_mib=256,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="authorizer"),
+            environment={
+                "DISABLE_AUTH_CHECKS": disable_auth_checks.value_as_string,
+            },
             secrets={
                 "JWT_SECRET": ecs.Secret.from_secrets_manager(jwt_signing_secret),
             },
