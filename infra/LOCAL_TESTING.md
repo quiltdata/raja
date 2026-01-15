@@ -5,8 +5,12 @@ This directory contains tools for testing the RAJEE Envoy proxy and authorizer c
 ## Quick Start
 
 ```bash
+# From repo root
+./poe test-docker
+
+# Or directly from infra directory
 cd infra
-./test-local.sh
+./test-docker.sh
 ```
 
 This script will:
@@ -15,6 +19,27 @@ This script will:
 3. Wait for health checks to pass
 4. Display service status and logs
 5. Show available endpoints
+
+### Commands
+
+```bash
+# Start containers (default)
+./poe test-docker
+./test-docker.sh up
+
+# View logs
+ARGS=logs ./poe test-docker
+./test-docker.sh logs
+./test-docker.sh logs envoy      # Only Envoy logs
+./test-docker.sh logs authorizer # Only authorizer logs
+
+# Stop containers
+ARGS=down ./poe test-docker
+./test-docker.sh down
+
+# Check status
+./test-docker.sh status
+```
 
 ## Manual Testing
 

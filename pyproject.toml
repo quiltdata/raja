@@ -95,7 +95,7 @@ check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lin
 test = { cmd = "pytest tests/ -v", help = "Run all tests" }
 test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
-test-docker = { shell = "cd infra && ./test-local.sh", help = "Build and test Docker containers locally" }
+test-docker = { shell = "cd infra && ./test-docker.sh ${ARGS:-up}", help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }

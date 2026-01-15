@@ -93,17 +93,17 @@ class RajeeEnvoyStack(Stack):
             ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
             environment={"ENVOY_LOG_LEVEL": "info"},
+            health_check=ecs.HealthCheck(
+                command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],
+                interval=Duration.seconds(30),
+                timeout=Duration.seconds(5),
+                retries=3,
+                start_period=Duration.seconds(60),
+            ),
         )
         envoy_container.add_port_mappings(
             ecs.PortMapping(container_port=10000, protocol=ecs.Protocol.TCP),
             ecs.PortMapping(container_port=9901, protocol=ecs.Protocol.TCP),
-        )
-        envoy_container.add_health_check(
-            command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],
-            interval=Duration.seconds(30),
-            timeout=Duration.seconds(5),
-            retries=3,
-            start_period=Duration.seconds(60),
         )
 
         authorizer_container = task_definition.add_container(
