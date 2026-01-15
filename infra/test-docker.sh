@@ -9,21 +9,54 @@ COMMAND="${1:-up}"
 case "$COMMAND" in
   up|test)
     echo "🔨 Building and starting RAJEE containers..."
-    docker-compose -f "$COMPOSE_FILE" up -d --build
+    docker-compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
 
     echo ""
     echo "⏳ Waiting for services to be healthy..."
-    sleep 10
+    for i in {1..12}; do
+      unhealthy=0
+      for svc in envoy; do
+        cid=$(docker-compose -f "$COMPOSE_FILE" ps -q "$svc")
+        status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "unknown")
+        if [[ "$status" != "healthy" ]]; then
+          unhealthy=1
+        fi
+      done
+      if [[ "$unhealthy" -eq 0 ]]; then
+        break
+      fi
+      sleep 5
+    done
 
     echo ""
     echo "✅ Checking service health..."
 
-    echo "  • Authorizer health (FastAPI):"
-    curl -s http://localhost:9000/docs | head -n 1 || echo "    ❌ Authorizer not responding"
-
-    echo ""
     echo "  • Envoy admin health:"
     curl -s http://localhost:9901/ready || echo "    ❌ Envoy admin not ready"
+
+    echo ""
+    echo "  • Container health status:"
+    health_failed=0
+    for svc in envoy; do
+      cid=$(docker-compose -f "$COMPOSE_FILE" ps -q "$svc")
+      status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "unknown")
+      echo "    - ${svc}: ${status}"
+      if [[ "$status" != "healthy" ]]; then
+        health_failed=1
+      fi
+    done
+
+    echo ""
+    echo "  • ECS health checks (run inside containers):"
+    for svc in envoy; do
+      ecs_cmd="curl -f http://localhost:9901/ready"
+      if docker-compose -f "$COMPOSE_FILE" exec -T "$svc" sh -c "$ecs_cmd" >/dev/null 2>&1; then
+        echo "    - ${svc}: PASS (${ecs_cmd})"
+      else
+        echo "    - ${svc}: FAIL (${ecs_cmd})"
+        health_failed=1
+      fi
+    done
 
     echo ""
     echo "  • Envoy stats:"
@@ -35,10 +68,6 @@ case "$COMMAND" in
 
     echo ""
     echo "📝 Recent logs:"
-    echo "--- Authorizer ---"
-    docker-compose -f "$COMPOSE_FILE" logs --tail=10 authorizer
-
-    echo ""
     echo "--- Envoy ---"
     docker-compose -f "$COMPOSE_FILE" logs --tail=10 envoy
 
@@ -48,10 +77,15 @@ case "$COMMAND" in
     echo "Available endpoints:"
     echo "  • Envoy Proxy:  http://localhost:10000"
     echo "  • Envoy Admin:  http://localhost:9901"
-    echo "  • Authorizer:   http://localhost:9000/docs"
     echo ""
     echo "To view logs:    ./test-docker.sh logs"
     echo "To stop:         ./test-docker.sh down"
+
+    if [[ "$health_failed" -ne 0 ]]; then
+      echo ""
+      echo "❌ One or more health checks failed."
+      exit 1
+    fi
     ;;
 
   logs)
@@ -74,7 +108,7 @@ case "$COMMAND" in
     echo ""
     echo "Commands:"
     echo "  up, test    Build and start containers with health checks (default)"
-    echo "  logs        Follow container logs (optionally specify service: logs authorizer)"
+    echo "  logs        Follow container logs (optionally specify service: logs envoy)"
     echo "  down, stop  Stop and remove containers"
     echo "  status, ps  Show container status"
     echo ""
