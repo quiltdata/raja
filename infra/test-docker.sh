@@ -47,6 +47,16 @@ case "$COMMAND" in
     done
 
     echo ""
+    echo "  • Proxy port (10000):"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:10000/ 2>/dev/null || echo "000")
+    if [[ "$http_code" != "000" ]]; then
+      echo "    ✓ Port 10000 responding (HTTP $http_code)"
+    else
+      echo "    ❌ Port 10000 not responding"
+      health_failed=1
+    fi
+
+    echo ""
     echo "  • ECS health checks (run inside containers):"
     for svc in envoy; do
       ecs_cmd="curl -f http://localhost:9901/ready"
