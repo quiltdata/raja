@@ -104,8 +104,8 @@ load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar po
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
-# Full workflow - clean + check + test + deploy + integration test
-all = { sequence = ["clean", "check", "test-unit", "deploy", "test-integration"], help = "Full workflow: clean, check, test, deploy, and run integration tests" }
+# Full workflow - clean + check + test + docker + deploy + integration test
+all = { sequence = ["clean", "check", "test-unit", "test-docker", "deploy", "test-integration"], help = "Full workflow: clean, check, test, docker test, deploy, and run integration tests" }
 
 # Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }
