@@ -28,6 +28,14 @@ class RajeeEnvoyStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         repo_root = Path(__file__).resolve().parents[3]
+        asset_excludes = [
+            ".git",
+            ".venv",
+            "infra/cdk.out",
+            "infra/cdk.out/**",
+            "infra/cdk.out.deploy",
+            "infra/cdk.out.deploy/**",
+        ]
 
         vpc = ec2.Vpc(
             self,
@@ -70,6 +78,7 @@ class RajeeEnvoyStack(Stack):
             image=ecs.ContainerImage.from_asset(
                 str(repo_root),
                 file="infra/raja_poc/assets/envoy/Dockerfile",
+                exclude=asset_excludes,
             ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
             environment={"ENVOY_LOG_LEVEL": "info"},
@@ -84,6 +93,7 @@ class RajeeEnvoyStack(Stack):
             image=ecs.ContainerImage.from_asset(
                 str(repo_root),
                 file="lambda_handlers/authorizer/Dockerfile",
+                exclude=asset_excludes,
             ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="authorizer"),
             secrets={
