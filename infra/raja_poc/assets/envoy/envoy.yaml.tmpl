@@ -23,6 +23,7 @@ static_resources:
                           route:
                             cluster: s3_upstream
                             timeout: 300s
+                            host_rewrite_literal: s3.us-east-1.amazonaws.com
                 http_filters:
 __AUTH_FILTER__
                   - name: envoy.filters.http.router
