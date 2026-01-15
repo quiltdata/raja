@@ -15,6 +15,5 @@ services_stack = ServicesStack(
 )
 
 rajee_envoy_stack = RajeeEnvoyStack(app, "RajeeEnvoyStack")
-rajee_envoy_stack.add_dependency(services_stack)
 
 app.synth()
