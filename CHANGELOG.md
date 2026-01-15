@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-14
+
+### Added
+
+- **RAJEE (RAJA Execution Environment)**: New testbed infrastructure for prefix-based S3 authorization
+  - FastAPI authorizer service with JWT validation and prefix matching
+  - Envoy proxy stack with external authorization integration
+  - Docker-based local testing environment (`./poe test-docker`)
+  - Flexible per-deployment architecture detection (x86_64/arm64)
+  - Design specifications: RAJEE testbed, Envoy integration, and architecture review
+- **Core library**: `raja.rajee.authorizer` module for prefix-based authorization logic
+- **Testing**: Unit tests for RAJEE authorizer functionality
+- **Infrastructure**: Platform detection utilities for CDK deployments
+- **Documentation**: LOCAL_TESTING.md merged into [infra/CLAUDE.md](infra/CLAUDE.md)
+
+### Changed
+
+- **Poe tasks**: Improved `bump` and `test-docker` to use proper positional arguments
+- **GitHub Actions**: Fixed security vulnerability in PyPI publish workflow
+
+### Fixed
+
+- RAJEE Envoy stack health checks now properly allow ALB traffic on port 9901
+- CDK output excluded from RAJEE container asset bundles
+
 ## [0.2.3] - 2026-01-14
 
 ### Added
