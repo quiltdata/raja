@@ -159,6 +159,13 @@ class RajeeEnvoyStack(Stack):
             unhealthy_threshold_count=3,
         )
 
+        # Allow ALB to reach Envoy admin port for health checks
+        alb_service.service.connections.allow_from(
+            alb_service.load_balancer,
+            ec2.Port.tcp(9901),
+            "Allow ALB health checks to Envoy admin port",
+        )
+
         scaling = alb_service.service.auto_scale_task_count(
             min_capacity=2,
             max_capacity=10,
