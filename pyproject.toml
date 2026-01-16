@@ -97,6 +97,9 @@ test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
 test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name = "action", positional = true, default = "up" }], help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
+# Demo
+demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration with verbose output" }
+
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
