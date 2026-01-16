@@ -12,23 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Token service**: Fixed issuer claim to use only scheme+netloc (no path) for proper JWT validation
-- **Integration tests**: Refactored to use control plane `/token` endpoint instead of local JWT signing
-  - Removed `get_jwt_secret()` helper and silent fallback to test secrets
-  - `issue_rajee_token()` now mints tokens via API, ensuring proper JWKS signature validation
-  - All RAJEE Envoy tests now validate against production JWKS
-- **CDK deployment**: Fixed `raja_issuer` extraction in `app.py` to strip path from API URL
+- **JWT issuer**: Fixed issuer claim to use only scheme+netloc (no path) for proper validation
+- **Integration tests**: Refactored to use control plane `/token` endpoint, removing local JWT signing with fallback secrets
 
 ### Added
 
-- **Integration tests**: New test `test_rajee_token_validates_against_jwks` validates RAJEE tokens against JWKS endpoint
-- **Test helpers**: Added `require_api_issuer()` to extract issuer (scheme+netloc) from API URL
-- **Documentation**: Added `specs/2-rajee/12-auth-failure-analysis.md` analyzing 401 vs 403 auth failure modes
+- **Auth tests**: Complete integration coverage for auth-enabled RAJEE S3 operations
+- **Test policy**: `rajee_test_policy.cedar` granting `rajee-integration/` prefix access
+- **Documentation**: `specs/2-rajee/12-auth-failure-analysis.md` analyzing auth failure modes
 
 ### Changed
 
-- **Integration tests**: Simplified RAJEE token issuance by delegating to control plane
-- **Test coverage**: All auth-enabled RAJEE tests now use production token service and JWKS validation
+- **RAJEE Envoy**: Auth enabled by default in deployments
 
 ## [0.4.1] - 2026-01-15
 
