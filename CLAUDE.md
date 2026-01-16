@@ -156,8 +156,31 @@ uv pip install -e .
 
 ### AWS Deployment
 
+#### Fast Deployment (Recommended)
+
+For optimal deployment speed, build and push the Envoy Docker image separately:
+
 ```bash
-# Deploy infrastructure
+# 1. Deploy infrastructure with ECR repository (first time only)
+./poe deploy
+
+# 2. Build and push Envoy image to ECR
+./poe build-envoy-push
+
+# 3. Deploy with pre-built image (fast - skips Docker build)
+export IMAGE_TAG=$(git rev-parse --short HEAD)
+./poe deploy
+
+# Subsequent deployments: Only rebuild image when Envoy code changes
+./poe build-envoy-push && export IMAGE_TAG=$(git rev-parse --short HEAD) && ./poe deploy
+```
+
+#### Standard Deployment (Legacy)
+
+The infrastructure can also build the Docker image during deployment (slower):
+
+```bash
+# Deploy infrastructure (builds Docker image inline)
 ./poe deploy
 
 # Load Cedar policies to AVP
@@ -321,6 +344,10 @@ Essential commands for development workflow:
 ./poe test-unit           # Unit tests only
 ./poe test-integration    # Integration tests (requires AWS)
 ./poe test-cov            # Tests with coverage
+
+# Docker image building
+./poe build-envoy         # Build Envoy container image locally
+./poe build-envoy-push    # Build and push Envoy image to ECR
 
 # AWS deployment
 ./poe deploy              # Deploy CDK stack to AWS

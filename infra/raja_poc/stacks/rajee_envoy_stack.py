@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from aws_cdk import CfnOutput, CfnParameter, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
@@ -37,14 +39,46 @@ class RajeeEnvoyStack(Stack):
 
         repo_root = Path(__file__).resolve().parents[3]
         asset_excludes = [
+            # Version control
             ".git",
+            ".gitignore",
+            # Python
             ".venv",
+            "**/*.pyc",
+            "**/__pycache__",
+            "**/*.egg-info",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "*.coverage",
+            ".coverage",
+            "htmlcov",
+            # Node/CDK
+            "node_modules",
             "infra/cdk.out",
             "infra/cdk.out/**",
             "infra/cdk.out.*",
             "infra/cdk.out.*/**",
             "infra/cdk.out.deploy",
             "infra/cdk.out.deploy/**",
+            "cdk.context.json",
+            # IDE
+            ".vscode",
+            ".idea",
+            "*.swp",
+            "*.swo",
+            # Documentation/specs
+            "specs",
+            "docs",
+            "*.md",
+            # Tests (not needed in container)
+            "tests",
+            # CI/CD
+            ".github",
+            ".gitlab-ci.yml",
+            # Other
+            "tmp",
+            ".DS_Store",
         ]
 
         vpc = ec2.Vpc(
@@ -59,6 +93,21 @@ class RajeeEnvoyStack(Stack):
             "RajeeCluster",
             vpc=vpc,
             container_insights=True,
+        )
+
+        # ECR repository for Envoy container images
+        envoy_repo = ecr.Repository(
+            self,
+            "EnvoyRepository",
+            repository_name="raja/envoy",
+            removal_policy=RemovalPolicy.RETAIN,
+            lifecycle_rules=[
+                ecr.LifecycleRule(
+                    description="Keep last 10 images",
+                    max_image_count=10,
+                )
+            ],
+            image_scan_on_push=True,
         )
 
         task_definition = ecs.FargateTaskDefinition(
@@ -141,14 +190,27 @@ class RajeeEnvoyStack(Stack):
                 f"s3:ListObjectVersions/{test_bucket.bucket_name}/{public_prefix}",
             ]
 
-        envoy_container = task_definition.add_container(
-            "EnvoyProxy",
-            image=ecs.ContainerImage.from_asset(
+        # Determine container image source
+        # If IMAGE_TAG is set, use ECR; otherwise fall back to building from source
+        image_tag = os.getenv("IMAGE_TAG")
+        if image_tag:
+            # Use pre-built image from ECR
+            container_image = ecs.ContainerImage.from_ecr_repository(
+                repository=envoy_repo,
+                tag=image_tag,
+            )
+        else:
+            # Fall back to building from source (slower)
+            container_image = ecs.ContainerImage.from_asset(
                 str(repo_root),
                 file="infra/raja_poc/assets/envoy/Dockerfile",
                 exclude=asset_excludes,
                 platform=docker_platform,
-            ),
+            )
+
+        envoy_container = task_definition.add_container(
+            "EnvoyProxy",
+            image=container_image,
             cpu=128,
             memory_limit_mib=256,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
@@ -289,6 +351,13 @@ class RajeeEnvoyStack(Stack):
             value=f"{'https' if certificate else 'http'}://{alb_service.load_balancer.load_balancer_dns_name}",
             description="Base URL for the RAJEE Envoy S3 proxy",
         )
+        CfnOutput(
+            self,
+            "EnvoyRepositoryUri",
+            value=envoy_repo.repository_uri,
+            description="ECR repository URI for Envoy container images",
+        )
 
         self.load_balancer = alb_service.load_balancer
         self.service = alb_service.service
+        self.envoy_repository = envoy_repo
