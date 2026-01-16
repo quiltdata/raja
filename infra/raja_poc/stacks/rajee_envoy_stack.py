@@ -41,6 +41,8 @@ class RajeeEnvoyStack(Stack):
             ".venv",
             "infra/cdk.out",
             "infra/cdk.out/**",
+            "infra/cdk.out.*",
+            "infra/cdk.out.*/**",
             "infra/cdk.out.deploy",
             "infra/cdk.out.deploy/**",
         ]
