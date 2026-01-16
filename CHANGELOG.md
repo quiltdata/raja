@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **RAJEE policies**: New integration policy for Alice to authorize `rajee-integration/` in test buckets
+- **Integration tests**: Real-grants auth validation to ensure token grants drive proxy authorization
+
+### Changed
+
+- **Deploy workflow**: `./poe deploy` now loads and compiles policies automatically
+- **RAJEE auth**: Public grants bypass is disabled by default via stack parameter
+- **Policy loader**: Split multi-statement Cedar files into individual AVP policies
+
+### Fixed
+
+- **Cedar parsing**: Ignore line comments during policy parsing
+- **Grant matching**: Wildcard grants now match in Python authorizer
+
 ## [0.4.2] - 2026-01-16
 
 ### Fixed
