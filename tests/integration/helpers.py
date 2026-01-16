@@ -1,12 +1,11 @@
 import json
 import logging
 import os
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
+from urllib.parse import urlsplit
 
-import jwt
 import pytest
 
 OUTPUT_FILES = (
@@ -102,6 +101,12 @@ def require_api_url() -> str:
     return api_url.rstrip("/")
 
 
+def require_api_issuer() -> str:
+    api_url = require_api_url()
+    parts = urlsplit(api_url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def require_rajee_test_bucket() -> str:
     bucket = os.environ.get("RAJEE_TEST_BUCKET")
     if not bucket:
@@ -159,55 +164,14 @@ def issue_token(principal: str) -> tuple[str, list[str]]:
     return token, scopes
 
 
-def get_jwt_secret() -> str:
-    """Get JWT signing secret for test token generation."""
-    secret = os.environ.get("JWT_SECRET")
-    if secret:
-        return secret
-
-    repo_root = Path(__file__).resolve().parents[2]
-    secret_arn = _load_jwt_secret_arn_from_outputs(repo_root)
-    if secret_arn:
-        try:
-            import boto3
-
-            secrets = boto3.client("secretsmanager")
-            response = secrets.get_secret_value(SecretId=secret_arn)
-            return response["SecretString"]
-        except Exception as exc:
-            logger.debug("Could not fetch JWT secret from Secrets Manager: %s", exc)
-
-    return "test-secret-key-for-local-testing"
-
-
-def issue_rajee_token(bucket: str, prefix: str = "rajee-integration/") -> str:
-    """Issue a RAJEE token with grants for the test bucket/prefix."""
-    issuer = os.environ.get("RAJA_ISSUER")
-    if not issuer:
-        issuer = require_api_url()
-
-    normalized_prefix = prefix.lstrip("/")
-    if normalized_prefix and not normalized_prefix.endswith("/"):
-        normalized_prefix = f"{normalized_prefix}/"
-
-    grants = [
-        f"s3:GetObject/{bucket}/{normalized_prefix}",
-        f"s3:PutObject/{bucket}/{normalized_prefix}",
-        f"s3:DeleteObject/{bucket}/{normalized_prefix}",
-        f"s3:ListBucket/{bucket}/",
-        f"s3:GetObjectAttributes/{bucket}/{normalized_prefix}",
-        f"s3:ListObjectVersions/{bucket}/{normalized_prefix}",
-    ]
-
-    now = datetime.now(UTC)
-    payload = {
-        "sub": "User::test-user",
-        "iss": issuer,
-        "aud": ["raja-s3-proxy"],
-        "exp": int((now + timedelta(hours=1)).timestamp()),
-        "iat": int(now.timestamp()),
-        "grants": grants,
-    }
-
-    secret = get_jwt_secret()
-    return jwt.encode(payload, secret, algorithm="HS256")
+def issue_rajee_token(principal: str = "alice") -> str:
+    """Issue a RAJEE token via the control plane (signed by JWKS secret)."""
+    status, body = request_json(
+        "POST",
+        "/token",
+        {"principal": principal, "token_type": "rajee"},
+    )
+    assert status == 200, body
+    token = body.get("token")
+    assert token, "token missing in response"
+    return token

@@ -103,7 +103,7 @@ def test_rajee_envoy_s3_roundtrip_auth_disabled_legacy() -> None:
 @pytest.mark.integration
 def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token(bucket, prefix="rajee-integration/")
+    token = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -139,7 +139,7 @@ def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
 @pytest.mark.integration
 def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token(bucket, prefix="rajee-integration/")
+    token = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = "unauthorized-prefix/test.txt"
@@ -165,7 +165,7 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
 def test_rajee_envoy_list_bucket() -> None:
     """Test ListBucket operation through RAJEE proxy."""
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token(bucket, prefix="rajee-integration/")
+    token = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -203,7 +203,7 @@ def test_rajee_envoy_list_bucket() -> None:
 def test_rajee_envoy_get_object_attributes() -> None:
     """Test GetObjectAttributes operation through RAJEE proxy."""
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token(bucket, prefix="rajee-integration/")
+    token = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -246,7 +246,7 @@ def test_rajee_envoy_get_object_attributes() -> None:
 def test_rajee_envoy_versioning_operations() -> None:
     """Test version-aware operations through RAJEE proxy (GetObjectVersion, ListBucketVersions)."""
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token(bucket, prefix="rajee-integration/")
+    token = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"

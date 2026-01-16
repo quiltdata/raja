@@ -15,11 +15,14 @@ services_stack = ServicesStack(
 )
 
 api_url = services_stack.api_url.rstrip("/")
+scheme, rest = api_url.split("://", 1)
+netloc = rest.split("/", 1)[0]
+issuer = f"{scheme}://{netloc}"
 rajee_envoy_stack = RajeeEnvoyStack(
     app,
     "RajeeEnvoyStack",
     jwks_endpoint=f"{api_url}/.well-known/jwks.json",
-    raja_issuer=api_url,
+    raja_issuer=issuer,
 )
 
 app.synth()
