@@ -24,6 +24,8 @@ class RajeeEnvoyStack(Stack):
         scope: Construct,
         construct_id: str,
         *,
+        jwks_endpoint: str | None = None,
+        raja_issuer: str | None = None,
         certificate_arn: str | None = None,
         **kwargs: object,
     ) -> None:
@@ -112,7 +114,7 @@ class RajeeEnvoyStack(Stack):
             self,
             "AUTH_DISABLED",
             type="String",
-            default="true",
+            default="false",
             allowed_values=["true", "false"],
             description="Disable authorization checks in Envoy (fail-open for bootstrap).",
         )
@@ -131,6 +133,8 @@ class RajeeEnvoyStack(Stack):
             environment={
                 "ENVOY_LOG_LEVEL": "info",
                 "AUTH_DISABLED": auth_disabled.value_as_string,
+                "JWKS_ENDPOINT": jwks_endpoint or "",
+                "RAJA_ISSUER": raja_issuer or "",
             },
             health_check=ecs.HealthCheck(
                 command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],

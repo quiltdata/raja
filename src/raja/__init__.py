@@ -14,7 +14,7 @@ from .exceptions import (
 )
 from .models import AuthRequest, CedarPolicy, Decision, Scope, Token
 from .scope import format_scope, is_subset, parse_scope
-from .token import create_token, decode_token, validate_token
+from .token import create_token, create_token_with_grants, decode_token, validate_token
 
 __all__ = [
     # Models
@@ -27,6 +27,7 @@ __all__ = [
     "compile_policies",
     "compile_policy",
     "create_token",
+    "create_token_with_grants",
     "decode_token",
     "enforce",
     "format_scope",

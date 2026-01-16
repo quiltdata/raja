@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-01-15
+
+### Added
+
+- **RAJEE Envoy**: JWT authn + Lua authz filters with prefix/wildcard grant checks
+- **Control plane**: JWKS endpoint and RAJEE grants token issuance (`token_type=rajee`)
+- **RAJEE grants**: Scope-to-grant conversion utilities plus unit coverage
+- **Local testing**: Lua unit tests, mock JWKS server, and docker-compose harness
+
+## [0.4.0] - 2026-01-15
+
 ### Added
 
 - **RAJEE Envoy stack**: Dedicated S3 test bucket for proxy validation

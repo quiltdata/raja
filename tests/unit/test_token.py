@@ -4,7 +4,13 @@ import pytest
 
 from raja.exceptions import TokenExpiredError, TokenInvalidError
 from raja.models import Token
-from raja.token import create_token, decode_token, is_expired, validate_token
+from raja.token import (
+    create_token,
+    create_token_with_grants,
+    decode_token,
+    is_expired,
+    validate_token,
+)
 
 
 def test_create_and_validate_token():
@@ -42,3 +48,19 @@ def test_is_expired():
         expires_at=int(time.time()) - 1,
     )
     assert is_expired(token) is True
+
+
+def test_create_token_with_grants_includes_claims():
+    token_str = create_token_with_grants(
+        "alice",
+        ["s3:GetObject/bucket/key.txt"],
+        ttl=60,
+        secret="secret",
+        issuer="https://issuer.test",
+        audience=["raja-s3-proxy"],
+    )
+    payload = decode_token(token_str)
+    assert payload["sub"] == "alice"
+    assert payload["grants"] == ["s3:GetObject/bucket/key.txt"]
+    assert payload["iss"] == "https://issuer.test"
+    assert payload["aud"] == ["raja-s3-proxy"]
