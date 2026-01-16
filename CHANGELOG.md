@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **RAJEE Envoy**: JWT authn + Lua authz filters with prefix/wildcard grant checks
+- **Control plane**: JWKS endpoint and RAJEE grants token issuance (`token_type=rajee`)
+- **RAJEE grants**: Scope-to-grant conversion utilities plus unit coverage
+- **Local testing**: Lua unit tests, mock JWKS server, and docker-compose harness
 - **RAJEE Envoy stack**: Dedicated S3 test bucket for proxy validation
 - **RAJEE Envoy stack**: Exports `RajeeEndpoint` and `TestBucketName` for integration tests
 - **Integration tests**: Envoy S3 roundtrip test (PUT/GET/DELETE) for AUTH-disabled proxy
@@ -19,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **RAJEE Envoy stack**: Authorization enabled by default with JWKS/issuer configuration
 - **RAJEE Envoy stack**: Auth gating is configurable via `AUTH_DISABLED`/`DISABLE_AUTH_CHECKS`
 - **RAJEE Envoy stack**: Authorizer sidecar dependency removed for standalone proxy use
 - **Local tooling**: Updated Envoy docker workflow and health checks

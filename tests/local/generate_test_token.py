@@ -1,7 +1,7 @@
 """Generate test JWTs with grants for local testing."""
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 
@@ -9,7 +9,7 @@ TEST_SECRET = "test-secret-key-for-local-testing"
 
 
 def generate_token(grants: list[str], ttl_seconds: int = 3600) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     exp = now + timedelta(seconds=ttl_seconds)
     payload = {
         "sub": "User::test-user",
