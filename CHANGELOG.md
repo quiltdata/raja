@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **RAJEE Envoy stack**: Dedicated S3 test bucket for proxy validation
+- **RAJEE Envoy stack**: Exports `RajeeEndpoint` and `TestBucketName` for integration tests
+- **Integration tests**: Envoy S3 roundtrip test (PUT/GET/DELETE) for AUTH-disabled proxy
+- **Control plane**: Audit logging for compile and token issuance, plus coverage tests
+- **Admin UI**: Extracted static assets (CSS/JS) into standalone files
+- **Tooling**: `scripts/merge_cdk_outputs.py` to merge CDK outputs into `infra/cdk-outputs.json`
+
+### Changed
+
+- **RAJEE Envoy stack**: Auth gating is configurable via `AUTH_DISABLED`/`DISABLE_AUTH_CHECKS`
+- **RAJEE Envoy stack**: Authorizer sidecar dependency removed for standalone proxy use
+- **Local tooling**: Updated Envoy docker workflow and health checks
+- **Deploy workflow**: CDK deploy writes per-stack outputs and merges them for tests
+
+### Fixed
+
+- **Envoy S3 proxy**: Rewrite Host header to the S3 upstream for correct request handling
+- **Integration tests**: Sign RAJEE proxy requests with S3 Host header to avoid SigV4 mismatches
+- **RAJEE startup**: Improved health/observability for Envoy stack
+
 ## [0.3.0] - 2026-01-14
 
 ### Added

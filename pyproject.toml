@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.3.0"
+version = "0.4.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -97,6 +97,9 @@ test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
 test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name = "action", positional = true, default = "up" }], help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
+# Demo
+demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration with verbose output" }
+
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
@@ -120,7 +123,7 @@ _npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx 
 _format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
 _lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
 _typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
-_cdk-deploy = { shell = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy --all --require-approval never --progress bar --outputs-file cdk-outputs.json --output cdk.out.deploy", help = "Internal: deploy CDK" }
+_cdk-deploy = { shell = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajeeEnvoyStack --require-approval never --progress bar --outputs-file cdk-outputs-rajee.json --output cdk.out.deploy && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajaAvpStack RajaServicesStack --require-approval never --progress bar --outputs-file cdk-outputs-services.json --output cdk.out.deploy && python ../scripts/merge_cdk_outputs.py cdk-outputs-rajee.json cdk-outputs-services.json cdk-outputs.json", help = "Internal: deploy CDK stacks in correct order" }
 _cdk-destroy = { cmd = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk destroy --all --force", help = "Internal: destroy CDK" }
 
 [tool.mypy]

@@ -114,22 +114,23 @@ Main application stack with API and Lambda functions:
 
 ### 3. Rajee Envoy Stack (`stacks/rajee_envoy_stack.py`)
 
-ECS Fargate deployment for the RAJEE Envoy S3 proxy with a FastAPI authorizer
-sidecar. Uses an Application Load Balancer with optional TLS (ACM certificate ARN).
+ECS Fargate deployment for the RAJEE Envoy S3 proxy. Uses an Application Load
+Balancer with optional TLS (ACM certificate ARN). Envoy can fail-open for
+bootstrap by setting `AUTH_DISABLED=true`, otherwise it returns an error for
+all requests.
 
 **Resources:**
 
 1. **VPC + ECS Cluster**
 2. **Fargate Service**
    - Envoy proxy container (custom config image)
-   - Authorizer sidecar (FastAPI)
 3. **ALB + Target Group**
    - Health checks against Envoy admin port
 4. **Auto-scaling**
 
 **Inputs:**
 
-- `jwt_signing_secret` - Secrets Manager secret for JWT validation
+- `AUTH_DISABLED` - Set to `true` to allow requests without authorization
 - `certificate_arn` (optional) - ACM certificate ARN for HTTPS
 
 ## CDK Constructs
@@ -199,7 +200,6 @@ cd infra
 ARGS=logs ./poe test-docker
 ./test-docker.sh logs
 ./test-docker.sh logs envoy      # Only Envoy logs
-./test-docker.sh logs authorizer # Only authorizer logs
 
 # Stop containers
 ARGS=down ./poe test-docker
@@ -213,10 +213,9 @@ ARGS=down ./poe test-docker
 
 The local Docker environment validates:
 - Container build processes
-- Health check endpoints (Envoy `/ready`, Authorizer `/docs`)
-- Inter-container communication (Envoy → Authorizer)
+- Health check endpoints (Envoy `/ready`)
 - Envoy configuration
-- Authorizer FastAPI app startup
+- AUTH_DISABLED behavior
 
 ### Architecture
 
@@ -224,13 +223,13 @@ The local Docker environment validates:
 ┌─────────────────────────────────────────┐
 │  Docker Compose Network (rajee-net)     │
 │                                         │
-│  ┌──────────────┐    ┌──────────────┐  │
-│  │ Authorizer   │    │   Envoy      │  │
-│  │ (FastAPI)    │◄───│   Proxy      │  │
-│  │              │    │              │  │
-│  │ Port: 9000   │    │ Port: 10000  │  │
-│  └──────────────┘    │ Admin: 9901  │  │
-│                      └──────────────┘  │
+│  ┌──────────────┐                      │
+│  │   Envoy      │                      │
+│  │   Proxy      │                      │
+│  │              │                      │
+│  │ Port: 10000  │                      │
+│  │ Admin: 9901  │                      │
+│  └──────────────┘                      │
 └─────────────────────────────────────────┘
            ▲
            │
@@ -240,12 +239,11 @@ The local Docker environment validates:
 **Available endpoints:**
 - Envoy Proxy: `http://localhost:10000`
 - Envoy Admin: `http://localhost:9901`
-- Authorizer API docs: `http://localhost:9000/docs`
 
 ### Differences from AWS
 
 Local testing uses simplified configuration:
-1. **JWT Secret:** Hardcoded test secret (not Secrets Manager)
+1. **Auth bypass:** `AUTH_DISABLED=true` by default
 2. **S3 Access:** No IAM role credentials
 3. **Networking:** Docker bridge network (not VPC)
 4. **Load Balancer:** Direct Envoy access (no ALB)

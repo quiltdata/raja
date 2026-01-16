@@ -1,9 +1,11 @@
 import importlib
 import os
+from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
 server_app = importlib.import_module("raja.server.app")
+dependencies = importlib.import_module("raja.server.dependencies")
 
 app = server_app.app
 
@@ -20,6 +22,36 @@ def test_health_endpoint():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_audit_endpoint_returns_entries() -> None:
+    mock_table = MagicMock()
+    mock_table.query.return_value = {
+        "Items": [
+            {
+                "pk": "AUDIT",
+                "event_id": "1",
+                "timestamp": 1234567890,
+                "principal": "alice",
+                "action": "token.issue",
+                "resource": "alice",
+                "decision": "SUCCESS",
+                "policy_store_id": "store",
+                "request_id": "req",
+            }
+        ]
+    }
+
+    app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_table
+    try:
+        client = TestClient(app)
+        response = client.get("/audit")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["entries"]
+        assert payload["entries"][0]["principal"] == "alice"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_s3_harness_flow_allows_and_denies() -> None:

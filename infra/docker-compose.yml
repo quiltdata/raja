@@ -1,21 +1,4 @@
 services:
-  authorizer:
-    build:
-      context: ..
-      dockerfile: lambda_handlers/authorizer/Dockerfile
-    ports:
-      - "9000:9000"
-    environment:
-      - JWT_SECRET=test-secret-key-for-local-development-only
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/docs')"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    networks:
-      - rajee-net
-
   envoy:
     build:
       context: ..
@@ -25,15 +8,13 @@ services:
       - "9901:9901"    # Admin port
     environment:
       - ENVOY_LOG_LEVEL=info
+      - AUTH_DISABLED=true
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
-    depends_on:
-      authorizer:
-        condition: service_healthy
     networks:
       - rajee-net
 

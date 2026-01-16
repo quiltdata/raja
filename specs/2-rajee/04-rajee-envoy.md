@@ -677,7 +677,9 @@ from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
+from aws_cdk import RemovalPolicy
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
@@ -718,11 +720,30 @@ class RajeeEnvoyStack(Stack):
             cpu=256,
         )
 
+        # Dedicated test bucket for proxy validation
+        test_bucket = s3.Bucket(
+            self,
+            "RajeeTestBucket",
+            bucket_name=f"raja-poc-test-{Stack.of(self).account}-{Stack.of(self).region}",
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            versioned=True,
+        )
+
         # Grant S3 access (for proxying)
         task_definition.add_to_task_role_policy(
             iam.PolicyStatement(
-                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-                resources=["*"],  # Or scope to specific buckets
+                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                resources=[test_bucket.bucket_arn, f"{test_bucket.bucket_arn}/*"],
+            )
+        )
+
+        task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:ListBucket"],
+                resources=[test_bucket.bucket_arn],
             )
         )
 
@@ -809,6 +830,13 @@ class RajeeEnvoyStack(Stack):
             "RequestScaling",
             requests_per_target=1000,
             target_group=alb_service.target_group,
+        )
+
+        CfnOutput(
+            self,
+            "TestBucketName",
+            value=test_bucket.bucket_name,
+            description="S3 bucket for RAJEE proxy testing",
         )
 
         self.load_balancer = alb_service.load_balancer

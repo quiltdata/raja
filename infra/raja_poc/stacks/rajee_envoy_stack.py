@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aws_cdk import CfnOutput, Duration, Stack
+from aws_cdk import CfnOutput, CfnParameter, Duration, RemovalPolicy, Stack
 from aws_cdk import aws_certificatemanager as acm
+from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_ecs_patterns as ecs_patterns
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
-from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
 from ..utils.platform import detect_platform, get_platform_string
@@ -23,7 +24,6 @@ class RajeeEnvoyStack(Stack):
         scope: Construct,
         construct_id: str,
         *,
-        jwt_signing_secret: secretsmanager.ISecret,
         certificate_arn: str | None = None,
         **kwargs: object,
     ) -> None:
@@ -68,20 +68,54 @@ class RajeeEnvoyStack(Stack):
             ),
         )
 
+        test_bucket = s3.Bucket(
+            self,
+            "RajeeTestBucket",
+            bucket_name=f"raja-poc-test-{Stack.of(self).account}-{Stack.of(self).region}",
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            versioned=True,
+        )
+
         task_definition.add_to_task_role_policy(
             iam.PolicyStatement(
                 actions=[
                     "s3:GetObject",
                     "s3:PutObject",
                     "s3:DeleteObject",
-                    "s3:ListBucket",
                 ],
-                resources=["*"],
+                resources=[
+                    test_bucket.bucket_arn,
+                    f"{test_bucket.bucket_arn}/*",
+                ],
             )
         )
 
-        if task_definition.execution_role is not None:
-            jwt_signing_secret.grant_read(task_definition.execution_role)
+        task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:ListBucket"],
+                resources=[test_bucket.bucket_arn],
+            )
+        )
+
+        task_definition.add_to_task_role_policy(
+            iam.PolicyStatement(
+                actions=["cloudwatch:PutMetricData"],
+                resources=["*"],
+                conditions={"StringEquals": {"cloudwatch:namespace": "RAJEE"}},
+            )
+        )
+
+        auth_disabled = CfnParameter(
+            self,
+            "AUTH_DISABLED",
+            type="String",
+            default="true",
+            allowed_values=["true", "false"],
+            description="Disable authorization checks in Envoy (fail-open for bootstrap).",
+        )
 
         envoy_container = task_definition.add_container(
             "EnvoyProxy",
@@ -91,8 +125,13 @@ class RajeeEnvoyStack(Stack):
                 exclude=asset_excludes,
                 platform=docker_platform,
             ),
+            cpu=128,
+            memory_limit_mib=256,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="envoy"),
-            environment={"ENVOY_LOG_LEVEL": "info"},
+            environment={
+                "ENVOY_LOG_LEVEL": "info",
+                "AUTH_DISABLED": auth_disabled.value_as_string,
+            },
             health_check=ecs.HealthCheck(
                 command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],
                 interval=Duration.seconds(30),
@@ -104,23 +143,6 @@ class RajeeEnvoyStack(Stack):
         envoy_container.add_port_mappings(
             ecs.PortMapping(container_port=10000, protocol=ecs.Protocol.TCP),
             ecs.PortMapping(container_port=9901, protocol=ecs.Protocol.TCP),
-        )
-
-        authorizer_container = task_definition.add_container(
-            "Authorizer",
-            image=ecs.ContainerImage.from_asset(
-                str(repo_root),
-                file="lambda_handlers/authorizer/Dockerfile",
-                exclude=asset_excludes,
-                platform=docker_platform,
-            ),
-            logging=ecs.LogDrivers.aws_logs(stream_prefix="authorizer"),
-            secrets={
-                "JWT_SECRET": ecs.Secret.from_secrets_manager(jwt_signing_secret),
-            },
-        )
-        authorizer_container.add_port_mappings(
-            ecs.PortMapping(container_port=9000, protocol=ecs.Protocol.TCP)
         )
 
         certificate = None
@@ -182,11 +204,56 @@ class RajeeEnvoyStack(Stack):
             target_group=alb_service.target_group,
         )
 
+        dashboard = cloudwatch.Dashboard(
+            self,
+            "RajeeDashboard",
+            dashboard_name="RAJEE-Monitoring",
+        )
+        dashboard.add_widgets(
+            cloudwatch.GraphWidget(
+                title="Authorization Decisions",
+                left=[
+                    cloudwatch.Metric(
+                        namespace="RAJEE",
+                        metric_name="AuthorizationAllow",
+                        statistic="Sum",
+                    ),
+                    cloudwatch.Metric(
+                        namespace="RAJEE",
+                        metric_name="AuthorizationDeny",
+                        statistic="Sum",
+                    ),
+                ],
+            ),
+            cloudwatch.GraphWidget(
+                title="Authorization Latency",
+                left=[
+                    cloudwatch.Metric(
+                        namespace="RAJEE",
+                        metric_name="AuthorizationLatency",
+                        statistic="Average",
+                    ),
+                ],
+            ),
+        )
+
         CfnOutput(
             self,
             "DeploymentPlatform",
             value=get_platform_string(),
             description="Platform architecture used for this deployment",
+        )
+        CfnOutput(
+            self,
+            "TestBucketName",
+            value=test_bucket.bucket_name,
+            description="S3 bucket for RAJEE proxy testing",
+        )
+        CfnOutput(
+            self,
+            "RajeeEndpoint",
+            value=f"{'https' if certificate else 'http'}://{alb_service.load_balancer.load_balancer_dns_name}",
+            description="Base URL for the RAJEE Envoy S3 proxy",
         )
 
         self.load_balancer = alb_service.load_balancer

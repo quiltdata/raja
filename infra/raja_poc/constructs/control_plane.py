@@ -20,6 +20,7 @@ class ControlPlaneLambda(Construct):
         policy_store_arn: str,
         mappings_table: dynamodb.Table,
         principal_table: dynamodb.Table,
+        audit_table: dynamodb.Table,
         raja_layer: lambda_.ILayerVersion,
         jwt_secret: secretsmanager.Secret,
         harness_secret: secretsmanager.Secret,
@@ -56,6 +57,7 @@ class ControlPlaneLambda(Construct):
                 "POLICY_STORE_ID": policy_store_id,
                 "MAPPINGS_TABLE": mappings_table.table_name,
                 "PRINCIPAL_TABLE": principal_table.table_name,
+                "AUDIT_TABLE": audit_table.table_name,
                 "JWT_SECRET_ARN": jwt_secret.secret_arn,
                 "HARNESS_SECRET_ARN": harness_secret.secret_arn,
                 "TOKEN_TTL": str(token_ttl),
@@ -64,6 +66,7 @@ class ControlPlaneLambda(Construct):
 
         mappings_table.grant_read_write_data(self.function)
         principal_table.grant_read_write_data(self.function)
+        audit_table.grant_read_write_data(self.function)
         jwt_secret.grant_read(self.function)
         harness_secret.grant_read(self.function)
 

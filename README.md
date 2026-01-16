@@ -86,6 +86,19 @@ When deployed to AWS, RAJA provides:
 **GET /audit** - View audit log entries
 
 ```
+Query params:
+  principal=<principal>
+  action=<action>
+  resource=<resource>
+  start_time=<epoch-seconds>
+  end_time=<epoch-seconds>
+  limit=<1-200>
+  next_token=<pagination-token>
+
+Response fields include: timestamp, principal, action, resource, decision,
+policy_store_id, request_id.
+
+```
 
 ## Local Development
 
@@ -124,6 +137,22 @@ print(decision.allowed)  # True
 ./poe test         # All tests
 ./poe check        # Format, lint, typecheck
 ```
+
+### Demo RAJEE Envoy S3 Proxy
+
+To demonstrate RAJEE's Envoy proxy correctly routing S3 operations:
+
+```bash
+./poe demo
+```
+
+This runs verbose integration tests showing:
+
+- S3 operations (PUT, GET, DELETE, LIST) proxied through Envoy
+- Host header rewriting (Envoy endpoint → s3.amazonaws.com)
+- Multiple S3 API operations (GetObject, ListObjects, GetObjectAttributes, versioning)
+- Timing metrics for each operation
+- Complete request/response verification
 
 ## Scope Format
 

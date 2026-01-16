@@ -65,6 +65,15 @@ class ServicesStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
+        audit_table = dynamodb.Table(
+            self,
+            "AuditLog",
+            partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="event_id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            time_to_live_attribute="ttl",
+        )
+
         jwt_secret = secretsmanager.Secret(
             self,
             "JwtSigningKey",
@@ -87,6 +96,7 @@ class ServicesStack(Stack):
             policy_store_arn=policy_store_arn,
             mappings_table=mappings_table,
             principal_table=principal_table,
+            audit_table=audit_table,
             raja_layer=raja_layer,
             jwt_secret=jwt_secret,
             harness_secret=harness_secret,
@@ -111,5 +121,6 @@ class ServicesStack(Stack):
         CfnOutput(self, "ControlPlaneLambdaArn", value=control_plane.function.function_arn)
         CfnOutput(self, "MappingsTableName", value=mappings_table.table_name)
         CfnOutput(self, "PrincipalTableName", value=principal_table.table_name)
+        CfnOutput(self, "AuditTableName", value=audit_table.table_name)
         CfnOutput(self, "JWTSecretArn", value=jwt_secret.secret_arn)
         CfnOutput(self, "HarnessSecretArn", value=harness_secret.secret_arn)
