@@ -9,6 +9,22 @@ package.cpath = package.cpath
 local auth_lib = require("authorize_lib")
 local cjson = require("cjson")
 
+local function split_csv(value)
+  local items = {}
+  if not value or value == "" then
+    return items
+  end
+  for item in string.gmatch(value, "([^,]+)") do
+    local trimmed = item:gsub("^%s*(.-)%s*$", "%1")
+    if trimmed ~= "" then
+      table.insert(items, trimmed)
+    end
+  end
+  return items
+end
+
+local public_grants = split_csv(os.getenv("RAJEE_PUBLIC_GRANTS"))
+
 local function base64url_decode(input)
   local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
   local decoded_input = input:gsub("-", "+"):gsub("_", "/")
@@ -68,6 +84,29 @@ function envoy_on_request(request_handle)
     return
   end
 
+  local path_parts = {}
+  for part in string.gmatch(path, "[^?]+") do
+    table.insert(path_parts, part)
+  end
+
+  local clean_path = path_parts[1] or path
+  local query_string = path_parts[2] or ""
+  local query_params = auth_lib.parse_query_string(query_string)
+  local request_string = auth_lib.parse_s3_request(method, clean_path, query_params)
+
+  if #public_grants > 0 then
+    local public_allowed, public_reason = auth_lib.authorize(public_grants, request_string)
+    if public_allowed then
+      request_handle:logInfo(
+        string.format("ALLOW: %s (reason: %s)", request_string, public_reason)
+      )
+      request_handle:headers():add("x-raja-decision", "allow")
+      request_handle:headers():add("x-raja-reason", public_reason)
+      request_handle:headers():add("x-raja-request", request_string)
+      return
+    end
+  end
+
   local jwt_payload_header = request_handle:headers():get("x-raja-jwt-payload")
   if not jwt_payload_header then
     request_handle:logWarn("Missing JWT payload header")
@@ -97,17 +136,6 @@ function envoy_on_request(request_handle)
   end
 
   local grants = jwt_payload.grants or {}
-
-  local path_parts = {}
-  for part in string.gmatch(path, "[^?]+") do
-    table.insert(path_parts, part)
-  end
-
-  local clean_path = path_parts[1] or path
-  local query_string = path_parts[2] or ""
-  local query_params = auth_lib.parse_query_string(query_string)
-
-  local request_string = auth_lib.parse_s3_request(method, clean_path, query_params)
   local allowed, reason = auth_lib.authorize(grants, request_string)
 
   if allowed then

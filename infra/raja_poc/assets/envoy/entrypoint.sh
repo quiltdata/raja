@@ -6,6 +6,7 @@ AUTH_DISABLED_VALUE="$(printf '%s' "$AUTH_DISABLED_VALUE" | tr '[:upper:]' '[:lo
 
 JWKS_ENDPOINT_VALUE="${JWKS_ENDPOINT:-http://localhost:8001/.well-known/jwks.json}"
 RAJA_ISSUER_VALUE="${RAJA_ISSUER:-http://localhost:8000}"
+PUBLIC_PATH_PREFIXES_VALUE="${RAJEE_PUBLIC_PATH_PREFIXES:-}"
 
 JWKS_SCHEME=$(printf '%s' "$JWKS_ENDPOINT_VALUE" | sed -n 's#^\(https\?\)://.*#\1#p')
 JWKS_SCHEME="${JWKS_SCHEME:-http}"
@@ -39,6 +40,10 @@ fi
 if [ "$AUTH_DISABLED_VALUE" = "1" ] || [ "$AUTH_DISABLED_VALUE" = "true" ] || [ "$AUTH_DISABLED_VALUE" = "yes" ] || [ "$AUTH_DISABLED_VALUE" = "on" ]; then
   AUTH_FILTER=""
 else
+  PUBLIC_PATH_RULES=""
+  if [ -n "$PUBLIC_PATH_PREFIXES_VALUE" ]; then
+    PUBLIC_PATH_RULES=$(printf '%s' "$PUBLIC_PATH_PREFIXES_VALUE" | tr ',' '\n' | awk 'NF { printf "                        - match:\n                            prefix: \"%s\"\n                          requires:\n                            allow_missing: {}\n", $0 }')
+  fi
   AUTH_FILTER=$(cat <<'EOF'
                   - name: envoy.filters.http.jwt_authn
                     typed_config:
@@ -62,6 +67,7 @@ else
                           forward: true
                           forward_payload_header: "x-raja-jwt-payload"
                       rules:
+__PUBLIC_PATH_RULES__
                         - match:
                             prefix: "/"
                           requires:
@@ -69,16 +75,18 @@ else
                   - name: envoy.filters.http.lua
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-                      inline_code: |
+                      default_source_code:
+                        inline_string: |
 __AUTH_LUA__
 EOF
 )
 fi
 
-AUTH_LUA=$(sed 's/^/                        /' /etc/envoy/authorize.lua)
+AUTH_LUA=$(sed 's/^/                          /' /etc/envoy/authorize.lua)
 
 awk -v auth_filter="$AUTH_FILTER" \
     -v auth_lua="$AUTH_LUA" \
+    -v public_path_rules="$PUBLIC_PATH_RULES" \
     -v jwks_host="$JWKS_HOST" \
     -v jwks_port="$JWKS_PORT" \
     -v jwks_transport="$JWKS_TRANSPORT_SOCKET" \
@@ -86,6 +94,7 @@ awk -v auth_filter="$AUTH_FILTER" \
     -v raja_issuer="$RAJA_ISSUER_VALUE" \
     '{
       gsub(/__AUTH_FILTER__/, auth_filter)
+      gsub(/__PUBLIC_PATH_RULES__/, public_path_rules)
       gsub(/__AUTH_LUA__/, auth_lua)
       gsub(/__JWKS_HOST__/, jwks_host)
       gsub(/__JWKS_PORT__/, jwks_port)
@@ -93,5 +102,14 @@ awk -v auth_filter="$AUTH_FILTER" \
       gsub(/__JWKS_ENDPOINT__/, jwks_endpoint)
       gsub(/__RAJA_ISSUER__/, raja_issuer)
     }1' /etc/envoy/envoy.yaml.tmpl > /tmp/envoy.yaml
+
+if [ "${ENVOY_VALIDATE:-}" = "true" ] || [ "${ENVOY_VALIDATE:-}" = "1" ]; then
+  if ! envoy --mode validate -c /tmp/envoy.yaml; then
+    echo "Envoy config validation failed; rendered config:" >&2
+    cat /tmp/envoy.yaml >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 exec envoy -c /tmp/envoy.yaml --log-level "${ENVOY_LOG_LEVEL:-info}"
