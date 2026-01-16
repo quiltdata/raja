@@ -7,11 +7,12 @@ from ..models import CedarPolicy
 
 _EFFECT_RE = re.compile(r"^(permit|forbid)\s*\(", re.IGNORECASE)
 _FIELD_RE = re.compile(r"\b(principal|action|resource)\s*==\s*([^,\)]+)", re.IGNORECASE)
+_COMMENT_RE = re.compile(r"//.*$", re.MULTILINE)
 
 
 def parse_policy(policy_str: str) -> CedarPolicy:
     """Parse a simplified Cedar policy string into a CedarPolicy model."""
-    cleaned = policy_str.strip().rstrip(";")
+    cleaned = _COMMENT_RE.sub("", policy_str).strip().rstrip(";")
     effect_match = _EFFECT_RE.match(cleaned)
     if not effect_match:
         raise ValueError("policy must start with permit(...) or forbid(...)")

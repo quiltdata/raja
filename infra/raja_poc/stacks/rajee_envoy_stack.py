@@ -83,16 +83,6 @@ class RajeeEnvoyStack(Stack):
             versioned=True,
         )
 
-        public_prefix = "rajee-integration/"
-        public_grants = [
-            f"s3:GetObject/{test_bucket.bucket_name}/{public_prefix}",
-            f"s3:PutObject/{test_bucket.bucket_name}/{public_prefix}",
-            f"s3:DeleteObject/{test_bucket.bucket_name}/{public_prefix}",
-            f"s3:ListBucket/{test_bucket.bucket_name}/",
-            f"s3:GetObjectAttributes/{test_bucket.bucket_name}/{public_prefix}",
-            f"s3:ListObjectVersions/{test_bucket.bucket_name}/{public_prefix}",
-        ]
-
         task_definition.add_to_task_role_policy(
             iam.PolicyStatement(
                 actions=[
@@ -130,6 +120,26 @@ class RajeeEnvoyStack(Stack):
             allowed_values=["true", "false"],
             description="Disable authorization checks in Envoy (fail-open for bootstrap).",
         )
+        use_public_grants = CfnParameter(
+            self,
+            "USE_PUBLIC_GRANTS",
+            type="String",
+            default="false",
+            allowed_values=["true", "false"],
+            description="Enable public grants bypass for the RAJEE test prefix.",
+        )
+
+        public_grants: list[str] = []
+        if use_public_grants.value_as_string == "true":
+            public_prefix = "rajee-integration/"
+            public_grants = [
+                f"s3:GetObject/{test_bucket.bucket_name}/{public_prefix}",
+                f"s3:PutObject/{test_bucket.bucket_name}/{public_prefix}",
+                f"s3:DeleteObject/{test_bucket.bucket_name}/{public_prefix}",
+                f"s3:ListBucket/{test_bucket.bucket_name}/",
+                f"s3:GetObjectAttributes/{test_bucket.bucket_name}/{public_prefix}",
+                f"s3:ListObjectVersions/{test_bucket.bucket_name}/{public_prefix}",
+            ]
 
         envoy_container = task_definition.add_container(
             "EnvoyProxy",

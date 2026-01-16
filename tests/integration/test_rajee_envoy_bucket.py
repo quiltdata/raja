@@ -4,9 +4,12 @@ import uuid
 from typing import Any
 
 import boto3
+import jwt
 import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+from raja.rajee.authorizer import is_authorized
 
 from .helpers import issue_rajee_token, require_rajee_endpoint, require_rajee_test_bucket
 
@@ -134,6 +137,37 @@ def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
     print("\n" + "=" * 80)
     print(f"✅ ROUNDTRIP TEST COMPLETE - Total time: {put_time + get_time + delete_time:.3f}s")
     print("=" * 80)
+
+
+@pytest.mark.integration
+def test_rajee_envoy_auth_with_real_grants() -> None:
+    bucket = require_rajee_test_bucket()
+    token = issue_rajee_token("alice")
+    decoded = jwt.decode(token, options={"verify_signature": False})
+    grants = decoded.get("grants", [])
+    assert isinstance(grants, list)
+    assert grants, "Token has no grants; load and compile Cedar policies."
+
+    key = f"rajee-integration/{uuid.uuid4().hex}.txt"
+    request_string = f"s3:PutObject/{bucket}/{key}"
+    assert is_authorized(
+        request_string,
+        grants,
+    ), "Token grants do not cover the rajee-integration/ prefix."
+
+    s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
+    body = b"real-authorization-test"
+
+    _log_operation("✍️  PUT OBJECT (real grants)", f"Key: {key}")
+    put_response = s3.put_object(Bucket=bucket, Key=key, Body=body)
+    assert put_response["ResponseMetadata"]["HTTPStatusCode"] == 200
+
+    _log_operation("📥 GET OBJECT (real grants)", f"Key: {key}")
+    get_response = s3.get_object(Bucket=bucket, Key=key)
+    assert get_response["Body"].read() == body
+
+    _log_operation("🗑️  DELETE OBJECT (real grants)", f"Key: {key}")
+    s3.delete_object(Bucket=bucket, Key=key)
 
 
 @pytest.mark.integration

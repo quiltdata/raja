@@ -12,15 +12,31 @@ import boto3
 from botocore.exceptions import ClientError
 
 
+def _split_statements(policy_text: str) -> list[str]:
+    """Split a Cedar policy file into individual statements."""
+    statements: list[str] = []
+    for chunk in policy_text.split(";"):
+        statement = chunk.strip()
+        if statement:
+            statements.append(f"{statement};")
+    return statements
+
+
 def _load_policy_files(policies_dir: Path) -> list[str]:
     """Load all .cedar policy files from directory."""
-    policy_files = sorted(policies_dir.glob("*.cedar"))
+    policy_files = sorted(
+        path for path in policies_dir.glob("*.cedar") if path.name != "schema.cedar"
+    )
 
     if not policy_files:
         print(f"⚠ No .cedar files found in {policies_dir}")
         sys.exit(1)
 
-    return [path.read_text(encoding="utf-8") for path in policy_files]
+    policies: list[str] = []
+    for path in policy_files:
+        policy_text = path.read_text(encoding="utf-8")
+        policies.extend(_split_statements(policy_text))
+    return policies
 
 
 def _create_policy(

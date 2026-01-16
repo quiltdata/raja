@@ -2,7 +2,7 @@
 permit(
   principal == Raja::User::"alice",
   action == Raja::Action::"s3:GetObject",
-  resource in Raja::S3Bucket::"analytics-data"
+  resource == Raja::S3Object::"analytics-data/"
 );
 
 // Data analyst can list the analytics bucket
