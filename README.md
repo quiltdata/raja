@@ -188,4 +188,4 @@ See [CLAUDE.md](CLAUDE.md) for development guidelines.
 
 ## License
 
-[License information to be added]
+Apache License 2.0 - See [LICENSE](LICENSE) for details.
