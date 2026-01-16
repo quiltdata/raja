@@ -192,6 +192,10 @@ class RajeeEnvoyStack(Stack):
             "protocol": protocol,
             "circuit_breaker": ecs.DeploymentCircuitBreaker(rollback=True),
             "health_check_grace_period": Duration.seconds(30),
+            # POC: 50% allows faster deployments, acceptable for non-production
+            # Production should use 100% for zero-downtime deployments
+            "min_healthy_percent": 50,
+            "max_healthy_percent": 200,
         }
         if certificate is not None:
             alb_kwargs["certificate"] = certificate
