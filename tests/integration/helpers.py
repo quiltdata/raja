@@ -1,8 +1,10 @@
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -11,6 +13,8 @@ OUTPUT_FILES = (
     Path("cdk-outputs.json"),
     Path("infra") / "cdk.out" / "outputs.json",
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_output_value(payload: Any, key: str) -> str | None:
@@ -70,6 +74,23 @@ def _load_rajee_endpoint_from_outputs(repo_root: Path) -> str | None:
     return None
 
 
+def _load_jwt_secret_arn_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        secret_arn = _extract_output_value(payload, "JWTSecretArn") or _extract_output_value(
+            payload, "JwtSecretArn"
+        )
+        if secret_arn:
+            return secret_arn
+    return None
+
+
 def require_api_url() -> str:
     api_url = os.environ.get("RAJA_API_URL")
     if not api_url:
@@ -78,6 +99,12 @@ def require_api_url() -> str:
     if not api_url:
         pytest.skip("RAJA_API_URL not set")
     return api_url.rstrip("/")
+
+
+def require_api_issuer() -> str:
+    api_url = require_api_url()
+    parts = urlsplit(api_url)
+    return f"{parts.scheme}://{parts.netloc}"
 
 
 def require_rajee_test_bucket() -> str:
@@ -135,3 +162,16 @@ def issue_token(principal: str) -> tuple[str, list[str]]:
     scopes = body.get("scopes", [])
     assert token, "token missing in response"
     return token, scopes
+
+
+def issue_rajee_token(principal: str = "alice") -> str:
+    """Issue a RAJEE token via the control plane (signed by JWKS secret)."""
+    status, body = request_json(
+        "POST",
+        "/token",
+        {"principal": principal, "token_type": "rajee"},
+    )
+    assert status == 200, body
+    token = body.get("token")
+    assert token, "token missing in response"
+    return token

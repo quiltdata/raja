@@ -8,8 +8,16 @@ COMMAND="${1:-up}"
 
 case "$COMMAND" in
   up|test)
-    echo "🔨 Building and starting RAJEE containers..."
-    docker-compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
+    echo "🔨 Building RAJEE containers..."
+    docker-compose -f "$COMPOSE_FILE" build
+
+    echo ""
+    echo "🧪 Validating Envoy config via entrypoint..."
+    docker-compose -f "$COMPOSE_FILE" run --rm -e ENVOY_VALIDATE=true envoy
+
+    echo ""
+    echo "🚀 Starting RAJEE containers..."
+    docker-compose -f "$COMPOSE_FILE" up -d --remove-orphans
 
     echo ""
     echo "⏳ Waiting for services to be healthy..."

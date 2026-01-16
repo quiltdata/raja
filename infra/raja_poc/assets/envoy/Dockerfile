@@ -1,7 +1,9 @@
 FROM envoyproxy/envoy:v1.28-latest
 
-# Install curl for health checks
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install curl for health checks and Lua JSON support for auth filter
+RUN apt-get update \
+    && apt-get install -y curl lua-cjson \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY infra/raja_poc/assets/envoy/envoy.yaml.tmpl /etc/envoy/envoy.yaml.tmpl
 COPY infra/raja_poc/assets/envoy/entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -10,6 +12,6 @@ COPY infra/raja_poc/assets/envoy/authorize.lua /etc/envoy/authorize.lua
 
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-ENV AUTH_DISABLED=true
+ENV AUTH_DISABLED=false
 
 CMD ["/usr/local/bin/entrypoint.sh"]

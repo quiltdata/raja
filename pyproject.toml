@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.4.1"
+version = "0.4.2"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -124,7 +124,7 @@ _npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx 
 _format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
 _lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
 _typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
-_cdk-deploy = { shell = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajeeEnvoyStack --require-approval never --progress bar --outputs-file cdk-outputs-rajee.json --output cdk.out.deploy && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajaAvpStack RajaServicesStack --require-approval never --progress bar --outputs-file cdk-outputs-services.json --output cdk.out.deploy && python ../scripts/merge_cdk_outputs.py cdk-outputs-rajee.json cdk-outputs-services.json cdk-outputs.json", help = "Internal: deploy CDK stacks in correct order" }
+_cdk-deploy = { shell = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajeeEnvoyStack --require-approval never --progress bar --parameters RajeeEnvoyStack:AUTHDISABLED=false --outputs-file cdk-outputs-rajee.json --output cdk.out.deploy && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajaAvpStack RajaServicesStack --require-approval never --progress bar --outputs-file cdk-outputs-services.json --output cdk.out.deploy && python ../scripts/merge_cdk_outputs.py cdk-outputs-rajee.json cdk-outputs-services.json cdk-outputs.json", help = "Internal: deploy CDK stacks in correct order" }
 _cdk-destroy = { cmd = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk destroy --all --force", help = "Internal: destroy CDK" }
 
 [tool.mypy]

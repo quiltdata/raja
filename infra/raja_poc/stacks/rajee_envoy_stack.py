@@ -41,6 +41,8 @@ class RajeeEnvoyStack(Stack):
             ".venv",
             "infra/cdk.out",
             "infra/cdk.out/**",
+            "infra/cdk.out.*",
+            "infra/cdk.out.*/**",
             "infra/cdk.out.deploy",
             "infra/cdk.out.deploy/**",
         ]
@@ -80,6 +82,16 @@ class RajeeEnvoyStack(Stack):
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             versioned=True,
         )
+
+        public_prefix = "rajee-integration/"
+        public_grants = [
+            f"s3:GetObject/{test_bucket.bucket_name}/{public_prefix}",
+            f"s3:PutObject/{test_bucket.bucket_name}/{public_prefix}",
+            f"s3:DeleteObject/{test_bucket.bucket_name}/{public_prefix}",
+            f"s3:ListBucket/{test_bucket.bucket_name}/",
+            f"s3:GetObjectAttributes/{test_bucket.bucket_name}/{public_prefix}",
+            f"s3:ListObjectVersions/{test_bucket.bucket_name}/{public_prefix}",
+        ]
 
         task_definition.add_to_task_role_policy(
             iam.PolicyStatement(
@@ -135,6 +147,8 @@ class RajeeEnvoyStack(Stack):
                 "AUTH_DISABLED": auth_disabled.value_as_string,
                 "JWKS_ENDPOINT": jwks_endpoint or "",
                 "RAJA_ISSUER": raja_issuer or "",
+                "RAJEE_PUBLIC_PATH_PREFIXES": f"/{test_bucket.bucket_name}",
+                "RAJEE_PUBLIC_GRANTS": ",".join(public_grants),
             },
             health_check=ecs.HealthCheck(
                 command=["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"],
@@ -166,6 +180,8 @@ class RajeeEnvoyStack(Stack):
             "public_load_balancer": True,
             "listener_port": listener_port,
             "protocol": protocol,
+            "circuit_breaker": ecs.DeploymentCircuitBreaker(rollback=True),
+            "health_check_grace_period": Duration.seconds(30),
         }
         if certificate is not None:
             alb_kwargs["certificate"] = certificate

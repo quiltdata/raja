@@ -29,6 +29,16 @@ class ServicesStack(Stack):
         _, _, lambda_arch = detect_platform()
 
         repo_root = Path(__file__).resolve().parents[3]
+        asset_excludes = [
+            ".git",
+            ".venv",
+            "infra/cdk.out",
+            "infra/cdk.out/**",
+            "infra/cdk.out.*",
+            "infra/cdk.out.*/**",
+            "infra/cdk.out.deploy",
+            "infra/cdk.out.deploy/**",
+        ]
         raja_layer = lambda_.LayerVersion(
             self,
             "RajaLayer",
@@ -36,6 +46,7 @@ class ServicesStack(Stack):
             compatible_architectures=[lambda_arch],
             code=lambda_.Code.from_asset(
                 str(repo_root),
+                exclude=asset_excludes,
                 bundling=BundlingOptions(
                     image=lambda_.Runtime.PYTHON_3_12.bundling_image,
                     command=[

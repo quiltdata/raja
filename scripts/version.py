@@ -196,7 +196,7 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
     print("  3. Package will be built and published to PyPI")
     print("  4. Release assets will be uploaded to GitHub")
     print(f"\nView the release workflow at:")
-    print(f"  https://github.com/YOUR_ORG/raja/actions")
+    print(f"  https://github.com/quiltdata/raja/actions")
 
 
 def bump_and_commit(bump_type: str = "patch") -> None:

@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-01-16
+
+### Fixed
+
+- **JWT issuer**: Fixed issuer claim to use only scheme+netloc (no path) for proper validation
+- **Integration tests**: Refactored to use control plane `/token` endpoint, removing local JWT signing with fallback secrets
+
+### Added
+
+- **Auth tests**: Complete integration coverage for auth-enabled RAJEE S3 operations
+- **Test policy**: `rajee_test_policy.cedar` granting `rajee-integration/` prefix access
+- **Documentation**: `specs/2-rajee/12-auth-failure-analysis.md` analyzing auth failure modes
+
+### Changed
+
+- **RAJEE Envoy**: Auth enabled by default in deployments
+
 ## [0.4.1] - 2026-01-15
 
 ### Added

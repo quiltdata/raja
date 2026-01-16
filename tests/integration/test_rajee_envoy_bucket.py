@@ -8,7 +8,7 @@ import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from .helpers import require_rajee_endpoint, require_rajee_test_bucket
+from .helpers import issue_rajee_token, require_rajee_endpoint, require_rajee_test_bucket
 
 S3_UPSTREAM_HOST = "s3.us-east-1.amazonaws.com"
 
@@ -31,7 +31,9 @@ def test_rajee_test_bucket_exists() -> None:
         pytest.fail(f"Expected RAJEE test bucket {bucket} to exist: {exc}")
 
 
-def _create_s3_client_with_rajee_proxy(verbose: bool = False) -> tuple[Any, str, str]:
+def _create_s3_client_with_rajee_proxy(
+    verbose: bool = False, token: str | None = None
+) -> tuple[Any, str, str]:
     """Create S3 client configured to use RAJEE Envoy proxy."""
     bucket = require_rajee_test_bucket()
     endpoint = require_rajee_endpoint()
@@ -53,15 +55,19 @@ def _create_s3_client_with_rajee_proxy(verbose: bool = False) -> tuple[Any, str,
         region_name=region,
         config=Config(s3={"addressing_style": "path"}),
     )
-    s3.meta.events.register(
-        "before-sign.s3",
-        lambda request, **_: request.headers.__setitem__("Host", S3_UPSTREAM_HOST),
-    )
+
+    def _apply_headers(request, **_: Any) -> None:
+        request.headers.__setitem__("Host", S3_UPSTREAM_HOST)
+        if token:
+            request.headers.__setitem__("x-raja-authorization", f"Bearer {token}")
+
+    s3.meta.events.register("before-sign.s3", _apply_headers)
     return s3, bucket, region
 
 
 @pytest.mark.integration
-def test_rajee_envoy_s3_roundtrip_auth_disabled() -> None:
+@pytest.mark.skip(reason="Legacy test, auth now enabled by default")
+def test_rajee_envoy_s3_roundtrip_auth_disabled_legacy() -> None:
     s3, bucket, _ = _create_s3_client_with_rajee_proxy(verbose=True)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -95,9 +101,72 @@ def test_rajee_envoy_s3_roundtrip_auth_disabled() -> None:
 
 
 @pytest.mark.integration
+def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
+    bucket = require_rajee_test_bucket()
+    token = issue_rajee_token()
+    s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
+
+    key = f"rajee-integration/{uuid.uuid4().hex}.txt"
+    body = b"rajee-envoy-proxy-test"
+
+    _log_operation("✍️  PUT OBJECT", f"Key: {key} ({len(body)} bytes)")
+    start = time.time()
+    put_response = s3.put_object(Bucket=bucket, Key=key, Body=body)
+    put_time = time.time() - start
+    _log_operation(f"✅ PUT SUCCESS ({put_time:.3f}s)", f"ETag: {put_response.get('ETag', 'N/A')}")
+
+    _log_operation("📥 GET OBJECT", f"Key: {key}")
+    start = time.time()
+    response = s3.get_object(Bucket=bucket, Key=key)
+    get_time = time.time() - start
+    retrieved_body = response["Body"].read()
+    assert retrieved_body == body
+    _log_operation(
+        f"✅ GET SUCCESS ({get_time:.3f}s)", f"Retrieved {len(retrieved_body)} bytes, data matches!"
+    )
+
+    _log_operation("🗑️  DELETE OBJECT", f"Key: {key}")
+    start = time.time()
+    s3.delete_object(Bucket=bucket, Key=key)
+    delete_time = time.time() - start
+    _log_operation(f"✅ DELETE SUCCESS ({delete_time:.3f}s)", "Object removed")
+
+    print("\n" + "=" * 80)
+    print(f"✅ ROUNDTRIP TEST COMPLETE - Total time: {put_time + get_time + delete_time:.3f}s")
+    print("=" * 80)
+
+
+@pytest.mark.integration
+def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
+    bucket = require_rajee_test_bucket()
+    token = issue_rajee_token()
+    s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
+
+    key = "unauthorized-prefix/test.txt"
+    body = b"This should be denied"
+
+    _log_operation("🚫 PUT OBJECT (unauthorized)", f"Key: {key} (should be denied)")
+
+    with pytest.raises(ClientError) as exc_info:
+        s3.put_object(Bucket=bucket, Key=key, Body=body)
+
+    response = exc_info.value.response
+    status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    assert status == 403, f"Expected 403 Forbidden, got {status}"
+
+    message = response.get("Error", {}).get("Message", "")
+    if message:
+        assert "Forbidden" in message or "grant" in message
+
+    _log_operation("✅ UNAUTHORIZED PUT DENIED", "Received 403 Forbidden as expected")
+
+
+@pytest.mark.integration
 def test_rajee_envoy_list_bucket() -> None:
     """Test ListBucket operation through RAJEE proxy."""
-    s3, bucket, _ = _create_s3_client_with_rajee_proxy(verbose=True)
+    bucket = require_rajee_test_bucket()
+    token = issue_rajee_token()
+    s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
     body = b"list-bucket-test"
@@ -133,7 +202,9 @@ def test_rajee_envoy_list_bucket() -> None:
 @pytest.mark.integration
 def test_rajee_envoy_get_object_attributes() -> None:
     """Test GetObjectAttributes operation through RAJEE proxy."""
-    s3, bucket, _ = _create_s3_client_with_rajee_proxy(verbose=True)
+    bucket = require_rajee_test_bucket()
+    token = issue_rajee_token()
+    s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
     body = b"object-attributes-test"
@@ -174,7 +245,9 @@ def test_rajee_envoy_get_object_attributes() -> None:
 @pytest.mark.integration
 def test_rajee_envoy_versioning_operations() -> None:
     """Test version-aware operations through RAJEE proxy (GetObjectVersion, ListBucketVersions)."""
-    s3, bucket, _ = _create_s3_client_with_rajee_proxy(verbose=True)
+    bucket = require_rajee_test_bucket()
+    token = issue_rajee_token()
+    s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
     body_v1 = b"version-1"

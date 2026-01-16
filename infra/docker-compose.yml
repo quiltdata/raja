@@ -8,7 +8,7 @@ services:
       - "9901:9901"    # Admin port
     environment:
       - ENVOY_LOG_LEVEL=info
-      - AUTH_DISABLED=true
+      - AUTH_DISABLED=false
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9901/ready || exit 1"]
       interval: 10s
