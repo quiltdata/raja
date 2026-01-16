@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import time
 import uuid
@@ -10,7 +11,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from raja import compile_policy, create_token
+from raja import compile_policy, create_token, create_token_with_grants
+from raja.rajee.grants import convert_scopes_to_grants
 from raja.server import dependencies
 from raja.server.audit import build_audit_item
 from raja.server.logging_config import get_logger
@@ -23,6 +25,7 @@ class TokenRequest(BaseModel):
     """Request model for token issuance."""
 
     principal: str
+    token_type: str = "raja"
 
 
 class PrincipalRequest(BaseModel):
@@ -167,12 +170,28 @@ def issue_token(
         raise HTTPException(status_code=404, detail=f"Principal not found: {payload.principal}")
 
     scopes = item.get("scopes", [])
-    token = create_token(
-        subject=payload.principal,
-        scopes=scopes,
-        ttl=TOKEN_TTL,
-        secret=secret,
-    )
+    token_type = payload.token_type.lower()
+
+    if token_type == "rajee":
+        grants = convert_scopes_to_grants(scopes)
+        issuer = str(request.base_url).rstrip("/")
+        token = create_token_with_grants(
+            subject=payload.principal,
+            grants=grants,
+            ttl=TOKEN_TTL,
+            secret=secret,
+            issuer=issuer,
+            audience=["raja-s3-proxy"],
+        )
+    elif token_type == "raja":
+        token = create_token(
+            subject=payload.principal,
+            scopes=scopes,
+            ttl=TOKEN_TTL,
+            secret=secret,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported token_type: {payload.token_type}")
 
     logger.info(
         "token_issued",
@@ -194,6 +213,9 @@ def issue_token(
         )
     except Exception as exc:
         logger.warning("audit_log_write_failed", error=str(exc))
+
+    if token_type == "rajee":
+        return {"token": token, "principal": payload.principal, "grants": grants}
 
     return {"token": token, "principal": payload.principal, "scopes": scopes}
 
@@ -273,3 +295,20 @@ def list_policies(
 
     logger.info("policies_listed_with_statements", count=len(detailed))
     return {"policies": detailed}
+
+
+@router.get("/.well-known/jwks.json")
+def get_jwks(secret: str = Depends(dependencies.get_jwt_secret)) -> dict[str, Any]:
+    """Return JWKS for JWT signature verification."""
+    key_bytes = secret.encode("utf-8")
+    k_value = base64.urlsafe_b64encode(key_bytes).decode("utf-8").rstrip("=")
+    return {
+        "keys": [
+            {
+                "kty": "oct",
+                "kid": "raja-jwt-key",
+                "alg": "HS256",
+                "k": k_value,
+            }
+        ]
+    }

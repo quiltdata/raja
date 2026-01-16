@@ -12,7 +12,14 @@ from .models import Token
 logger = structlog.get_logger(__name__)
 
 
-def create_token(subject: str, scopes: list[str], ttl: int, secret: str) -> str:
+def create_token(
+    subject: str,
+    scopes: list[str],
+    ttl: int,
+    secret: str,
+    issuer: str | None = None,
+    audience: str | list[str] | None = None,
+) -> str:
     """Create a signed JWT containing scope claims."""
     issued_at = int(time.time())
     expires_at = issued_at + ttl
@@ -22,6 +29,34 @@ def create_token(subject: str, scopes: list[str], ttl: int, secret: str) -> str:
         "iat": issued_at,
         "exp": expires_at,
     }
+    if issuer:
+        payload["iss"] = issuer
+    if audience:
+        payload["aud"] = audience
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def create_token_with_grants(
+    subject: str,
+    grants: list[str],
+    ttl: int,
+    secret: str,
+    issuer: str | None = None,
+    audience: str | list[str] | None = None,
+) -> str:
+    """Create a signed JWT containing grant claims."""
+    issued_at = int(time.time())
+    expires_at = issued_at + ttl
+    payload = {
+        "sub": subject,
+        "grants": grants,
+        "iat": issued_at,
+        "exp": expires_at,
+    }
+    if issuer:
+        payload["iss"] = issuer
+    if audience:
+        payload["aud"] = audience
     return jwt.encode(payload, secret, algorithm="HS256")
 
 

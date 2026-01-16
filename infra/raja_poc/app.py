@@ -14,6 +14,12 @@ services_stack = ServicesStack(
     policy_store_arn=avp_stack.policy_store_arn,
 )
 
-rajee_envoy_stack = RajeeEnvoyStack(app, "RajeeEnvoyStack")
+api_url = services_stack.api_url.rstrip("/")
+rajee_envoy_stack = RajeeEnvoyStack(
+    app,
+    "RajeeEnvoyStack",
+    jwks_endpoint=f"{api_url}/.well-known/jwks.json",
+    raja_issuer=api_url,
+)
 
 app.synth()
