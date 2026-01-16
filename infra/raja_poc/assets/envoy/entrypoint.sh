@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-AUTH_DISABLED_VALUE="${AUTH_DISABLED:-true}"
+AUTH_DISABLED_VALUE="${AUTH_DISABLED:-false}"
 AUTH_DISABLED_VALUE="$(printf '%s' "$AUTH_DISABLED_VALUE" | tr '[:upper:]' '[:lower:]')"
 
 JWKS_ENDPOINT_VALUE="${JWKS_ENDPOINT:-http://localhost:8001/.well-known/jwks.json}"
@@ -48,6 +48,11 @@ else
                           issuer: "__RAJA_ISSUER__"
                           audiences:
                             - "raja-s3-proxy"
+                          from_headers:
+                            - name: "x-raja-authorization"
+                              value_prefix: "Bearer "
+                            - name: "authorization"
+                              value_prefix: "Bearer "
                           remote_jwks:
                             http_uri:
                               uri: "__JWKS_ENDPOINT__"

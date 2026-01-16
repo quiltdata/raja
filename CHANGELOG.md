@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **RAJEE auth tests**: JWT grant issuance helper plus negative auth integration coverage
+- **Policies**: RAJEE integration test policy granting `rajee-integration/` prefix access
+
+### Changed
+
+- **RAJEE Envoy**: Auth enabled by default with JWT authn header support for SigV4 passthrough
+
 ## [0.4.1] - 2026-01-15
 
 ### Added

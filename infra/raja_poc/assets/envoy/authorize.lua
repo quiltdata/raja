@@ -2,6 +2,9 @@
 -- Integrates authorize_lib with Envoy's request handling
 
 package.path = package.path .. ";/usr/local/share/lua/5.1/?.lua"
+package.cpath = package.cpath
+  .. ";/usr/lib/aarch64-linux-gnu/lua/5.1/?.so"
+  .. ";/usr/lib/x86_64-linux-gnu/lua/5.1/?.so"
 
 local auth_lib = require("authorize_lib")
 local cjson = require("cjson")

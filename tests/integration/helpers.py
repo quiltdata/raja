@@ -1,9 +1,12 @@
 import json
+import logging
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
+import jwt
 import pytest
 
 OUTPUT_FILES = (
@@ -11,6 +14,8 @@ OUTPUT_FILES = (
     Path("cdk-outputs.json"),
     Path("infra") / "cdk.out" / "outputs.json",
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_output_value(payload: Any, key: str) -> str | None:
@@ -67,6 +72,23 @@ def _load_rajee_endpoint_from_outputs(repo_root: Path) -> str | None:
         endpoint = _extract_output_value(payload, "RajeeEndpoint")
         if endpoint:
             return endpoint
+    return None
+
+
+def _load_jwt_secret_arn_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        secret_arn = _extract_output_value(payload, "JWTSecretArn") or _extract_output_value(
+            payload, "JwtSecretArn"
+        )
+        if secret_arn:
+            return secret_arn
     return None
 
 
@@ -135,3 +157,57 @@ def issue_token(principal: str) -> tuple[str, list[str]]:
     scopes = body.get("scopes", [])
     assert token, "token missing in response"
     return token, scopes
+
+
+def get_jwt_secret() -> str:
+    """Get JWT signing secret for test token generation."""
+    secret = os.environ.get("JWT_SECRET")
+    if secret:
+        return secret
+
+    repo_root = Path(__file__).resolve().parents[2]
+    secret_arn = _load_jwt_secret_arn_from_outputs(repo_root)
+    if secret_arn:
+        try:
+            import boto3
+
+            secrets = boto3.client("secretsmanager")
+            response = secrets.get_secret_value(SecretId=secret_arn)
+            return response["SecretString"]
+        except Exception as exc:
+            logger.debug("Could not fetch JWT secret from Secrets Manager: %s", exc)
+
+    return "test-secret-key-for-local-testing"
+
+
+def issue_rajee_token(bucket: str, prefix: str = "rajee-integration/") -> str:
+    """Issue a RAJEE token with grants for the test bucket/prefix."""
+    issuer = os.environ.get("RAJA_ISSUER")
+    if not issuer:
+        issuer = require_api_url()
+
+    normalized_prefix = prefix.lstrip("/")
+    if normalized_prefix and not normalized_prefix.endswith("/"):
+        normalized_prefix = f"{normalized_prefix}/"
+
+    grants = [
+        f"s3:GetObject/{bucket}/{normalized_prefix}",
+        f"s3:PutObject/{bucket}/{normalized_prefix}",
+        f"s3:DeleteObject/{bucket}/{normalized_prefix}",
+        f"s3:ListBucket/{bucket}/",
+        f"s3:GetObjectAttributes/{bucket}/{normalized_prefix}",
+        f"s3:ListObjectVersions/{bucket}/{normalized_prefix}",
+    ]
+
+    now = datetime.now(UTC)
+    payload = {
+        "sub": "User::test-user",
+        "iss": issuer,
+        "aud": ["raja-s3-proxy"],
+        "exp": int((now + timedelta(hours=1)).timestamp()),
+        "iat": int(now.timestamp()),
+        "grants": grants,
+    }
+
+    secret = get_jwt_secret()
+    return jwt.encode(payload, secret, algorithm="HS256")
