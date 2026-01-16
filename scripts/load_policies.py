@@ -91,8 +91,7 @@ def main() -> None:
 
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
     if not region:
-        print("✗ AWS_REGION environment variable is required", file=sys.stderr)
-        sys.exit(1)
+        region = boto3.session.Session().region_name
 
     # Load policies
     repo_root = Path(__file__).resolve().parents[1]
@@ -107,7 +106,7 @@ def main() -> None:
     print(f"{'='*60}")
     print(f"Loading {len(policies)} policies to AVP")
     print(f"Policy Store: {policy_store_id}")
-    print(f"Region: {region}")
+    print(f"Region: {region or 'default'}")
     if dry_run:
         print("Mode: DRY-RUN (no changes will be made)")
     print(f"{'='*60}\n")
