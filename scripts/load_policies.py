@@ -73,6 +73,19 @@ def main() -> None:
     # Get configuration
     policy_store_id = os.environ.get("POLICY_STORE_ID")
     if not policy_store_id:
+        repo_root = Path(__file__).resolve().parents[1]
+        outputs_path = repo_root / "infra" / "cdk-outputs.json"
+        if outputs_path.is_file():
+            try:
+                import json
+
+                outputs = json.loads(outputs_path.read_text())
+                policy_store_id = (
+                    outputs.get("RajaAvpStack", {}).get("PolicyStoreId") or policy_store_id
+                )
+            except json.JSONDecodeError:
+                pass
+    if not policy_store_id:
         print("✗ POLICY_STORE_ID environment variable is required", file=sys.stderr)
         sys.exit(1)
 
