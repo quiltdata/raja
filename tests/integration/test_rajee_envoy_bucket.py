@@ -79,7 +79,9 @@ def test_rajee_envoy_s3_roundtrip_auth_disabled() -> None:
     get_time = time.time() - start
     retrieved_body = response["Body"].read()
     assert retrieved_body == body
-    _log_operation(f"✅ GET SUCCESS ({get_time:.3f}s)", f"Retrieved {len(retrieved_body)} bytes, data matches!")
+    _log_operation(
+        f"✅ GET SUCCESS ({get_time:.3f}s)", f"Retrieved {len(retrieved_body)} bytes, data matches!"
+    )
 
     _log_operation("🗑️  DELETE OBJECT", f"Key: {key}")
     start = time.time()
@@ -107,7 +109,7 @@ def test_rajee_envoy_list_bucket() -> None:
         put_time = time.time() - start
         _log_operation(f"✅ PUT SUCCESS ({put_time:.3f}s)")
 
-        _log_operation("📋 LIST OBJECTS", f"Prefix: rajee-integration/")
+        _log_operation("📋 LIST OBJECTS", "Prefix: rajee-integration/")
         start = time.time()
         response = s3.list_objects_v2(Bucket=bucket, Prefix="rajee-integration/")
         list_time = time.time() - start
@@ -115,7 +117,10 @@ def test_rajee_envoy_list_bucket() -> None:
         object_count = len(response["Contents"])
         found = any(obj["Key"] == key for obj in response["Contents"])
         assert found
-        _log_operation(f"✅ LIST SUCCESS ({list_time:.3f}s)", f"Found {object_count} objects, including our test object")
+        _log_operation(
+            f"✅ LIST SUCCESS ({list_time:.3f}s)",
+            f"Found {object_count} objects, including our test object",
+        )
 
         print("\n" + "=" * 80)
         print(f"✅ LIST BUCKET TEST COMPLETE - Total time: {put_time + list_time:.3f}s")
@@ -143,9 +148,7 @@ def test_rajee_envoy_get_object_attributes() -> None:
         _log_operation("🔍 GET OBJECT ATTRIBUTES", "Requesting ETag, ObjectSize, StorageClass")
         start = time.time()
         attrs_response = s3.get_object_attributes(
-            Bucket=bucket,
-            Key=key,
-            ObjectAttributes=["ETag", "ObjectSize", "StorageClass"]
+            Bucket=bucket, Key=key, ObjectAttributes=["ETag", "ObjectSize", "StorageClass"]
         )
         attrs_time = time.time() - start
 
@@ -156,7 +159,8 @@ def test_rajee_envoy_get_object_attributes() -> None:
         assert "StorageClass" in attrs_response
         _log_operation(
             f"✅ ATTRIBUTES SUCCESS ({attrs_time:.3f}s)",
-            f"Size: {attrs_response['ObjectSize']} bytes, StorageClass: {attrs_response['StorageClass']}"
+            f"Size: {attrs_response['ObjectSize']} bytes, "
+            f"StorageClass: {attrs_response['StorageClass']}",
         )
 
         print("\n" + "=" * 80)
@@ -182,16 +186,24 @@ def test_rajee_envoy_versioning_operations() -> None:
         put_v1 = s3.put_object(Bucket=bucket, Key=key, Body=body_v1)
         put_v1_time = time.time() - start
         version_id_v1 = put_v1.get("VersionId")
-        _log_operation(f"✅ PUT V1 SUCCESS ({put_v1_time:.3f}s)", f"VersionId: {version_id_v1 or 'N/A (versioning disabled)'}")
+        _log_operation(
+            f"✅ PUT V1 SUCCESS ({put_v1_time:.3f}s)",
+            f"VersionId: {version_id_v1 or 'N/A (versioning disabled)'}",
+        )
 
-        _log_operation("✍️  PUT OBJECT (Version 2 - overwrite)", f"Key: {key}, Body: {body_v2.decode()}")
+        _log_operation(
+            "✍️  PUT OBJECT (Version 2 - overwrite)", f"Key: {key}, Body: {body_v2.decode()}"
+        )
         start = time.time()
         put_v2 = s3.put_object(Bucket=bucket, Key=key, Body=body_v2)
         put_v2_time = time.time() - start
         version_id_v2 = put_v2.get("VersionId")
-        _log_operation(f"✅ PUT V2 SUCCESS ({put_v2_time:.3f}s)", f"VersionId: {version_id_v2 or 'N/A (versioning disabled)'}")
+        _log_operation(
+            f"✅ PUT V2 SUCCESS ({put_v2_time:.3f}s)",
+            f"VersionId: {version_id_v2 or 'N/A (versioning disabled)'}",
+        )
 
-        _log_operation("📋 LIST OBJECT VERSIONS", f"Prefix: rajee-integration/")
+        _log_operation("📋 LIST OBJECT VERSIONS", "Prefix: rajee-integration/")
         start = time.time()
         versions_response = s3.list_object_versions(Bucket=bucket, Prefix="rajee-integration/")
         list_versions_time = time.time() - start
@@ -199,13 +211,21 @@ def test_rajee_envoy_versioning_operations() -> None:
             version_keys = [v["Key"] for v in versions_response["Versions"]]
             assert key in version_keys
             version_count = sum(1 for v in versions_response["Versions"] if v["Key"] == key)
-            _log_operation(f"✅ LIST VERSIONS SUCCESS ({list_versions_time:.3f}s)", f"Found {version_count} version(s) of our object")
+            _log_operation(
+                f"✅ LIST VERSIONS SUCCESS ({list_versions_time:.3f}s)",
+                f"Found {version_count} version(s) of our object",
+            )
 
             if version_id_v1 and version_id_v2:
-                version_ids = [v["VersionId"] for v in versions_response["Versions"] if v["Key"] == key]
+                version_ids = [
+                    v["VersionId"] for v in versions_response["Versions"] if v["Key"] == key
+                ]
                 assert version_id_v1 in version_ids or version_id_v2 in version_ids
         else:
-            _log_operation(f"✅ LIST VERSIONS SUCCESS ({list_versions_time:.3f}s)", "Versioning not enabled, skipping version checks")
+            _log_operation(
+                f"✅ LIST VERSIONS SUCCESS ({list_versions_time:.3f}s)",
+                "Versioning not enabled, skipping version checks",
+            )
 
         get_v1_time = 0.0
         if version_id_v1:
@@ -215,7 +235,9 @@ def test_rajee_envoy_versioning_operations() -> None:
             get_v1_time = time.time() - start
             retrieved_v1 = get_v1_response["Body"].read()
             assert retrieved_v1 == body_v1
-            _log_operation(f"✅ GET V1 SUCCESS ({get_v1_time:.3f}s)", f"Retrieved: {retrieved_v1.decode()}")
+            _log_operation(
+                f"✅ GET V1 SUCCESS ({get_v1_time:.3f}s)", f"Retrieved: {retrieved_v1.decode()}"
+            )
 
         _log_operation("📥 GET OBJECT (Current Version)", f"Key: {key}")
         start = time.time()
@@ -223,7 +245,10 @@ def test_rajee_envoy_versioning_operations() -> None:
         get_current_time = time.time() - start
         current_body = get_current["Body"].read()
         assert current_body == body_v2
-        _log_operation(f"✅ GET CURRENT SUCCESS ({get_current_time:.3f}s)", f"Retrieved: {current_body.decode()}")
+        _log_operation(
+            f"✅ GET CURRENT SUCCESS ({get_current_time:.3f}s)",
+            f"Retrieved: {current_body.decode()}",
+        )
 
         total_time = put_v1_time + put_v2_time + list_versions_time + get_current_time + get_v1_time
 
@@ -239,20 +264,12 @@ def test_rajee_envoy_versioning_operations() -> None:
             if "Versions" in versions:
                 for version in versions["Versions"]:
                     if version["Key"] == key:
-                        s3.delete_object(
-                            Bucket=bucket,
-                            Key=key,
-                            VersionId=version["VersionId"]
-                        )
+                        s3.delete_object(Bucket=bucket, Key=key, VersionId=version["VersionId"])
                         deleted_count += 1
             if "DeleteMarkers" in versions:
                 for marker in versions["DeleteMarkers"]:
                     if marker["Key"] == key:
-                        s3.delete_object(
-                            Bucket=bucket,
-                            Key=key,
-                            VersionId=marker["VersionId"]
-                        )
+                        s3.delete_object(Bucket=bucket, Key=key, VersionId=marker["VersionId"])
                         deleted_count += 1
             _log_operation("✅ CLEANUP COMPLETE", f"Deleted {deleted_count} version(s)")
         except Exception:
