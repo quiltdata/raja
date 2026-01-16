@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **RAJEE Envoy**: Auth enabled by default with JWT authn header support for SigV4 passthrough
+- **Deploy workflow**: CDK deploy forces `AUTH_DISABLED=false` for RajeeEnvoyStack
 
 ## [0.4.1] - 2026-01-15
 
