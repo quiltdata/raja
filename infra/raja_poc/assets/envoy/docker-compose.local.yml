@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  jwks-server:
+    build:
+      context: ../../../../
+      dockerfile: tests/local/Dockerfile.jwks
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - rajee-local
+
+  envoy:
+    build:
+      context: ../../../../
+      dockerfile: infra/raja_poc/assets/envoy/Dockerfile
+    ports:
+      - "10000:10000"
+      - "9901:9901"
+    environment:
+      - AUTH_DISABLED=false
+      - JWKS_ENDPOINT=http://jwks-server:8001/.well-known/jwks.json
+      - RAJA_ISSUER=https://test.local
+      - ENVOY_LOG_LEVEL=debug
+      - S3_ENDPOINT=https://s3.amazonaws.com
+    depends_on:
+      jwks-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - rajee-local
+
+networks:
+  rajee-local:
+    driver: bridge
