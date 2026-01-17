@@ -12,6 +12,8 @@ COPY infra/raja_poc/assets/envoy/authorize.lua /etc/envoy/authorize.lua
 
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# AUTH_DISABLED is a configuration flag (true/false), not sensitive data
+# hadolint ignore=DL3001
 ENV AUTH_DISABLED=false
 
 CMD ["/usr/local/bin/entrypoint.sh"]
