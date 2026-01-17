@@ -156,44 +156,28 @@ uv pip install -e .
 
 ### AWS Deployment
 
-#### Fast Deployment (Recommended)
-
-For optimal deployment speed, build and push the Envoy Docker image separately:
+The deployment system automatically chooses the optimal path:
 
 ```bash
-# 1. Deploy infrastructure with ECR repository (first time only)
+# Smart deploy: automatically uses fast path after bootstrap
 ./poe deploy
-
-# 2. Build and push Envoy image to ECR
-./poe build-envoy-push
-
-# 3. Deploy with pre-built image (fast - skips Docker build)
-export IMAGE_TAG=$(git rev-parse --short HEAD)
-./poe deploy
-
-# Subsequent deployments: Only rebuild image when Envoy code changes
-./poe build-envoy-push && export IMAGE_TAG=$(git rev-parse --short HEAD) && ./poe deploy
 ```
 
-#### Standard Deployment (Legacy)
+**How it works:**
+- **First deployment:** Builds image inline (slow ~3-5 min) to bootstrap ECR
+- **Subsequent deployments:** Builds image separately and pushes to ECR (fast ~1-2 min)
 
-The infrastructure can also build the Docker image during deployment (slower):
+#### Manual Control (Optional)
 
 ```bash
-# Deploy infrastructure (builds Docker image inline)
-./poe deploy
+# Force fast deployment (requires ECR)
+./poe deploy-fast
 
-# Load Cedar policies to AVP
-./poe load-policies
+# Force bootstrap deployment (slow, builds inline)
+./poe deploy-bootstrap
 
-# Trigger policy compilation
-./poe compile-policies
-
-# Seed test data (optional, for integration tests)
-./poe seed-test-data
-
-# Run integration tests (requires deployed resources)
-./poe test-integration
+# Build and push image only
+./poe build-envoy-push
 ```
 
 ## Key Concepts

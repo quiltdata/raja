@@ -102,7 +102,9 @@ test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name
 demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration with verbose output" }
 
 # AWS deployment
-deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Deploy CDK stack to AWS, then load and compile policies" }
+deploy = { shell = "bash scripts/check_ecr_ready.sh && poe deploy-fast || poe deploy-bootstrap", help = "Smart deploy: uses fast path if ECR ready, bootstrap if not" }
+deploy-fast = { sequence = ["build-envoy-push", "_deploy-with-tag", "load-policies", "compile-policies"], help = "Fast deploy: build image, push to ECR, deploy with pre-built image" }
+deploy-bootstrap = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Bootstrap deploy: builds image inline (slow, for first deployment)" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
@@ -114,6 +116,7 @@ build-envoy-push = { cmd = "bash scripts/build-envoy-image.sh --push", help = "B
 
 # Full workflow - clean + check + test + docker + deploy + integration test
 all = { sequence = ["clean", "check", "test-unit", "test-docker", "deploy", "test-integration"], help = "Full workflow: clean, check, test, docker test, deploy, load policies, compile, and run integration tests" }
+_deploy-with-tag = { shell = "export IMAGE_TAG=$(git rev-parse --short HEAD) && poe deploy-fast", help = "Internal: deploy with git hash tag" }
 
 # Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }
