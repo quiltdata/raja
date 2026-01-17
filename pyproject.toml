@@ -103,6 +103,7 @@ demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help
 
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Deploy CDK stack to AWS, then load and compile policies" }
+deploy-fast = { shell = "IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag) && bash scripts/build-envoy-image.sh --tag \"$IMAGE_TAG\" --push && IMAGE_TAG=\"$IMAGE_TAG\" ./poe deploy", help = "Build/push Envoy image by content hash, then deploy with the pre-built image" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
