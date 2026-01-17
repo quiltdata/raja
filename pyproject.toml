@@ -102,14 +102,18 @@ test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name
 demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration with verbose output" }
 
 # AWS deployment
-deploy = { sequence = ["_npx-verify", "_cdk-deploy"], help = "Deploy CDK stack to AWS" }
+deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Deploy CDK stack to AWS, then load and compile policies" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
+# Docker image building
+build-envoy = { cmd = "bash scripts/build-envoy-image.sh", help = "Build Envoy container image locally" }
+build-envoy-push = { cmd = "bash scripts/build-envoy-image.sh --push", help = "Build and push Envoy image to ECR" }
+
 # Full workflow - clean + check + test + docker + deploy + integration test
-all = { sequence = ["clean", "check", "test-unit", "test-docker", "deploy", "test-integration"], help = "Full workflow: clean, check, test, docker test, deploy, and run integration tests" }
+all = { sequence = ["clean", "check", "test-unit", "test-docker", "deploy", "test-integration"], help = "Full workflow: clean, check, test, docker test, deploy, load policies, compile, and run integration tests" }
 
 # Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }

@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 import sys
 import time
+from pathlib import Path
+import json
 from urllib import request
 from urllib.error import HTTPError, URLError
 
@@ -13,6 +15,15 @@ from urllib.error import HTTPError, URLError
 def main() -> None:
     """Trigger policy compiler Lambda function."""
     api_url = os.environ.get("RAJA_API_URL")
+    if not api_url:
+        repo_root = Path(__file__).resolve().parents[1]
+        outputs_path = repo_root / "infra" / "cdk-outputs.json"
+        if outputs_path.is_file():
+            try:
+                outputs = json.loads(outputs_path.read_text())
+                api_url = outputs.get("RajaServicesStack", {}).get("ApiUrl")
+            except json.JSONDecodeError:
+                api_url = None
     if not api_url:
         print("✗ RAJA_API_URL environment variable is required", file=sys.stderr)
         sys.exit(1)

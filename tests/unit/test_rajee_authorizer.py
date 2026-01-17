@@ -75,3 +75,21 @@ def test_prefix_authorization_match() -> None:
 def test_prefix_authorization_no_match() -> None:
     grants = ["s3:GetObject/bucket/uploads/"]
     assert not is_authorized("s3:GetObject/bucket/docs/file.txt", grants)
+
+
+@pytest.mark.unit
+def test_wildcard_authorization_match() -> None:
+    grants = ["s3:GetObject/raja-poc-test-*/rajee-integration/*"]
+    assert is_authorized(
+        "s3:GetObject/raja-poc-test-123456789012-us-east-1/rajee-integration/file.txt",
+        grants,
+    )
+
+
+@pytest.mark.unit
+def test_wildcard_authorization_no_match() -> None:
+    grants = ["s3:GetObject/raja-poc-test-*/rajee-integration/*"]
+    assert not is_authorized(
+        "s3:GetObject/raja-poc-test-123456789012-us-east-1/unauthorized-prefix/file.txt",
+        grants,
+    )

@@ -157,3 +157,7 @@ function envoy_on_request(request_handle)
     "Forbidden: " .. reason
   )
 end
+
+function envoy_on_response(response_handle)
+  -- No response processing needed
+end

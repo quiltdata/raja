@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 
 import structlog
@@ -62,7 +63,12 @@ def is_authorized(request_string: str, grants: Iterable[str]) -> bool:
     """Check if request is covered by any grant using prefix matching."""
     grant_list = list(grants)
     for grant in grant_list:
-        if request_string.startswith(grant):
+        if "*" in grant:
+            escaped = re.escape(grant).replace(r"\*", ".*")
+            if re.match(f"^{escaped}$", request_string):
+                logger.debug("authorization_granted", request=request_string, grant=grant)
+                return True
+        elif request_string.startswith(grant):
             logger.debug("authorization_granted", request=request_string, grant=grant)
             return True
 

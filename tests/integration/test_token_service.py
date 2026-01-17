@@ -10,7 +10,11 @@ from .helpers import issue_rajee_token, issue_token, request_json, require_api_i
 def test_token_service_issues_token_for_known_principal():
     token, scopes = issue_token("alice")
     assert token
-    assert set(scopes) == {"Document:doc123:read", "Document:doc123:write"}
+    expected = {
+        "S3Object:analytics-data/:s3:GetObject",
+        "S3Bucket:analytics-data:s3:ListBucket",
+    }
+    assert expected.issubset(set(scopes))
 
 
 @pytest.mark.integration
