@@ -15,7 +15,7 @@ def test_control_plane_lists_principals():
     status, body = request_json("GET", "/principals")
     assert status == 200
     principals = {item.get("principal") for item in body.get("principals", [])}
-    assert {"alice", "admin"}.issubset(principals)
+    assert {"test-user"}.issubset(principals)
 
 
 @pytest.mark.integration
@@ -28,17 +28,17 @@ def test_control_plane_lists_policies():
 @pytest.mark.integration
 def test_control_plane_audit_log_entries():
     request_json("POST", "/compile")
-    token_status, _ = request_json("POST", "/token", {"principal": "alice"})
+    token_status, _ = request_json("POST", "/token", {"principal": "test-user"})
     assert token_status == 200
 
     status, body = request_json(
         "GET",
         "/audit",
-        query={"principal": "alice", "limit": "10"},
+        query={"principal": "test-user", "limit": "10"},
     )
     assert status == 200
     entries = body.get("entries", [])
-    assert any(entry.get("principal") == "alice" for entry in entries)
+    assert any(entry.get("principal") == "test-user" for entry in entries)
     for entry in entries[:1]:
         for field in [
             "timestamp",

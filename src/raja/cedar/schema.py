@@ -7,6 +7,7 @@ from typing import Any
 
 from ..models import CedarPolicy
 from .entities import parse_entity
+from .parser import parse_resource_clause
 
 # Regex patterns for parsing Cedar schema
 _ENTITY_RE = re.compile(r"entity\s+(\w+)\s*(?:in\s*\[([^\]]+)\])?\s*(?:\{[^}]*\})?", re.MULTILINE)
@@ -24,7 +25,10 @@ class CedarSchema:
 
     def validate_policy(self, policy: CedarPolicy) -> None:
         """Validate policy resource and action types against the schema."""
-        resource_type, _ = parse_entity(policy.resource)
+        if policy.resource_type:
+            resource_type = policy.resource_type
+        else:
+            resource_type, _, _, _ = parse_resource_clause(policy.resource)
         _, action_id = parse_entity(policy.action)
 
         if resource_type not in self.resource_types:

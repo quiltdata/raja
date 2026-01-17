@@ -1,6 +1,6 @@
 import pytest
 
-from raja.enforcer import check_scopes, enforce
+from raja.enforcer import check_scopes, enforce, is_prefix_match
 from raja.exceptions import ScopeValidationError
 from raja.models import AuthRequest, Scope
 from raja.token import create_token
@@ -113,3 +113,66 @@ def test_enforce_logs_denied_authorization():
 
     assert decision.allowed is False
     assert decision.reason == "scope not granted"
+
+
+def test_prefix_match_exact() -> None:
+    assert is_prefix_match(
+        "S3Object:bucket/key.txt:s3:GetObject",
+        "S3Object:bucket/key.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_bucket() -> None:
+    assert is_prefix_match(
+        "S3Object:bucket-/uploads/file.txt:s3:GetObject",
+        "S3Object:bucket-123/uploads/file.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_key_prefix() -> None:
+    assert is_prefix_match(
+        "S3Object:bucket/uploads/:s3:GetObject",
+        "S3Object:bucket/uploads/subdir/file.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_bucket_no_match() -> None:
+    assert not is_prefix_match(
+        "S3Object:bucket-/uploads/file.txt:s3:GetObject",
+        "S3Object:other/uploads/file.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_key_no_match() -> None:
+    assert not is_prefix_match(
+        "S3Object:bucket/uploads/:s3:GetObject",
+        "S3Object:bucket/private/file.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_action_mismatch() -> None:
+    assert not is_prefix_match(
+        "S3Object:bucket/uploads/:s3:GetObject",
+        "S3Object:bucket/uploads/file.txt:s3:PutObject",
+    )
+
+
+def test_prefix_match_bucket_only_scope() -> None:
+    assert is_prefix_match(
+        "S3Bucket:bucket-:s3:ListBucket",
+        "S3Bucket:bucket-123:s3:ListBucket",
+    )
+
+
+def test_prefix_match_head_object_implied_by_get() -> None:
+    assert is_prefix_match(
+        "S3Object:bucket/uploads/:s3:GetObject",
+        "S3Object:bucket/uploads/file.txt:s3:HeadObject",
+    )
+
+
+def test_prefix_match_multipart_implied_by_put() -> None:
+    assert is_prefix_match(
+        "S3Object:bucket/uploads/:s3:PutObject",
+        "S3Object:bucket/uploads/file.txt:s3:UploadPart",
+    )

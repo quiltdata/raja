@@ -10,7 +10,7 @@ def test_validate_policy_accepts_known_resource_and_action():
         effect="permit",
         principal='User::"alice"',
         action='Action::"s3:GetObject"',
-        resource='S3Object::"analytics-data/report.csv"',
+        resource='S3Object::"report.csv" in S3Bucket::"analytics-data"',
     )
     schema.validate_policy(policy)
 
@@ -21,7 +21,7 @@ def test_validate_policy_rejects_unknown_resource():
         effect="permit",
         principal='User::"alice"',
         action='Action::"s3:GetObject"',
-        resource='DynamoDBTable::"users"',
+        resource='DynamoDBTable::"users" in S3Bucket::"analytics-data"',
     )
     with pytest.raises(ValueError):
         schema.validate_policy(policy)
@@ -33,7 +33,7 @@ def test_validate_policy_rejects_unknown_action():
         effect="permit",
         principal='User::"alice"',
         action='Action::"s3:DeleteObject"',
-        resource='S3Object::"analytics-data/report.csv"',
+        resource='S3Object::"report.csv" in S3Bucket::"analytics-data"',
     )
     with pytest.raises(ValueError):
         schema.validate_policy(policy)

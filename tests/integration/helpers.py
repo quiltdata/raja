@@ -164,7 +164,7 @@ def issue_token(principal: str) -> tuple[str, list[str]]:
     return token, scopes
 
 
-def issue_rajee_token(principal: str = "alice") -> str:
+def issue_rajee_token(principal: str = "test-user") -> tuple[str, list[str]]:
     """Issue a RAJEE token via the control plane (signed by JWKS secret)."""
     status, body = request_json(
         "POST",
@@ -173,5 +173,6 @@ def issue_rajee_token(principal: str = "alice") -> str:
     )
     assert status == 200, body
     token = body.get("token")
+    scopes = body.get("scopes", [])
     assert token, "token missing in response"
-    return token
+    return token, scopes

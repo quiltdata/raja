@@ -23,7 +23,7 @@ local function split_csv(value)
   return items
 end
 
-local public_grants = split_csv(os.getenv("RAJEE_PUBLIC_GRANTS"))
+local public_scopes = split_csv(os.getenv("RAJA_PUBLIC_SCOPES") or os.getenv("RAJEE_PUBLIC_GRANTS"))
 
 local function base64url_decode(input)
   local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -92,17 +92,25 @@ function envoy_on_request(request_handle)
   local clean_path = path_parts[1] or path
   local query_string = path_parts[2] or ""
   local query_params = auth_lib.parse_query_string(query_string)
-  local request_string = auth_lib.parse_s3_request(method, clean_path, query_params)
+  local request_scope, parse_error = auth_lib.parse_s3_request(method, clean_path, query_params)
+  if not request_scope then
+    request_handle:logWarn("Failed to parse S3 request: " .. tostring(parse_error))
+    request_handle:respond(
+      {[":status"] = "403"},
+      "Forbidden: " .. tostring(parse_error)
+    )
+    return
+  end
 
-  if #public_grants > 0 then
-    local public_allowed, public_reason = auth_lib.authorize(public_grants, request_string)
+  if #public_scopes > 0 then
+    local public_allowed, public_reason = auth_lib.authorize(public_scopes, request_scope)
     if public_allowed then
       request_handle:logInfo(
-        string.format("ALLOW: %s (reason: %s)", request_string, public_reason)
+        string.format("ALLOW: %s (reason: %s)", request_scope, public_reason)
       )
       request_handle:headers():add("x-raja-decision", "allow")
       request_handle:headers():add("x-raja-reason", public_reason)
-      request_handle:headers():add("x-raja-request", request_string)
+      request_handle:headers():add("x-raja-request", request_scope)
       return
     end
   end
@@ -135,24 +143,24 @@ function envoy_on_request(request_handle)
     return
   end
 
-  local grants = jwt_payload.grants or {}
-  local allowed, reason = auth_lib.authorize(grants, request_string)
+  local scopes = jwt_payload.scopes or jwt_payload.grants or {}
+  local allowed, reason = auth_lib.authorize(scopes, request_scope)
 
   if allowed then
-    request_handle:logInfo(string.format("ALLOW: %s (reason: %s)", request_string, reason))
+    request_handle:logInfo(string.format("ALLOW: %s (reason: %s)", request_scope, reason))
     request_handle:headers():add("x-raja-decision", "allow")
     request_handle:headers():add("x-raja-reason", reason)
-    request_handle:headers():add("x-raja-request", request_string)
+    request_handle:headers():add("x-raja-request", request_scope)
     return
   end
 
-  request_handle:logWarn(string.format("DENY: %s (reason: %s)", request_string, reason))
+  request_handle:logWarn(string.format("DENY: %s (reason: %s)", request_scope, reason))
   request_handle:respond(
     {
       [":status"] = "403",
       ["x-raja-decision"] = "deny",
       ["x-raja-reason"] = reason,
-      ["x-raja-request"] = request_string,
+      ["x-raja-request"] = request_scope,
     },
     "Forbidden: " .. reason
   )

@@ -492,7 +492,6 @@ Full type hints with Pydantic models. Mypy strict mode enabled.
 When deployed to AWS, RAJA exposes these endpoints:
 
 - `POST /token` - Issue JWT tokens with scopes
-- `POST /authorize` - Check authorization (enforce)
 - `GET /introspect` - Decode and inspect token claims
 - `GET /health` - Health check
 

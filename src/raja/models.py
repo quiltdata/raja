@@ -93,6 +93,10 @@ class CedarPolicy(BaseModel):
     principal: str
     action: str
     resource: str
+    resource_type: str | None = None
+    resource_id: str | None = None
+    parent_type: str | None = None
+    parent_id: str | None = None
     conditions: list[str] = Field(default_factory=list)
 
     @field_validator("principal", "action", "resource")

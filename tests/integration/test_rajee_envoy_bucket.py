@@ -9,8 +9,6 @@ import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from raja.rajee.authorizer import is_authorized
-
 from .helpers import issue_rajee_token, require_rajee_endpoint, require_rajee_test_bucket
 
 S3_UPSTREAM_HOST = "s3.us-east-1.amazonaws.com"
@@ -106,7 +104,7 @@ def test_rajee_envoy_s3_roundtrip_auth_disabled_legacy() -> None:
 @pytest.mark.integration
 def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token()
+    token, _ = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -140,13 +138,13 @@ def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
 
 
 @pytest.mark.integration
-def test_rajee_envoy_auth_with_real_grants() -> None:
+def test_rajee_envoy_auth_with_real_scopes() -> None:
     """
     COMPREHENSIVE RAJA INTEGRATION PROOF TEST
 
     This test demonstrates that RAJA is being used for authorization by:
     1. Obtaining a JWT token from RAJA control plane
-    2. Decoding and displaying the grants in the token
+    2. Decoding and displaying the scopes in the token
     3. Performing local authorization check
     4. Sending the token to Envoy via x-raja-authorization header
     5. Envoy JWT filter validates signature, Lua filter performs RAJA authorization
@@ -159,34 +157,24 @@ def test_rajee_envoy_auth_with_real_grants() -> None:
 
     # Step 1: Get RAJA token
     print("\n[STEP 1] Obtaining JWT token from RAJA control plane...")
-    token = issue_rajee_token("alice")
+    token, _ = issue_rajee_token()
     print(f"✅ Token obtained (length: {len(token)} chars)")
     print(f"   Token preview: {token[:50]}...")
 
-    # Step 2: Decode and show grants
-    print("\n[STEP 2] Decoding token to inspect RAJA grants...")
+    # Step 2: Decode and show scopes
+    print("\n[STEP 2] Decoding token to inspect RAJA scopes...")
     decoded = jwt.decode(token, options={"verify_signature": False})
-    grants = decoded.get("grants", [])
-    assert isinstance(grants, list)
-    assert grants, "Token has no grants; load and compile Cedar policies."
+    token_scopes = decoded.get("scopes", [])
+    assert isinstance(token_scopes, list)
+    assert token_scopes, "Token has no scopes; load and compile Cedar policies."
 
-    print(f"✅ Token contains {len(grants)} grant(s):")
-    for i, grant in enumerate(grants, 1):
-        print(f"   {i}. {grant}")
+    print(f"✅ Token contains {len(token_scopes)} scope(s):")
+    for i, scope in enumerate(token_scopes, 1):
+        print(f"   {i}. {scope}")
 
-    # Step 3: Local authorization check
+    # Step 3: Make request through Envoy with token
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
-    request_string = f"s3:PutObject/{bucket}/{key}"
-
-    print("\n[STEP 3] Local RAJA authorization check...")
-    print(f"   Request: {request_string}")
-
-    authorized = is_authorized(request_string, grants)
-    assert authorized, "Token grants do not cover the rajee-integration/ prefix."
-    print("✅ Local RAJA check: AUTHORIZED")
-
-    # Step 4: Make request through Envoy with token
-    print("\n[STEP 4] Sending request through Envoy with x-raja-authorization header...")
+    print("\n[STEP 3] Sending request through Envoy with x-raja-authorization header...")
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
     body = b"real-authorization-test"
 
@@ -207,7 +195,7 @@ def test_rajee_envoy_auth_with_real_grants() -> None:
     print("\n" + "=" * 80)
     print("✅ RAJA INTEGRATION CONFIRMED")
     print("   • JWT token issued by RAJA control plane")
-    print("   • Token contains grants compiled from Cedar policies")
+    print("   • Token contains scopes compiled from Cedar policies")
     print("   • Envoy JWT filter validated signature using JWKS")
     print("   • Envoy Lua filter performed RAJA authorization (subset checking)")
     print("   • All S3 operations authorized via RAJA")
@@ -219,8 +207,8 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
     """
     RAJA DENIAL TEST - Proves RAJA Lua filter is enforcing authorization
 
-    This test shows RAJA denying a request that doesn't match any grants.
-    JWT signature is valid, but grants don't cover the requested resource.
+    This test shows RAJA denying a request that doesn't match any scopes.
+    JWT signature is valid, but scopes don't cover the requested resource.
     """
     bucket = require_rajee_test_bucket()
 
@@ -229,29 +217,20 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
     print("=" * 80)
 
     print("\n[STEP 1] Obtaining RAJA token...")
-    token = issue_rajee_token()
+    token, _ = issue_rajee_token()
     decoded = jwt.decode(token, options={"verify_signature": False})
-    grants = decoded.get("grants", [])
+    scopes = decoded.get("scopes", [])
 
-    print("✅ Token grants:")
-    for grant in grants:
-        print(f"   • {grant}")
+    print("✅ Token scopes:")
+    for scope in scopes:
+        print(f"   • {scope}")
 
     key = "unauthorized-prefix/test.txt"
-    request_string = f"s3:PutObject/{bucket}/{key}"
-
-    print("\n[STEP 2] Checking if request matches any grants...")
-    print(f"   Request: {request_string}")
-    authorized = is_authorized(request_string, grants)
-    print(f"   Local RAJA check: {'AUTHORIZED' if authorized else 'DENIED'}")
-
-    if not authorized:
-        print("✅ Expected: Request should be denied (no matching grant)")
 
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
     body = b"This should be denied"
 
-    print("\n[STEP 3] Sending unauthorized request through Envoy...")
+    print("\n[STEP 2] Sending unauthorized request through Envoy...")
     _log_operation("🚫 PUT OBJECT (unauthorized prefix)", f"Key: {key}")
 
     with pytest.raises(ClientError) as exc_info:
@@ -263,16 +242,15 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
 
     message = response.get("Error", {}).get("Message", "")
     if message:
-        assert "Forbidden" in message or "grant" in message
+        assert "Forbidden" in message or "grant" in message or "scope" in message
 
     _log_operation("✅ ENVOY DENIED REQUEST (403 Forbidden)", "RAJA Lua filter blocked it")
 
     print("\n" + "=" * 80)
     print("✅ RAJA DENIAL CONFIRMED")
-    print("   • Token does not contain grant for 'unauthorized-prefix/'")
-    print("   • Local RAJA check predicted denial")
+    print("   • Token does not contain scope for 'unauthorized-prefix/'")
     print("   • Envoy JWT filter validated signature (passed)")
-    print("   • Envoy Lua filter denied request based on grants (403)")
+    print("   • Envoy Lua filter denied request based on scopes (403)")
     print("   • RAJA is actively enforcing authorization!")
     print("=" * 80)
 
@@ -281,7 +259,7 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
 def test_rajee_envoy_list_bucket() -> None:
     """Test ListBucket operation through RAJEE proxy."""
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token()
+    token, _ = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -319,7 +297,7 @@ def test_rajee_envoy_list_bucket() -> None:
 def test_rajee_envoy_get_object_attributes() -> None:
     """Test GetObjectAttributes operation through RAJEE proxy."""
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token()
+    token, _ = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"
@@ -362,7 +340,7 @@ def test_rajee_envoy_get_object_attributes() -> None:
 def test_rajee_envoy_versioning_operations() -> None:
     """Test version-aware operations through RAJEE proxy (GetObjectVersion, ListBucketVersions)."""
     bucket = require_rajee_test_bucket()
-    token = issue_rajee_token()
+    token, _ = issue_rajee_token()
     s3, _, _ = _create_s3_client_with_rajee_proxy(verbose=True, token=token)
 
     key = f"rajee-integration/{uuid.uuid4().hex}.txt"

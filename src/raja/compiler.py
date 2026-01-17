@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .cedar.entities import parse_entity
-from .cedar.parser import parse_policy
+from .cedar.parser import parse_policy, parse_resource_clause
 from .models import CedarPolicy
 from .scope import format_scope
 
@@ -20,7 +20,19 @@ def _principal_id(policy: CedarPolicy) -> str:
 
 
 def _resource_parts(policy: CedarPolicy) -> tuple[str, str]:
-    resource_type, resource_id = parse_entity(policy.resource)
+    if policy.resource_type:
+        resource_type = policy.resource_type
+        resource_id = policy.resource_id or ""
+        parent_type = policy.parent_type
+        parent_id = policy.parent_id
+    else:
+        resource_type, resource_id, parent_type, parent_id = parse_resource_clause(policy.resource)
+
+    if parent_type:
+        if resource_type != "S3Object" or parent_type != "S3Bucket":
+            raise ValueError("only S3Object in S3Bucket hierarchies are supported")
+        resource_id = f"{parent_id}/{resource_id}"
+
     return resource_type, resource_id
 
 

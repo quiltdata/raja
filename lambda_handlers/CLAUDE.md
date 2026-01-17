@@ -12,7 +12,7 @@ like compiling policies and issuing tokens.
 lambda_handlers/
 ├── __init__.py
 ├── authorizer/
-│   ├── app.py                  # FastAPI authorizer for Envoy ext_authz
+│   ├── app.py                  # FastAPI health endpoints (Envoy handles authz)
 │   ├── Dockerfile              # Container image for ECS sidecar
 │   └── requirements.txt        # Authorizer dependencies
 └── control_plane/

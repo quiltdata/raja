@@ -43,7 +43,7 @@ def test_issue_token_raja_type():
 
 
 def test_issue_token_rajee_type():
-    """Test issuing a RAJEE token with grants."""
+    """Test issuing a RAJEE token with scopes."""
     table = MagicMock()
     table.get_item.return_value = {"Item": {"scopes": ["S3Object:bucket:key:s3:GetObject"]}}
     audit_table = MagicMock()
@@ -67,7 +67,7 @@ def test_issue_token_rajee_type():
 
     assert response["principal"] == "alice"
     assert "token" in response
-    assert "grants" in response
+    assert "scopes" in response
 
 
 def test_issue_token_invalid_type():

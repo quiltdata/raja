@@ -11,8 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from raja import compile_policy, create_token, create_token_with_grants
-from raja.rajee.grants import convert_scopes_to_grants
+from raja import compile_policy, create_token
 from raja.server import dependencies
 from raja.server.audit import build_audit_item
 from raja.server.logging_config import get_logger
@@ -173,11 +172,10 @@ def issue_token(
     token_type = payload.token_type.lower()
 
     if token_type == "rajee":
-        grants = convert_scopes_to_grants(scopes)
         issuer = str(request.base_url).rstrip("/")
-        token = create_token_with_grants(
+        token = create_token(
             subject=payload.principal,
-            grants=grants,
+            scopes=scopes,
             ttl=TOKEN_TTL,
             secret=secret,
             issuer=issuer,
@@ -213,9 +211,6 @@ def issue_token(
         )
     except Exception as exc:
         logger.warning("audit_log_write_failed", error=str(exc))
-
-    if token_type == "rajee":
-        return {"token": token, "principal": payload.principal, "grants": grants}
 
     return {"token": token, "principal": payload.principal, "scopes": scopes}
 

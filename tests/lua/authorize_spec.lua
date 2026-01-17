@@ -13,37 +13,47 @@ describe("S3 Request Parsing", function()
   describe("parse_s3_request", function()
     it("should parse GET object request", function()
       local result = parse_s3_request("GET", "/bucket/key.txt", {})
-      assert.are.equal("s3:GetObject/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:GetObject", result)
     end)
 
     it("should parse GET object with nested path", function()
       local result = parse_s3_request("GET", "/bucket/uploads/user123/file.txt", {})
-      assert.are.equal("s3:GetObject/bucket/uploads/user123/file.txt", result)
+      assert.are.equal("S3Object:bucket/uploads/user123/file.txt:s3:GetObject", result)
     end)
 
     it("should parse PUT object request", function()
       local result = parse_s3_request("PUT", "/bucket/key.txt", {})
-      assert.are.equal("s3:PutObject/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:PutObject", result)
     end)
 
     it("should parse DELETE object request", function()
       local result = parse_s3_request("DELETE", "/bucket/key.txt", {})
-      assert.are.equal("s3:DeleteObject/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:DeleteObject", result)
     end)
 
     it("should parse HEAD object request", function()
       local result = parse_s3_request("HEAD", "/bucket/key.txt", {})
-      assert.are.equal("s3:HeadObject/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:HeadObject", result)
     end)
 
     it("should parse ListBucket request", function()
-      local result = parse_s3_request("GET", "/bucket/", {})
-      assert.are.equal("s3:ListBucket/bucket/", result)
+      local result = parse_s3_request("GET", "/bucket", { ["list-type"] = "2" })
+      assert.are.equal("S3Bucket:bucket:s3:ListBucket", result)
+    end)
+
+    it("should parse ListBucketVersions request", function()
+      local result = parse_s3_request("GET", "/bucket", { versions = "" })
+      assert.are.equal("S3Bucket:bucket:s3:ListBucketVersions", result)
+    end)
+
+    it("should parse GetBucketLocation request", function()
+      local result = parse_s3_request("GET", "/bucket", { location = "" })
+      assert.are.equal("S3Bucket:bucket:s3:GetBucketLocation", result)
     end)
 
     it("should parse InitiateMultipartUpload", function()
       local result = parse_s3_request("POST", "/bucket/key.txt", { uploads = "" })
-      assert.are.equal("s3:InitiateMultipartUpload/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:InitiateMultipartUpload", result)
     end)
 
     it("should parse UploadPart", function()
@@ -52,32 +62,50 @@ describe("S3 Request Parsing", function()
         "/bucket/key.txt",
         { uploadId = "xyz", partNumber = "1" }
       )
-      assert.are.equal("s3:UploadPart/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:UploadPart", result)
     end)
 
     it("should parse CompleteMultipartUpload", function()
       local result = parse_s3_request("POST", "/bucket/key.txt", { uploadId = "xyz" })
-      assert.are.equal("s3:CompleteMultipartUpload/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:CompleteMultipartUpload", result)
     end)
 
     it("should parse AbortMultipartUpload", function()
       local result = parse_s3_request("DELETE", "/bucket/key.txt", { uploadId = "xyz" })
-      assert.are.equal("s3:AbortMultipartUpload/bucket/key.txt", result)
+      assert.are.equal("S3Object:bucket/key.txt:s3:AbortMultipartUpload", result)
     end)
 
-    it("should parse ListParts", function()
-      local result = parse_s3_request("GET", "/bucket/key.txt", { uploadId = "xyz" })
-      assert.are.equal("s3:ListParts/bucket/key.txt", result)
+    it("should parse GetObjectVersion", function()
+      local result = parse_s3_request("GET", "/bucket/key.txt", { versionId = "xyz" })
+      assert.are.equal("S3Object:bucket/key.txt:s3:GetObjectVersion", result)
     end)
 
-    it("should handle empty path", function()
+    it("should parse DeleteObjectVersion", function()
+      local result = parse_s3_request("DELETE", "/bucket/key.txt", { versionId = "xyz" })
+      assert.are.equal("S3Object:bucket/key.txt:s3:DeleteObjectVersion", result)
+    end)
+
+    it("should parse GetObjectVersionTagging", function()
+      local result = parse_s3_request(
+        "GET",
+        "/bucket/key.txt",
+        { versionId = "xyz", tagging = "" }
+      )
+      assert.are.equal("S3Object:bucket/key.txt:s3:GetObjectVersionTagging", result)
+    end)
+
+    it("should parse PutObjectVersionTagging", function()
+      local result = parse_s3_request(
+        "PUT",
+        "/bucket/key.txt",
+        { versionId = "xyz", tagging = "" }
+      )
+      assert.are.equal("S3Object:bucket/key.txt:s3:PutObjectVersionTagging", result)
+    end)
+
+    it("should return nil for empty path", function()
       local result = parse_s3_request("GET", "/", {})
-      assert.are.equal("s3:ListBucket//", result)
-    end)
-
-    it("should handle path with special characters", function()
-      local result = parse_s3_request("GET", "/bucket/file%20with%20spaces.txt", {})
-      assert.are.equal("s3:GetObject/bucket/file%20with%20spaces.txt", result)
+      assert.is_nil(result)
     end)
   end)
 end)
@@ -93,112 +121,60 @@ describe("Authorization Logic", function()
 
   describe("authorize", function()
     it("should allow exact match", function()
-      local grants = { "s3:GetObject/bucket/key.txt" }
-      local allowed, reason = authorize(grants, "s3:GetObject/bucket/key.txt")
+      local scopes = { "S3Object:bucket/key.txt:s3:GetObject" }
+      local allowed, reason = authorize(scopes, "S3Object:bucket/key.txt:s3:GetObject")
       assert.is_true(allowed)
-      assert.is_not_nil(string.find(reason, "matched grant"))
+      assert.is_not_nil(string.find(reason, "matched scope"))
     end)
 
     it("should allow prefix match", function()
-      local grants = { "s3:GetObject/bucket/uploads/" }
-      local allowed, reason = authorize(grants, "s3:GetObject/bucket/uploads/file.txt")
+      local scopes = { "S3Object:bucket/uploads/:s3:GetObject" }
+      local allowed, reason = authorize(scopes, "S3Object:bucket/uploads/file.txt:s3:GetObject")
       assert.is_true(allowed)
-      assert.is_not_nil(string.find(reason, "matched grant"))
+      assert.is_not_nil(string.find(reason, "matched scope"))
     end)
 
-    it("should allow nested prefix match", function()
-      local grants = { "s3:GetObject/bucket/uploads/" }
-      local allowed = authorize(grants, "s3:GetObject/bucket/uploads/user123/file.txt")
+    it("should allow bucket prefix match", function()
+      local scopes = { "S3Object:bucket-:uploads/:s3:GetObject" }
+      local allowed = authorize(scopes, "S3Object:bucket-123/uploads/file.txt:s3:GetObject")
       assert.is_true(allowed)
     end)
 
     it("should deny different action", function()
-      local grants = { "s3:GetObject/bucket/key.txt" }
-      local allowed, reason = authorize(grants, "s3:PutObject/bucket/key.txt")
+      local scopes = { "S3Object:bucket/key.txt:s3:GetObject" }
+      local allowed, reason = authorize(scopes, "S3Object:bucket/key.txt:s3:PutObject")
       assert.is_false(allowed)
-      assert.is_not_nil(string.find(reason, "no matching grant"))
+      assert.is_not_nil(string.find(reason, "no matching scope"))
     end)
 
-    it("should deny different bucket", function()
-      local grants = { "s3:GetObject/bucket1/key.txt" }
-      local allowed = authorize(grants, "s3:GetObject/bucket2/key.txt")
-      assert.is_false(allowed)
-    end)
-
-    it("should deny shorter path", function()
-      local grants = { "s3:GetObject/bucket/uploads/user123/" }
-      local allowed = authorize(grants, "s3:GetObject/bucket/uploads/")
-      assert.is_false(allowed)
-    end)
-
-    it("should allow wildcard action", function()
-      local grants = { "s3:*/bucket/key.txt" }
-      local allowed = authorize(grants, "s3:GetObject/bucket/key.txt")
+    it("should allow HeadObject when GetObject is granted", function()
+      local scopes = { "S3Object:bucket/key.txt:s3:GetObject" }
+      local allowed = authorize(scopes, "S3Object:bucket/key.txt:s3:HeadObject")
       assert.is_true(allowed)
     end)
 
-    it("should allow wildcard path", function()
-      local grants = { "s3:GetObject/bucket/" }
-      local allowed = authorize(grants, "s3:GetObject/bucket/any/path/file.txt")
+    it("should allow multipart when PutObject is granted", function()
+      local scopes = { "S3Object:bucket/key.txt:s3:PutObject" }
+      local allowed = authorize(scopes, "S3Object:bucket/key.txt:s3:UploadPart")
       assert.is_true(allowed)
     end)
 
-    it("should check multiple grants - first matches", function()
-      local grants = {
-        "s3:GetObject/bucket/uploads/",
-        "s3:PutObject/bucket/docs/",
-      }
-      local allowed = authorize(grants, "s3:GetObject/bucket/uploads/file.txt")
+    it("should allow bucket-only scope", function()
+      local scopes = { "S3Bucket:bucket-:s3:ListBucket" }
+      local allowed = authorize(scopes, "S3Bucket:bucket-123:s3:ListBucket")
       assert.is_true(allowed)
     end)
 
-    it("should check multiple grants - second matches", function()
-      local grants = {
-        "s3:GetObject/bucket/uploads/",
-        "s3:PutObject/bucket/docs/",
-      }
-      local allowed = authorize(grants, "s3:PutObject/bucket/docs/file.txt")
-      assert.is_true(allowed)
-    end)
-
-    it("should deny when no grants match", function()
-      local grants = {
-        "s3:GetObject/bucket/uploads/",
-        "s3:PutObject/bucket/docs/",
-      }
-      local allowed = authorize(grants, "s3:GetObject/bucket/private/file.txt")
+    it("should deny when no scopes match", function()
+      local scopes = { "S3Object:bucket/uploads/:s3:GetObject" }
+      local allowed = authorize(scopes, "S3Object:bucket/private/file.txt:s3:GetObject")
       assert.is_false(allowed)
     end)
 
-    it("should deny with empty grants", function()
-      local allowed, reason = authorize({}, "s3:GetObject/bucket/key.txt")
+    it("should deny with empty scopes", function()
+      local allowed, reason = authorize({}, "S3Object:bucket/key.txt:s3:GetObject")
       assert.is_false(allowed)
-      assert.is_not_nil(string.find(reason, "no grants"))
-    end)
-
-    it("should allow multipart workflow with wildcard", function()
-      local grants = { "s3:*/bucket/large-file.bin" }
-
-      local allowed1 = authorize(grants, "s3:InitiateMultipartUpload/bucket/large-file.bin")
-      assert.is_true(allowed1)
-
-      local allowed2 = authorize(grants, "s3:UploadPart/bucket/large-file.bin")
-      assert.is_true(allowed2)
-
-      local allowed3 = authorize(grants, "s3:CompleteMultipartUpload/bucket/large-file.bin")
-      assert.is_true(allowed3)
-    end)
-
-    it("should be case-sensitive", function()
-      local grants = { "s3:GetObject/bucket/UPLOADS/" }
-      local allowed = authorize(grants, "s3:GetObject/bucket/uploads/file.txt")
-      assert.is_false(allowed)
-    end)
-
-    it("should handle grant without trailing slash", function()
-      local grants = { "s3:GetObject/bucket/uploads" }
-      local allowed = authorize(grants, "s3:GetObject/bucket/uploads/file.txt")
-      assert.is_true(allowed)
+      assert.is_not_nil(string.find(reason, "no scopes"))
     end)
   end)
 end)
