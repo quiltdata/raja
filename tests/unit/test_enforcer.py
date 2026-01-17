@@ -2,7 +2,7 @@ import pytest
 
 from raja.enforcer import check_scopes, enforce, is_prefix_match
 from raja.exceptions import ScopeValidationError
-from raja.models import AuthRequest, Scope
+from raja.models import AuthRequest
 from raja.token import create_token
 
 

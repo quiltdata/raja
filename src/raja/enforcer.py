@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
 from .models import AuthRequest, Decision, Scope
 from .scope import format_scope, parse_scope
+from .token import TokenValidationError, validate_token
 
 
 def _matches_component(granted: str, requested: str) -> bool:
@@ -55,7 +56,7 @@ def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
         return _matches_component(granted.resource_id, requested.resource_id)
 
     return _matches_component(granted.resource_id, requested.resource_id)
-from .token import TokenValidationError, validate_token
+
 
 logger = structlog.get_logger(__name__)
 

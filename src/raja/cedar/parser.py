@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from typing import Literal, cast
 
-from .entities import parse_entity
 from ..models import CedarPolicy
+from .entities import parse_entity
 
 _EFFECT_RE = re.compile(r"^(permit|forbid)\s*\(", re.IGNORECASE)
 _FIELD_RE = re.compile(r"\b(principal|action|resource)\s*==\s*([^,\)]+)", re.IGNORECASE)

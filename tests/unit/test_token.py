@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from raja.exceptions import TokenExpiredError, TokenInvalidError, TokenValidationError
+from raja.exceptions import TokenExpiredError, TokenInvalidError
 from raja.models import Token
 from raja.token import (
     create_token,

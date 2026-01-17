@@ -1,6 +1,6 @@
 import pytest
 
-from raja.exceptions import ScopeParseError, ScopeValidationError
+from raja.exceptions import ScopeParseError
 from raja.models import Scope
 from raja.scope import format_scope, is_subset, parse_scope
 
