@@ -42,24 +42,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # Get ECR repository URI from CDK outputs
-echo "Getting ECR repository URI..."
+echo "Getting ECR repository URI from CloudFormation..."
+REPO_URI=$(aws cloudformation describe-stacks \
+    --stack-name RajeeEnvoyStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`EnvoyRepositoryUri`].OutputValue' \
+    --output text 2>/dev/null)
 
-# Try CDK outputs file first (faster)
-if [ -f "infra/cdk-outputs.json" ]; then
-    REPO_URI=$(jq -r '.RajeeEnvoyStack.EnvoyRepositoryUri // empty' infra/cdk-outputs.json 2>/dev/null)
-fi
-
-# Fall back to CloudFormation API
 if [ -z "$REPO_URI" ]; then
-    echo "Querying CloudFormation..."
-    REPO_URI=$(aws cloudformation describe-stacks \
-        --stack-name RajeeEnvoyStack \
-        --query 'Stacks[0].Outputs[?OutputKey==`EnvoyRepositoryUri`].OutputValue' \
-        --output text 2>/dev/null)
-fi
-
-if [ -z "$REPO_URI" ] || [ "$REPO_URI" = "None" ]; then
-    echo "Error: Could not get ECR repository URI."
+    echo "Error: Could not get ECR repository URI from CloudFormation."
     echo "Make sure RajeeEnvoyStack is deployed first with the ECR repository."
     echo ""
     echo "To deploy the stack:"
