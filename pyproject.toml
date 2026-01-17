@@ -102,9 +102,7 @@ test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name
 demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration with verbose output" }
 
 # AWS deployment
-deploy = { shell = "bash scripts/check_ecr_ready.sh && poe deploy-fast || poe deploy-bootstrap", help = "Smart deploy: uses fast path if ECR ready, bootstrap if not" }
-deploy-fast = { sequence = ["build-envoy-push", "_deploy-with-image-tag"], help = "Fast deploy: build image, push to ECR, deploy with pre-built image" }
-deploy-bootstrap = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Bootstrap deploy: builds image inline (slow, for first deployment)" }
+deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Deploy CDK stack to AWS, then load and compile policies" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
@@ -116,8 +114,6 @@ build-envoy-push = { cmd = "bash scripts/build-envoy-image.sh --push", help = "B
 
 # Full workflow - clean + check + test + docker + deploy + integration test
 all = { sequence = ["clean", "check", "test-unit", "test-docker", "deploy", "test-integration"], help = "Full workflow: clean, check, test, docker test, deploy, load policies, compile, and run integration tests" }
-_deploy-with-image-tag = { sequence = ["_npx-verify", "_cdk-deploy-with-tag", "load-policies", "compile-policies"], help = "Internal: deploy CDK with IMAGE_TAG set" }
-_cdk-deploy-with-tag = { shell = "export IMAGE_TAG=$(git rev-parse --short HEAD) && cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajeeEnvoyStack --require-approval never --progress bar --parameters RajeeEnvoyStack:AUTHDISABLED=false --outputs-file cdk-outputs-rajee.json --output cdk.out.deploy && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajaAvpStack RajaServicesStack --require-approval never --progress bar --outputs-file cdk-outputs-services.json --output cdk.out.deploy && python ../scripts/merge_cdk_outputs.py cdk-outputs-rajee.json cdk-outputs-services.json cdk-outputs.json", help = "Internal: deploy CDK with IMAGE_TAG" }
 
 # Version management
 version = { script = "scripts.version:show_version", help = "Show current version" }
