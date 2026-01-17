@@ -2,7 +2,9 @@ import importlib
 import os
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 server_app = importlib.import_module("raja.server.app")
 dependencies = importlib.import_module("raja.server.dependencies")
@@ -110,3 +112,24 @@ def test_s3_harness_flow_allows_and_denies() -> None:
     deny_payload = deny_response.json()
     assert deny_payload["allowed"] is False
     assert deny_payload["failed_check"] == "action"
+
+
+def test_s3_resource_requires_exactly_one_selector():
+    """Test that S3Resource validator requires exactly one of key or prefix."""
+    # Valid: with key
+    resource_with_key = server_app.S3Resource(bucket="my-bucket", key="file.txt")
+    assert resource_with_key.bucket == "my-bucket"
+    assert resource_with_key.key == "file.txt"
+
+    # Valid: with prefix
+    resource_with_prefix = server_app.S3Resource(bucket="my-bucket", prefix="folder/")
+    assert resource_with_prefix.bucket == "my-bucket"
+    assert resource_with_prefix.prefix == "folder/"
+
+    # Invalid: neither key nor prefix
+    with pytest.raises(ValidationError, match="exactly one"):
+        server_app.S3Resource(bucket="my-bucket")
+
+    # Invalid: both key and prefix
+    with pytest.raises(ValidationError, match="exactly one"):
+        server_app.S3Resource(bucket="my-bucket", key="file.txt", prefix="folder/")
