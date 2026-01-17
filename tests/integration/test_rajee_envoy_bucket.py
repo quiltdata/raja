@@ -149,7 +149,7 @@ def test_rajee_envoy_auth_with_real_grants() -> None:
     2. Decoding and displaying the grants in the token
     3. Performing local authorization check
     4. Sending the token to Envoy via x-raja-authorization header
-    5. Envoy's external auth filter validates the token with RAJA
+    5. Envoy JWT filter validates signature, Lua filter performs RAJA authorization
     """
     bucket = require_rajee_test_bucket()
 
@@ -193,22 +193,23 @@ def test_rajee_envoy_auth_with_real_grants() -> None:
     _log_operation("✍️  PUT OBJECT (with RAJA token)", f"Key: {key}")
     put_response = s3.put_object(Bucket=bucket, Key=key, Body=body)
     assert put_response["ResponseMetadata"]["HTTPStatusCode"] == 200
-    print("✅ Envoy accepted request (RAJA external auth filter validated token)")
+    print("✅ Envoy accepted request (JWT filter validated signature, Lua filter authorized)")
 
     _log_operation("📥 GET OBJECT (with RAJA token)", f"Key: {key}")
     get_response = s3.get_object(Bucket=bucket, Key=key)
     assert get_response["Body"].read() == body
-    print("✅ GET request authorized by RAJA")
+    print("✅ GET request authorized by RAJA Lua filter")
 
     _log_operation("🗑️  DELETE OBJECT (with RAJA token)", f"Key: {key}")
     s3.delete_object(Bucket=bucket, Key=key)
-    print("✅ DELETE request authorized by RAJA")
+    print("✅ DELETE request authorized by RAJA Lua filter")
 
     print("\n" + "=" * 80)
     print("✅ RAJA INTEGRATION CONFIRMED")
     print("   • JWT token issued by RAJA control plane")
     print("   • Token contains grants compiled from Cedar policies")
-    print("   • Envoy external auth filter validated token")
+    print("   • Envoy JWT filter validated signature using JWKS")
+    print("   • Envoy Lua filter performed RAJA authorization (subset checking)")
     print("   • All S3 operations authorized via RAJA")
     print("=" * 80)
 
@@ -216,9 +217,10 @@ def test_rajee_envoy_auth_with_real_grants() -> None:
 @pytest.mark.integration
 def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
     """
-    RAJA DENIAL TEST - Proves RAJA is enforcing authorization
+    RAJA DENIAL TEST - Proves RAJA Lua filter is enforcing authorization
 
     This test shows RAJA denying a request that doesn't match any grants.
+    JWT signature is valid, but grants don't cover the requested resource.
     """
     bucket = require_rajee_test_bucket()
 
@@ -263,15 +265,14 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
     if message:
         assert "Forbidden" in message or "grant" in message
 
-    _log_operation(
-        "✅ ENVOY DENIED REQUEST (403 Forbidden)", "RAJA external auth filter blocked it"
-    )
+    _log_operation("✅ ENVOY DENIED REQUEST (403 Forbidden)", "RAJA Lua filter blocked it")
 
     print("\n" + "=" * 80)
     print("✅ RAJA DENIAL CONFIRMED")
     print("   • Token does not contain grant for 'unauthorized-prefix/'")
     print("   • Local RAJA check predicted denial")
-    print("   • Envoy external auth filter denied request (403)")
+    print("   • Envoy JWT filter validated signature (passed)")
+    print("   • Envoy Lua filter denied request based on grants (403)")
     print("   • RAJA is actively enforcing authorization!")
     print("=" * 80)
 
