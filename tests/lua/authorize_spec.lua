@@ -134,12 +134,6 @@ describe("Authorization Logic", function()
       assert.is_not_nil(string.find(reason, "matched scope"))
     end)
 
-    it("should allow bucket prefix match", function()
-      local scopes = { "S3Object:bucket-:uploads/:s3:GetObject" }
-      local allowed = authorize(scopes, "S3Object:bucket-123/uploads/file.txt:s3:GetObject")
-      assert.is_true(allowed)
-    end)
-
     it("should deny different action", function()
       local scopes = { "S3Object:bucket/key.txt:s3:GetObject" }
       local allowed, reason = authorize(scopes, "S3Object:bucket/key.txt:s3:PutObject")
@@ -160,8 +154,8 @@ describe("Authorization Logic", function()
     end)
 
     it("should allow bucket-only scope", function()
-      local scopes = { "S3Bucket:bucket-:s3:ListBucket" }
-      local allowed = authorize(scopes, "S3Bucket:bucket-123:s3:ListBucket")
+      local scopes = { "S3Bucket:bucket:s3:ListBucket" }
+      local allowed = authorize(scopes, "S3Bucket:bucket:s3:ListBucket")
       assert.is_true(allowed)
     end)
 

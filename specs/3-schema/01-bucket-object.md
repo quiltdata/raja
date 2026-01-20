@@ -27,7 +27,8 @@ entity S3Object in [S3Bucket] {}
 We leverage this to separate bucket and key components:
 
 ```cedar
-resource == Raja::S3Object::"key-prefix" in Raja::S3Bucket::"bucket-prefix"
+resource == Raja::S3Object::"key-prefix"
+when { resource in Raja::S3Bucket::"bucket-prefix" }
 ```
 
 ### Examples
@@ -38,7 +39,8 @@ resource == Raja::S3Object::"key-prefix" in Raja::S3Bucket::"bucket-prefix"
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:GetObject",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
+  resource == Raja::S3Object::"rajee-integration/"
+when { resource in Raja::S3Bucket::"raja-poc-test-" }
 );
 ```
 
@@ -93,7 +95,8 @@ The compiler translates hierarchical Cedar policies into RAJA scopes:
 **Cedar policy:**
 
 ```cedar
-resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
+resource == Raja::S3Object::"rajee-integration/"
+when { resource in Raja::S3Bucket::"raja-poc-test-" }
 ```
 
 **Compiled scope:**
@@ -254,7 +257,8 @@ Grant test-user access to rajee-integration/ prefix | tests/integration/test_raj
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:GetObject",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
+  resource == Raja::S3Object::"rajee-integration/"
+when { resource in Raja::S3Bucket::"raja-poc-test-" }
 );
 ```
 
@@ -269,7 +273,8 @@ resource == Raja::S3Object::"bucket/key"
 Must be rewritten to hierarchical form:
 
 ```cedar
-resource == Raja::S3Object::"key" in Raja::S3Bucket::"bucket"
+resource == Raja::S3Object::"key"
+when { resource in Raja::S3Bucket::"bucket" }
 ```
 
 This requires updates to:

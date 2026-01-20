@@ -9,8 +9,8 @@ from .scope import format_scope, parse_scope
 from .token import TokenValidationError, validate_token
 
 
-def _matches_component(granted: str, requested: str) -> bool:
-    if granted.endswith("/") or granted.endswith("-"):
+def _matches_key(granted: str, requested: str) -> bool:
+    if granted.endswith("/"):
         return requested.startswith(granted)
     return granted == requested
 
@@ -34,7 +34,7 @@ def _action_matches(granted_action: str, requested_action: str) -> bool:
 
 
 def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
-    """Check if requested scope matches granted scope (with prefix matching)."""
+    """Check if requested scope matches granted scope (key prefix matching only)."""
     granted = parse_scope(granted_scope)
     requested = parse_scope(requested_scope)
 
@@ -48,14 +48,12 @@ def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
             return False
         granted_bucket, granted_key = granted.resource_id.split("/", 1)
         requested_bucket, requested_key = requested.resource_id.split("/", 1)
-        return _matches_component(granted_bucket, requested_bucket) and _matches_component(
-            granted_key, requested_key
-        )
+        return granted_bucket == requested_bucket and _matches_key(granted_key, requested_key)
 
     if granted.resource_type == "S3Bucket":
-        return _matches_component(granted.resource_id, requested.resource_id)
+        return granted.resource_id == requested.resource_id
 
-    return _matches_component(granted.resource_id, requested.resource_id)
+    return granted.resource_id == requested.resource_id
 
 
 logger = structlog.get_logger(__name__)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aws_cdk import BundlingOptions, Duration
+from aws_cdk import BundlingOptions, Duration, Stack
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -61,6 +61,7 @@ class ControlPlaneLambda(Construct):
                 "JWT_SECRET_ARN": jwt_secret.secret_arn,
                 "HARNESS_SECRET_ARN": harness_secret.secret_arn,
                 "TOKEN_TTL": str(token_ttl),
+                "AWS_ACCOUNT_ID": Stack.of(self).account,
             },
         )
 

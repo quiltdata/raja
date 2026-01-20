@@ -14,8 +14,8 @@ local function ends_with(value, suffix)
   return string.sub(value, -#suffix) == suffix
 end
 
-local function matches_component(granted, requested)
-  if ends_with(granted, "/") or ends_with(granted, "-") then
+local function matches_key(granted, requested)
+  if ends_with(granted, "/") then
     return string.sub(requested, 1, #granted) == granted
   end
   return granted == requested
@@ -39,15 +39,18 @@ local function parse_scope(scope)
     return nil, "scope missing"
   end
 
-  local resource_type, rest = string.match(scope, "^([^:]+):(.+)$")
-  if not resource_type or not rest then
+  local first = string.find(scope, ":", 1, true)
+  if not first then
+    return nil, "invalid scope format"
+  end
+  local second = string.find(scope, ":", first + 1, true)
+  if not second then
     return nil, "invalid scope format"
   end
 
-  local resource_id, action = string.match(rest, "^(.*):([^:]+)$")
-  if not resource_id or not action then
-    return nil, "invalid scope format"
-  end
+  local resource_type = string.sub(scope, 1, first - 1)
+  local resource_id = string.sub(scope, first + 1, second - 1)
+  local action = string.sub(scope, second + 1)
 
   local parsed = {
     resource_type = resource_type,
@@ -89,23 +92,23 @@ local function matches_prefix(granted_scope, requested_scope)
     if not granted.bucket or not granted.key or not requested.bucket or not requested.key then
       return false, "missing bucket or key"
     end
-    if not matches_component(granted.bucket, requested.bucket) then
+    if granted.bucket ~= requested.bucket then
       return false, "bucket mismatch"
     end
-    if not matches_component(granted.key, requested.key) then
+    if not matches_key(granted.key, requested.key) then
       return false, "key mismatch"
     end
     return true, "matched scope: " .. granted_scope
   end
 
   if granted.resource_type == "S3Bucket" then
-    if not matches_component(granted.resource_id, requested.resource_id) then
+    if granted.resource_id ~= requested.resource_id then
       return false, "bucket mismatch"
     end
     return true, "matched scope: " .. granted_scope
   end
 
-  if matches_component(granted.resource_id, requested.resource_id) then
+  if granted.resource_id == requested.resource_id then
     return true, "matched scope: " .. granted_scope
   end
   return false, "resource mismatch"

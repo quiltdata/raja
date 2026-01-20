@@ -3,16 +3,23 @@ import base64
 import jwt
 import pytest
 
-from .helpers import issue_rajee_token, issue_token, request_json, require_api_issuer
+from .helpers import (
+    issue_rajee_token,
+    issue_token,
+    request_json,
+    require_api_issuer,
+    require_rajee_test_bucket,
+)
 
 
 @pytest.mark.integration
 def test_token_service_issues_token_for_known_principal():
     token, scopes = issue_token("test-user")
     assert token
+    bucket = require_rajee_test_bucket()
     expected = {
-        "S3Object:raja-poc-test-/rajee-integration/:s3:GetObject",
-        "S3Bucket:raja-poc-test-:s3:ListBucket",
+        f"S3Object:{bucket}/rajee-integration/:s3:GetObject",
+        f"S3Bucket:{bucket}:s3:ListBucket",
     }
     assert expected.issubset(set(scopes))
 

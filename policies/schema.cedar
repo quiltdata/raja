@@ -4,7 +4,8 @@ entity Role {}
 
 // S3 Resources
 // S3Object resources should be expressed as:
-//   resource == Raja::S3Object::"key-or-prefix/" in Raja::S3Bucket::"bucket-or-prefix-"
+//   resource == Raja::S3Object::"key-or-prefix/"
+//   when { resource in Raja::S3Bucket::"bucket-{{account}}-{{region}}" }
 entity S3Bucket {}
 entity S3Object in [S3Bucket] {}
 

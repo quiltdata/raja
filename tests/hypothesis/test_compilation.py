@@ -8,7 +8,8 @@ def test_compilation_token_scopes_match_policy():
     policies = [
         (
             'permit(principal == User::"alice", action == Action::"s3:GetObject", '
-            'resource == S3Object::"analytics-data/report.csv");'
+            'resource == S3Object::"report.csv") '
+            'when { resource in S3Bucket::"analytics-data" };'
         )
     ]
     compiled = compile_policies(policies)

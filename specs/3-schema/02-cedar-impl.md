@@ -53,22 +53,37 @@ resource == Raja::S3Object::"bucket-name/key/path"
 ### Target (Hierarchical)
 
 ```cedar
-resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
+resource == Raja::S3Object::"rajee-integration/"
+when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" }
 ```
 
 **Benefits:**
 
 - Clear bucket vs. key separation
-- Independent prefix matching on each component
-- No hardcoded account/region (use prefix matching)
+- Prefix matching on keys only (bucket must be exact)
+- No hardcoded account/region (use template expansion)
 
 ### Bucket-Only Policies
 
 ```cedar
-resource == Raja::S3Bucket::"raja-poc-test-"
+resource == Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}"
 ```
 
 For actions that operate on buckets (ListBucket, GetBucketLocation, etc.).
+
+### Bucket Templates (Required)
+
+Use compiler-side template expansion instead of bucket prefix matching. Buckets must be fully specified after expansion.
+
+```cedar
+resource == Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}"
+```
+
+**Rules:**
+
+- Template placeholders resolve to concrete bucket names before scope compilation
+- Unresolved templates are an error (fail-closed)
+- Bucket component must be exact after expansion (no trailing `-`)
 
 ## Scope Format
 
@@ -87,17 +102,19 @@ ResourceType:bucket-component/key-component:action
 **Examples:**
 
 ```
-S3Object:raja-poc-test-/rajee-integration/:s3:GetObject
-S3Object:raja-poc-test-/rajee-integration/:s3:PutObject
-S3Bucket:raja-poc-test-:s3:ListBucket
+S3Object:raja-poc-test-123456789012-us-west-2/rajee-integration/:s3:GetObject
+S3Object:raja-poc-test-123456789012-us-west-2/rajee-integration/:s3:PutObject
+S3Bucket:raja-poc-test-123456789012-us-west-2:s3:ListBucket
 ```
 
 **Key properties:**
 
-- Format: `ResourceType:bucket-or-prefix/key-or-prefix:action`
-- Trailing `/` or `-` indicates prefix match
+- Format: `ResourceType:bucket/key-or-prefix:action`
+- Bucket component must be exact (no prefix matching)
+- Trailing `/` on the key component indicates prefix match
 - No trailing indicator means exact match
-- For bucket-only scopes: `S3Bucket:bucket-or-prefix:action` (no `/` separator)
+- For bucket-only scopes: `S3Bucket:bucket:action` (no `/` separator)
+- Template placeholders are allowed only in the bucket component prior to compilation
 
 ## Implementation Tasks
 
@@ -107,11 +124,12 @@ S3Bucket:raja-poc-test-:s3:ListBucket
 
 **Tasks:**
 
-- [ ] Parse hierarchical `in` syntax: `resource == Type::"id" in Parent::"parent-id"`
+- [ ] Parse hierarchical `in` syntax in `when` clause: `resource == Type::"id"` + `when { resource in Parent::"parent-id" }`
 - [ ] Extract both resource and parent components separately
 - [ ] Preserve original syntax for scope compilation
 - [ ] Handle bucket-only policies (no `in` clause)
 - [ ] Validate syntax matches schema (S3Object in S3Bucket hierarchy)
+- [ ] Allow template placeholders only in bucket identifiers (reject in key)
 
 **Parsing Output:**
 
@@ -120,7 +138,7 @@ S3Bucket:raja-poc-test-:s3:ListBucket
     "resource_type": "S3Object",
     "resource_id": "rajee-integration/",
     "parent_type": "S3Bucket",
-    "parent_id": "raja-poc-test-",
+    "parent_id": "raja-poc-test-{{account}}-{{region}}",
     "action": "s3:GetObject"
 }
 ```
@@ -128,7 +146,9 @@ S3Bucket:raja-poc-test-:s3:ListBucket
 **Edge Cases:**
 
 - Bucket-only policies: `parent_type` and `parent_id` are None
-- Exact matches: No trailing `/` or `-`
+- Exact matches: Bucket is always exact; key has no trailing `/`
+- Reject bucket prefix markers (no trailing `-`)
+- Reject template placeholders in key components
 - Multiple `in` clauses (not supported in MVP - should error)
 
 ### 2. Scope Compiler Updates
@@ -138,15 +158,18 @@ S3Bucket:raja-poc-test-:s3:ListBucket
 **Tasks:**
 
 - [ ] Generate scopes from hierarchical Cedar syntax
-- [ ] Combine bucket and key components: `bucket-prefix/key-prefix`
-- [ ] Detect prefix indicators (trailing `/` or `-`)
+- [ ] Expand templates (`{{account}}`, `{{region}}`, etc.) before compiling scopes
+- [ ] Combine bucket and key components: `bucket/key-prefix`
+- [ ] Detect key prefix indicators (trailing `/`)
 - [ ] Store scope format: `ResourceType:bucket/key:action`
 - [ ] Handle bucket-only scopes: `ResourceType:bucket:action`
+- [ ] Reject any bucket component that is not fully specified after template expansion
 
 **Compilation Logic:**
 
 ```
-Cedar: resource == Raja::S3Object::"key" in Raja::S3Bucket::"bucket"
+Cedar: resource == Raja::S3Object::"key"
+when { resource in Raja::S3Bucket::"bucket" }
 ↓
 Scope: S3Object:bucket/key:action
 ```
@@ -178,14 +201,14 @@ Scope: S3Object:bucket/key:action
 - [ ] Parse S3 request to extract bucket and key
 - [ ] Handle all S3 operation types (see test cases below)
 - [ ] Extract scopes from validated JWT
-- [ ] Implement prefix matching algorithm
+- [ ] Implement key prefix matching algorithm (bucket exact)
 - [ ] Log authorization decisions with details
 
 **Prefix Matching Algorithm:**
 
 ```lua
 function matches_prefix(granted_scope, requested_bucket, requested_key, requested_action)
-    -- Parse granted scope: "S3Object:bucket-prefix/key-prefix:action"
+    -- Parse granted scope: "S3Object:bucket/key-prefix:action"
     local granted_bucket, granted_key, granted_action = parse_scope(granted_scope)
 
     -- Check action match (exact)
@@ -194,13 +217,13 @@ function matches_prefix(granted_scope, requested_bucket, requested_key, requeste
     end
 
     -- Check bucket match
-    if not matches_component(granted_bucket, requested_bucket) then
+    if granted_bucket ~= requested_bucket then
         return false
     end
 
     -- Check key match (if applicable)
     if granted_key then
-        if not matches_component(granted_key, requested_key) then
+        if not matches_key(granted_key, requested_key) then
             return false
         end
     end
@@ -208,9 +231,9 @@ function matches_prefix(granted_scope, requested_bucket, requested_key, requeste
     return true
 end
 
-function matches_component(granted, requested)
-    -- If granted ends with '/' or '-', it's a prefix match
-    if ends_with(granted, '/') or ends_with(granted, '-') then
+function matches_key(granted, requested)
+    -- If granted ends with '/', it's a prefix match
+    if ends_with(granted, '/') then
         return starts_with(requested, granted)
     else
         -- Exact match
@@ -392,7 +415,8 @@ action "s3:ListBucketVersions" appliesTo {
 **Tasks:**
 
 - [ ] Rewrite to use hierarchical syntax
-- [ ] Use prefix indicators: `raja-poc-test-` for bucket, `rajee-integration/` for key
+- [ ] Use templates for buckets (e.g., `{{account}}`, `{{region}}`), exact after expansion
+- [ ] Use key prefix indicator: trailing `/` (no bucket prefixing)
 - [ ] Add structured annotations for traceability
 - [ ] Remove any remaining `*` wildcards
 
@@ -405,8 +429,8 @@ action "s3:ListBucketVersions" appliesTo {
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:GetObject",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
-);
+  resource == Raja::S3Object::"rajee-integration/"
+) when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" };
 ```
 
 ### 8. Remove Non-Definitive Authorization
@@ -425,7 +449,7 @@ permit(
 
 **Keep:**
 
-- Python `enforcer.py` module for unit testing prefix matching logic
+- Python `enforcer.py` module for unit testing key prefix matching logic
 - Unit tests in `tests/unit/test_enforcer.py`
 
 ## Test Coverage
@@ -434,15 +458,14 @@ permit(
 
 **File:** `tests/unit/test_enforcer.py`
 
-Test prefix matching algorithm in isolation:
+Test key prefix matching algorithm in isolation:
 
 - [ ] Exact match: `bucket/key` matches `bucket/key`
-- [ ] Prefix match bucket: `bucket-` matches `bucket-123`, `bucket-abc`
 - [ ] Prefix match key: `prefix/` matches `prefix/file.txt`, `prefix/subdir/file.txt`
-- [ ] No match: `bucket-` does not match `other-bucket`
+- [ ] Bucket mismatch: `bucket-a` does not match `bucket-b`
 - [ ] No match: `prefix/` does not match `other-prefix/file.txt`
 - [ ] Action mismatch: Same resource, different action → DENY
-- [ ] Bucket-only scope: `S3Bucket:bucket-:s3:ListBucket` matches bucket operations
+- [ ] Bucket-only scope: `S3Bucket:bucket:action` matches bucket operations
 
 **File:** `tests/unit/test_cedar_parser.py`
 
@@ -470,7 +493,7 @@ Test actual S3 operations through Envoy:
 
 - [ ] **GET object in subdirectory** - `s3:GetObject` on `rajee-integration/subdir/file.txt`
 - [ ] **GET object outside prefix** - `s3:GetObject` on `other-prefix/file.txt` → DENY
-- [ ] **PUT to different bucket** - `s3:PutObject` to bucket not matching `raja-poc-test-` → DENY
+- [ ] **PUT to different bucket** - `s3:PutObject` to bucket not matching `raja-poc-test-123456789012-us-west-2` → DENY
 
 #### Multipart Upload
 
@@ -590,9 +613,10 @@ permit(action == Raja::Action::"s3:GetObject", ...)
 
 - [ ] All policies use hierarchical syntax (no embedded bucket/key)
 - [ ] No `*` wildcards in policy files
+- [ ] Buckets are fully specified after template expansion (no prefix matching)
 - [ ] Cedar parser extracts bucket and key components separately
 - [ ] Compiler generates scopes with both components
-- [ ] Lua enforcer implements prefix matching correctly
+- [ ] Lua enforcer implements key prefix matching correctly
 - [ ] All integration tests pass through Envoy
 - [ ] Python `/authorize` endpoint removed
 - [ ] Multipart upload operations work end-to-end
@@ -612,7 +636,6 @@ permit(action == Raja::Action::"s3:GetObject", ...)
 
 ## Non-Goals (Deferred to Future)
 
-- Template expansion (`{{account}}`, `{{region}}`) - Compiler feature for later
 - AVP description extraction - Policy metadata for later
 - Role-based principals - MVP uses only `User`
 - Policy validation in CI - Ensure policies compile successfully

@@ -4,8 +4,8 @@
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:GetObject",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
-);
+  resource == Raja::S3Object::"rajee-integration/" 
+) when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" };
 
 // @description Allow PutObject operations (includes multipart uploads in enforcement)
 // @test tests/integration/test_rajee_envoy_bucket.py::test_rajee_envoy_auth_with_real_scopes
@@ -13,8 +13,8 @@ permit(
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:PutObject",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
-);
+  resource == Raja::S3Object::"rajee-integration/" 
+) when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" };
 
 // @description Allow delete of objects within rajee-integration/ prefix
 // @test tests/integration/test_rajee_envoy_bucket.py::test_rajee_envoy_auth_with_real_scopes
@@ -22,8 +22,8 @@ permit(
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:DeleteObject",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
-);
+  resource == Raja::S3Object::"rajee-integration/" 
+) when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" };
 
 // @description Allow bucket listing for test buckets
 // @test tests/integration/test_rajee_envoy_bucket.py::test_rajee_envoy_list_bucket
@@ -31,7 +31,7 @@ permit(
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:ListBucket",
-  resource == Raja::S3Bucket::"raja-poc-test-"
+  resource == Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}"
 );
 
 // @description Allow list bucket versions for versioned buckets
@@ -40,7 +40,7 @@ permit(
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:ListBucketVersions",
-  resource == Raja::S3Bucket::"raja-poc-test-"
+  resource == Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}"
 );
 
 // @description Allow read of object versions within rajee-integration/ prefix
@@ -49,8 +49,8 @@ permit(
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:GetObjectVersion",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
-);
+  resource == Raja::S3Object::"rajee-integration/" 
+) when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" };
 
 // @description Allow delete of object versions within rajee-integration/ prefix
 // @test tests/integration/test_rajee_envoy_bucket.py::test_rajee_envoy_versioning_operations
@@ -58,5 +58,5 @@ permit(
 permit(
   principal == Raja::User::"test-user",
   action == Raja::Action::"s3:DeleteObjectVersion",
-  resource == Raja::S3Object::"rajee-integration/" in Raja::S3Bucket::"raja-poc-test-"
-);
+  resource == Raja::S3Object::"rajee-integration/" 
+) when { resource in Raja::S3Bucket::"raja-poc-test-{{account}}-{{region}}" };

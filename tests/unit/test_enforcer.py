@@ -122,10 +122,10 @@ def test_prefix_match_exact() -> None:
     )
 
 
-def test_prefix_match_bucket() -> None:
-    assert is_prefix_match(
-        "S3Object:bucket-/uploads/file.txt:s3:GetObject",
-        "S3Object:bucket-123/uploads/file.txt:s3:GetObject",
+def test_prefix_match_bucket_mismatch() -> None:
+    assert not is_prefix_match(
+        "S3Object:bucket/uploads/file.txt:s3:GetObject",
+        "S3Object:other/uploads/file.txt:s3:GetObject",
     )
 
 
@@ -138,8 +138,8 @@ def test_prefix_match_key_prefix() -> None:
 
 def test_prefix_match_bucket_no_match() -> None:
     assert not is_prefix_match(
-        "S3Object:bucket-/uploads/file.txt:s3:GetObject",
-        "S3Object:other/uploads/file.txt:s3:GetObject",
+        "S3Bucket:bucket:s3:ListBucket",
+        "S3Bucket:other:s3:ListBucket",
     )
 
 
@@ -159,8 +159,8 @@ def test_prefix_match_action_mismatch() -> None:
 
 def test_prefix_match_bucket_only_scope() -> None:
     assert is_prefix_match(
-        "S3Bucket:bucket-:s3:ListBucket",
-        "S3Bucket:bucket-123:s3:ListBucket",
+        "S3Bucket:bucket:s3:ListBucket",
+        "S3Bucket:bucket:s3:ListBucket",
     )
 
 
