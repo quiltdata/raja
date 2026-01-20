@@ -34,6 +34,12 @@ class PrincipalRequest(BaseModel):
     scopes: list[str] = []
 
 
+class RevokeTokenRequest(BaseModel):
+    """Request model for token revocation."""
+
+    token: str
+
+
 POLICY_STORE_ID = os.environ.get("POLICY_STORE_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 
@@ -213,6 +219,13 @@ def issue_token(
         logger.warning("audit_log_write_failed", error=str(exc))
 
     return {"token": token, "principal": payload.principal, "scopes": scopes}
+
+
+@router.post("/token/revoke")
+def revoke_token(payload: RevokeTokenRequest) -> dict[str, str]:
+    """Token revocation endpoint (not currently supported)."""
+    logger.info("token_revocation_requested")
+    return {"status": "unsupported", "message": "Token revocation is not supported"}
 
 
 @router.get("/principals")

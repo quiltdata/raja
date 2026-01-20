@@ -11,7 +11,7 @@ pytest tests/unit/ -v
 
 echo "==> Running Cedar Rust validation"
 if command -v cargo >/dev/null 2>&1; then
-  cargo run --quiet --manifest-path tools/cedar-validate/Cargo.toml -- policies
+  cargo run --quiet --bin cedar-validate --manifest-path tools/cedar-validate/Cargo.toml -- policies
 else
   if [ "$fail_on_missing" = "true" ]; then
     echo "cargo is required for Cedar validation but is not available" >&2

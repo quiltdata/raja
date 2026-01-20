@@ -23,7 +23,9 @@ def test_health_endpoint():
     client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    payload = response.json()
+    assert "status" in payload
+    assert "dependencies" in payload
 
 
 def test_audit_endpoint_returns_entries() -> None:

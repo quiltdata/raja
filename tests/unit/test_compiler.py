@@ -1,6 +1,18 @@
+import os
+import shutil
+
 import pytest
 
 from raja.compiler import compile_policies, compile_policy
+
+
+def _cedar_tool_available() -> bool:
+    return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_PARSE_BIN"))
+
+
+pytestmark = pytest.mark.skipif(
+    not _cedar_tool_available(), reason="cargo or CEDAR_PARSE_BIN is required for Cedar parsing"
+)
 
 
 def test_compile_policy_permit():
@@ -63,6 +75,7 @@ def test_compile_policy_rejects_missing_template_values(monkeypatch: pytest.Monk
     )
     monkeypatch.delenv("AWS_ACCOUNT_ID", raising=False)
     monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.setenv("RAJA_DISABLE_OUTPUT_CONTEXT", "1")
     with pytest.raises(ValueError):
         compile_policy(policy)
 

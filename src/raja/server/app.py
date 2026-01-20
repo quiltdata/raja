@@ -110,10 +110,26 @@ def admin_home() -> HTMLResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     """Health check endpoint."""
     logger.debug("health_check_requested")
-    return {"status": "ok"}
+
+    dependency_checks: dict[str, str] = {}
+
+    def _check(name: str, fn: Any) -> None:
+        try:
+            fn()
+            dependency_checks[name] = "ok"
+        except Exception as exc:
+            dependency_checks[name] = f"error: {exc}"
+
+    _check("jwt_secret", dependencies.get_jwt_secret)
+    _check("principal_table", dependencies.get_principal_table)
+    _check("mappings_table", dependencies.get_mappings_table)
+    _check("audit_table", dependencies.get_audit_table)
+
+    status = "ok" if all(value == "ok" for value in dependency_checks.values()) else "degraded"
+    return {"status": status, "dependencies": dependency_checks}
 
 
 @app.get("/audit")

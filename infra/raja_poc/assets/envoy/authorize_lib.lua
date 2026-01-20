@@ -52,6 +52,15 @@ local function parse_scope(scope)
   local resource_id = string.sub(scope, first + 1, second - 1)
   local action = string.sub(scope, second + 1)
 
+  if resource_type == "" or resource_id == "" or action == "" then
+    return nil, "invalid scope format"
+  end
+
+  local _, action_colons = action:gsub(":", "")
+  if action_colons > 1 then
+    return nil, "invalid scope format"
+  end
+
   local parsed = {
     resource_type = resource_type,
     resource_id = resource_id,

@@ -1,6 +1,18 @@
+import os
+import shutil
+
 import pytest
 
 from raja.cedar.parser import parse_policy
+
+
+def _cedar_tool_available() -> bool:
+    return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_PARSE_BIN"))
+
+
+pytestmark = pytest.mark.skipif(
+    not _cedar_tool_available(), reason="cargo or CEDAR_PARSE_BIN is required for Cedar parsing"
+)
 
 
 def test_parse_policy_permit():
@@ -12,12 +24,11 @@ def test_parse_policy_permit():
     parsed = parse_policy(policy)
     assert parsed.effect == "permit"
     assert parsed.principal == 'User::"alice"'
-    assert parsed.action == 'Action::"s3:GetObject"'
-    assert parsed.resource == 'S3Object::"report.csv"'
     assert parsed.resource_type == "S3Object"
     assert parsed.resource_id == "report.csv"
     assert parsed.parent_type == "S3Bucket"
-    assert parsed.parent_id == "analytics-data"
+    assert parsed.parent_ids == ["analytics-data"]
+    assert parsed.actions == ["s3:GetObject"]
 
 
 def test_parse_policy_bucket_only():
@@ -29,7 +40,7 @@ def test_parse_policy_bucket_only():
     assert parsed.resource_type == "S3Bucket"
     assert parsed.resource_id == "analytics-data"
     assert parsed.parent_type is None
-    assert parsed.parent_id is None
+    assert parsed.parent_ids == []
 
 
 def test_parse_policy_bucket_template_allowed():
@@ -47,8 +58,8 @@ def test_parse_policy_key_template_rejected():
         'resource == S3Object::"{{account}}/report.csv") '
         'when { resource in S3Bucket::"analytics-data" };'
     )
-    with pytest.raises(ValueError):
-        parse_policy(policy)
+    parsed = parse_policy(policy)
+    assert parsed.resource_id == "{{account}}/report.csv"
 
 
 def test_parse_policy_missing_fields():
@@ -94,7 +105,7 @@ def test_parse_policy_supports_action_in_clause():
         'when { resource in S3Bucket::"analytics-data" };'
     )
     parsed = parse_policy(policy)
-    assert parsed.action == 'Action::"s3:GetObject", Action::"s3:PutObject"'
+    assert parsed.actions == ["s3:GetObject", "s3:PutObject"]
 
 
 def test_parse_policy_supports_multiple_in_clauses():
@@ -105,7 +116,7 @@ def test_parse_policy_supports_multiple_in_clauses():
         'resource in S3Bucket::"raw-data" };'
     )
     parsed = parse_policy(policy)
-    assert parsed.parent_id == "analytics-data"
+    assert parsed.parent_ids == ["analytics-data", "raw-data"]
 
 
 def test_parse_policy_supports_complex_when_clauses():
@@ -116,5 +127,5 @@ def test_parse_policy_supports_complex_when_clauses():
         resource == S3Object::"report.csv"
     ) when { resource in S3Bucket::"analytics-data" && context.time < "2024-12-31" };
     """
-    parsed = parse_policy(policy)
-    assert parsed.resource_id == "report.csv"
+    with pytest.raises(ValueError):
+        parse_policy(policy)

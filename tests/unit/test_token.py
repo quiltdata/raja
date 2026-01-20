@@ -1,8 +1,9 @@
 import time
 
+import jwt
 import pytest
 
-from raja.exceptions import TokenExpiredError, TokenInvalidError
+from raja.exceptions import TokenExpiredError, TokenInvalidError, TokenValidationError
 from raja.models import Token
 from raja.token import (
     create_token,
@@ -11,7 +12,6 @@ from raja.token import (
     is_expired,
     validate_token,
 )
-import jwt
 
 
 def test_create_and_validate_token():
@@ -160,21 +160,23 @@ def test_create_token_with_grants_without_issuer_audience():
 def test_validate_token_rejects_missing_subject():
     """Test that validate_token rejects tokens missing a subject."""
     token_str = jwt.encode({"scopes": ["Document:doc1:read"]}, "secret", algorithm="HS256")
-    with pytest.raises(Exception):
+    with pytest.raises(TokenValidationError):
         validate_token(token_str, "secret")
 
 
 def test_validate_token_rejects_null_scopes():
     """Test that validate_token rejects tokens with null scopes."""
     token_str = jwt.encode({"sub": "alice", "scopes": None}, "secret", algorithm="HS256")
-    with pytest.raises(Exception):
+    with pytest.raises(TokenValidationError):
         validate_token(token_str, "secret")
 
 
 def test_validate_token_rejects_non_list_scopes():
     """Test that validate_token rejects tokens with non-list scopes."""
-    token_str = jwt.encode({"sub": "alice", "scopes": "Document:doc1:read"}, "secret", algorithm="HS256")
-    with pytest.raises(Exception):
+    token_str = jwt.encode(
+        {"sub": "alice", "scopes": "Document:doc1:read"}, "secret", algorithm="HS256"
+    )
+    with pytest.raises(TokenValidationError):
         validate_token(token_str, "secret")
 
 

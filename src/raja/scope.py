@@ -34,6 +34,11 @@ def parse_scope(scope_str: str) -> Scope:
             f"scope must match 'ResourceType:ResourceId:Action', got: {scope_str}"
         )
 
+    action = match.group("action")
+    if action.count(":") > 1:
+        logger.warning("scope_parse_failed_extra_colons", scope=scope_str)
+        raise ScopeParseError("scope contains invalid colons in resource_id or action")
+
     try:
         return Scope(**match.groupdict())
     except ValidationError as exc:
