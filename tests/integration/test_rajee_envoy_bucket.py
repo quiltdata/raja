@@ -1,4 +1,3 @@
-import os
 import time
 import uuid
 from typing import Any
@@ -6,10 +5,10 @@ from typing import Any
 import boto3
 import jwt
 import pytest
-from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from .helpers import issue_rajee_token, require_rajee_endpoint, require_rajee_test_bucket
+from ..shared.s3_client import create_rajee_s3_client_with_region
+from .helpers import issue_rajee_token, require_rajee_test_bucket
 
 S3_UPSTREAM_HOST = "s3.us-east-1.amazonaws.com"
 
@@ -32,38 +31,17 @@ def test_rajee_test_bucket_exists() -> None:
         pytest.fail(f"Expected RAJEE test bucket {bucket} to exist: {exc}")
 
 
+# S3 client creation moved to shared utility: tests/shared/s3_client.py
+# Use create_rajee_s3_client_with_region() for consistent S3 client setup
 def _create_s3_client_with_rajee_proxy(
     verbose: bool = False, token: str | None = None
 ) -> tuple[Any, str, str]:
-    """Create S3 client configured to use RAJEE Envoy proxy."""
-    bucket = require_rajee_test_bucket()
-    endpoint = require_rajee_endpoint()
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    """Create S3 client configured to use RAJEE Envoy proxy.
 
-    if verbose:
-        print("\n" + "=" * 80)
-        print("RAJEE ENVOY S3 PROXY DEMONSTRATION")
-        print("=" * 80)
-        print(f"\n📡 Envoy Proxy Endpoint: {endpoint}")
-        print(f"🪣 S3 Bucket: {bucket}")
-        print(f"🌎 Region: {region}")
-        print(f"🔄 Host Header Rewrite: Envoy → {S3_UPSTREAM_HOST}")
-        print("\n" + "-" * 80)
-
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        region_name=region,
-        config=Config(s3={"addressing_style": "path"}),
-    )
-
-    def _apply_headers(request, **_: Any) -> None:
-        request.headers.__setitem__("Host", S3_UPSTREAM_HOST)
-        if token:
-            request.headers.__setitem__("x-raja-authorization", f"Bearer {token}")
-
-    s3.meta.events.register("before-sign.s3", _apply_headers)
-    return s3, bucket, region
+    This is a compatibility wrapper - new code should use
+    create_rajee_s3_client_with_region() directly.
+    """
+    return create_rajee_s3_client_with_region(token=token, verbose=verbose)
 
 
 @pytest.mark.integration

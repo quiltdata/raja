@@ -1,18 +1,16 @@
 import os
 import shutil
-import time
 import uuid
 from pathlib import Path
 from urllib import error, request
 
-import boto3
-import jwt
 import pytest
-from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from raja.compiler import _expand_templates, compile_policy
 
+from ..shared.s3_client import create_rajee_s3_client
+from ..shared.token_builder import TokenBuilder
 from .helpers import (
     fetch_jwks_secret,
     issue_rajee_token,
@@ -27,31 +25,14 @@ def _cedar_tool_available() -> bool:
     return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_PARSE_BIN"))
 
 
+# S3 client creation moved to shared utility: tests/shared/s3_client.py
+# Use create_rajee_s3_client() for consistent S3 client setup
+
 S3_UPSTREAM_HOST = "s3.us-east-1.amazonaws.com"
 
 
-def _create_s3_client_with_rajee_proxy(token: str | None) -> tuple[boto3.client, str]:
-    bucket = require_rajee_test_bucket()
-    endpoint = require_rajee_endpoint()
-    region = "us-east-1"
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        region_name=region,
-        config=Config(s3={"addressing_style": "path"}),
-    )
-
-    def _apply_headers(request, **_: object) -> None:
-        request.headers.__setitem__("Host", S3_UPSTREAM_HOST)
-        if token is not None:
-            request.headers.__setitem__("x-raja-authorization", f"Bearer {token}")
-
-    s3.meta.events.register("before-sign.s3", _apply_headers)
-    return s3, bucket
-
-
 def _list_bucket_status(token: str | None) -> int:
-    s3, bucket = _create_s3_client_with_rajee_proxy(token)
+    s3, bucket = create_rajee_s3_client(token=token)
     try:
         s3.list_objects_v2(Bucket=bucket, Prefix="rajee-integration/", MaxKeys=1)
         return 200
@@ -59,25 +40,8 @@ def _list_bucket_status(token: str | None) -> int:
         return exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
 
 
-def _build_token(
-    *,
-    secret: str,
-    issuer: str,
-    audience: str,
-    subject: str | None,
-    scopes: object | None,
-    include_scopes: bool = True,
-    issued_at: int | None = None,
-    expires_at: int | None = None,
-) -> str:
-    now = issued_at or int(time.time())
-    exp = expires_at or now + 3600
-    payload = {"iss": issuer, "aud": audience, "iat": now, "exp": exp}
-    if subject is not None:
-        payload["sub"] = subject
-    if include_scopes:
-        payload["scopes"] = scopes
-    return jwt.encode(payload, secret, algorithm="HS256")
+# Token building moved to shared utility: tests/shared/token_builder.py
+# Use TokenBuilder for constructing test tokens
 
 
 @pytest.mark.integration
@@ -85,14 +49,12 @@ def test_envoy_rejects_expired_token() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
     bucket = require_rajee_test_bucket()
-    token = _build_token(
-        secret=secret,
-        issuer=issuer,
-        audience="raja-s3-proxy",
-        subject="test-user",
-        scopes=[f"S3Bucket:{bucket}:s3:ListBucket"],
-        issued_at=int(time.time()) - 3600,
-        expires_at=int(time.time()) - 60,
+    token = (
+        TokenBuilder(secret=secret, issuer=issuer, audience="raja-s3-proxy")
+        .with_subject("test-user")
+        .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
+        .with_expiration_in_past(seconds_ago=60)
+        .build()
     )
     assert _list_bucket_status(token) == 401
 
@@ -101,12 +63,11 @@ def test_envoy_rejects_expired_token() -> None:
 def test_envoy_rejects_invalid_signature() -> None:
     issuer = require_api_issuer()
     bucket = require_rajee_test_bucket()
-    token = _build_token(
-        secret="wrong-secret",
-        issuer=issuer,
-        audience="raja-s3-proxy",
-        subject="test-user",
-        scopes=[f"S3Bucket:{bucket}:s3:ListBucket"],
+    token = (
+        TokenBuilder(secret="wrong-secret", issuer=issuer, audience="raja-s3-proxy")
+        .with_subject("test-user")
+        .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
+        .build()
     )
     assert _list_bucket_status(token) == 401
 
@@ -124,13 +85,11 @@ def test_envoy_rejects_malformed_tokens(token: str) -> None:
 def test_envoy_denies_missing_scopes_claim() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
-    token = _build_token(
-        secret=secret,
-        issuer=issuer,
-        audience="raja-s3-proxy",
-        subject="test-user",
-        scopes=None,
-        include_scopes=False,
+    token = (
+        TokenBuilder(secret=secret, issuer=issuer, audience="raja-s3-proxy")
+        .with_subject("test-user")
+        .without_scopes()
+        .build()
     )
     assert _list_bucket_status(token) == 403
 
@@ -139,12 +98,11 @@ def test_envoy_denies_missing_scopes_claim() -> None:
 def test_envoy_denies_empty_scopes() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
-    token = _build_token(
-        secret=secret,
-        issuer=issuer,
-        audience="raja-s3-proxy",
-        subject="test-user",
-        scopes=[],
+    token = (
+        TokenBuilder(secret=secret, issuer=issuer, audience="raja-s3-proxy")
+        .with_subject("test-user")
+        .with_empty_scopes()
+        .build()
     )
     assert _list_bucket_status(token) == 403
 
@@ -153,12 +111,11 @@ def test_envoy_denies_empty_scopes() -> None:
 def test_envoy_denies_null_scopes() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
-    token = _build_token(
-        secret=secret,
-        issuer=issuer,
-        audience="raja-s3-proxy",
-        subject="test-user",
-        scopes=None,
+    token = (
+        TokenBuilder(secret=secret, issuer=issuer, audience="raja-s3-proxy")
+        .with_subject("test-user")
+        .with_scopes([None])  # type: ignore[list-item]
+        .build()
     )
     assert _list_bucket_status(token) == 403
 
@@ -167,12 +124,13 @@ def test_envoy_denies_null_scopes() -> None:
 def test_envoy_rejects_wrong_issuer() -> None:
     secret = fetch_jwks_secret()
     bucket = require_rajee_test_bucket()
-    token = _build_token(
-        secret=secret,
-        issuer="https://wrong-issuer.example.com",
-        audience="raja-s3-proxy",
-        subject="test-user",
-        scopes=[f"S3Bucket:{bucket}:s3:ListBucket"],
+    token = (
+        TokenBuilder(
+            secret=secret, issuer="https://wrong-issuer.example.com", audience="raja-s3-proxy"
+        )
+        .with_subject("test-user")
+        .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
+        .build()
     )
     assert _list_bucket_status(token) == 401
 
@@ -182,12 +140,11 @@ def test_envoy_rejects_wrong_audience() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
     bucket = require_rajee_test_bucket()
-    token = _build_token(
-        secret=secret,
-        issuer=issuer,
-        audience="wrong-audience",
-        subject="test-user",
-        scopes=[f"S3Bucket:{bucket}:s3:ListBucket"],
+    token = (
+        TokenBuilder(secret=secret, issuer=issuer, audience="wrong-audience")
+        .with_subject("test-user")
+        .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
+        .build()
     )
     assert _list_bucket_status(token) == 403
 
@@ -197,12 +154,11 @@ def test_envoy_rejects_missing_subject() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
     bucket = require_rajee_test_bucket()
-    token = _build_token(
-        secret=secret,
-        issuer=issuer,
-        audience="raja-s3-proxy",
-        subject=None,
-        scopes=[f"S3Bucket:{bucket}:s3:ListBucket"],
+    # Don't call with_subject() to omit the subject claim
+    token = (
+        TokenBuilder(secret=secret, issuer=issuer, audience="raja-s3-proxy")
+        .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
+        .build()
     )
     assert _list_bucket_status(token) == 401
 
@@ -268,7 +224,7 @@ def test_policy_update_invalidates_existing_token() -> None:
     token = body.get("token")
     assert token
 
-    s3, _ = _create_s3_client_with_rajee_proxy(token)
+    s3, _ = create_rajee_s3_client(token=token)
     key = f"{prefix}{uuid.uuid4().hex}.txt"
     s3.put_object(Bucket=bucket, Key=key, Body=b"policy-update-test")
 

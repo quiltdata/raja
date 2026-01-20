@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+# Import TokenBuilder from tests package
+# This is acceptable since the admin server is for development/testing
+import sys
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypedDict
 
 import jwt
@@ -20,6 +24,12 @@ from raja.server.routers.harness import (
     _secret_kid,
     s3_harness_verify,
 )
+
+tests_dir = Path(__file__).parent.parent.parent.parent.parent / "tests"
+if tests_dir.exists() and str(tests_dir) not in sys.path:
+    sys.path.insert(0, str(tests_dir))
+
+from shared.token_builder import TokenBuilder  # noqa: E402
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/failure-tests", tags=["failure-tests"])
@@ -501,18 +511,17 @@ DEFAULT_ACTION = "s3:GetObject"
 
 
 def _build_token(secret: str, exp_offset: int) -> str:
-    issued_at = int(time.time())
-    payload = {
-        "iss": _harness_issuer(),
-        "sub": "User::failure-mode",
-        "aud": _harness_audience(),
-        "iat": issued_at,
-        "exp": issued_at + exp_offset,
-        "action": DEFAULT_ACTION,
-        "s3": DEFAULT_RESOURCE,
-    }
-    headers = {"kid": _secret_kid(secret), "typ": "RAJ"}
-    return jwt.encode(payload, secret, algorithm="HS256", headers=headers)
+    """Build a token for failure mode testing using shared TokenBuilder."""
+    return (
+        TokenBuilder(secret=secret, issuer=_harness_issuer(), audience=_harness_audience())
+        .with_subject("User::failure-mode")
+        .with_expiration_offset(exp_offset)
+        .with_custom_claim("action", DEFAULT_ACTION)
+        .with_custom_claim("s3", DEFAULT_RESOURCE)
+        .with_custom_header("kid", _secret_kid(secret))
+        .with_custom_header("typ", "RAJ")
+        .build()
+    )
 
 
 def _tamper_signature(token: str) -> str:

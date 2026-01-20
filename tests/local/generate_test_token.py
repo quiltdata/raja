@@ -1,25 +1,26 @@
 """Generate test JWTs with grants for local testing."""
 
 import sys
-from datetime import UTC, datetime, timedelta
 
-import jwt
+# Add tests/shared to path to use TokenBuilder
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
+
+from token_builder import TokenBuilder
 
 TEST_SECRET = "test-secret-key-for-local-testing"
 
 
 def generate_token(grants: list[str], ttl_seconds: int = 3600) -> str:
-    now = datetime.now(UTC)
-    exp = now + timedelta(seconds=ttl_seconds)
-    payload = {
-        "sub": "User::test-user",
-        "iss": "https://test.local",
-        "aud": ["raja-s3-proxy"],
-        "iat": int(now.timestamp()),
-        "exp": int(exp.timestamp()),
-        "grants": grants,
-    }
-    return jwt.encode(payload, TEST_SECRET, algorithm="HS256")
+    """Generate test token using shared TokenBuilder."""
+    return (
+        TokenBuilder(secret=TEST_SECRET, issuer="https://test.local", audience=["raja-s3-proxy"])
+        .with_subject("User::test-user")
+        .with_ttl(ttl_seconds)
+        .with_grants(grants)
+        .build()
+    )
 
 
 if __name__ == "__main__":
