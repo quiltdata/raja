@@ -50,3 +50,16 @@ def test_control_plane_audit_log_entries():
             "request_id",
         ]:
             assert field in entry
+
+
+@pytest.mark.integration
+def test_control_plane_audit_logs_denied_token_requests():
+    request_json("POST", "/token", {"principal": "unknown-user"})
+    status, body = request_json(
+        "GET",
+        "/audit",
+        query={"principal": "unknown-user", "limit": "10"},
+    )
+    assert status == 200
+    entries = body.get("entries", [])
+    assert any(entry.get("decision") == "DENY" for entry in entries)

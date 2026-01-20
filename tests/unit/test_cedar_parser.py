@@ -65,3 +65,56 @@ def test_parse_policy_invalid_hierarchy():
     )
     with pytest.raises(ValueError):
         parse_policy(policy)
+
+
+def test_parse_policy_inverted_hierarchy():
+    policy = (
+        'permit(principal == User::"alice", action == Action::"s3:GetObject", '
+        'resource == S3Bucket::"analytics-data") '
+        'when { resource in S3Object::"report.csv" };'
+    )
+    with pytest.raises(ValueError):
+        parse_policy(policy)
+
+
+def test_parse_policy_supports_principal_in_clause():
+    policy = (
+        'permit(principal in Role::"data-engineers", action == Action::"s3:GetObject", '
+        'resource == S3Object::"report.csv") '
+        'when { resource in S3Bucket::"analytics-data" };'
+    )
+    parsed = parse_policy(policy)
+    assert parsed.principal == 'Role::"data-engineers"'
+
+
+def test_parse_policy_supports_action_in_clause():
+    policy = (
+        'permit(principal == User::"alice", action in [Action::"s3:GetObject", '
+        'Action::"s3:PutObject"], resource == S3Object::"report.csv") '
+        'when { resource in S3Bucket::"analytics-data" };'
+    )
+    parsed = parse_policy(policy)
+    assert parsed.action == 'Action::"s3:GetObject", Action::"s3:PutObject"'
+
+
+def test_parse_policy_supports_multiple_in_clauses():
+    policy = (
+        'permit(principal == User::"alice", action == Action::"s3:GetObject", '
+        'resource == S3Object::"report.csv") '
+        'when { resource in S3Bucket::"analytics-data" || '
+        'resource in S3Bucket::"raw-data" };'
+    )
+    parsed = parse_policy(policy)
+    assert parsed.parent_id == "analytics-data"
+
+
+def test_parse_policy_supports_complex_when_clauses():
+    policy = """
+    permit(
+        principal == User::"alice",
+        action == Action::"s3:GetObject",
+        resource == S3Object::"report.csv"
+    ) when { resource in S3Bucket::"analytics-data" && context.time < "2024-12-31" };
+    """
+    parsed = parse_policy(policy)
+    assert parsed.resource_id == "report.csv"

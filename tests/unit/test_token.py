@@ -11,6 +11,7 @@ from raja.token import (
     is_expired,
     validate_token,
 )
+import jwt
 
 
 def test_create_and_validate_token():
@@ -154,3 +155,31 @@ def test_create_token_with_grants_without_issuer_audience():
     assert payload["grants"] == ["grant1", "grant2"]
     assert "iss" not in payload
     assert "aud" not in payload
+
+
+def test_validate_token_rejects_missing_subject():
+    """Test that validate_token rejects tokens missing a subject."""
+    token_str = jwt.encode({"scopes": ["Document:doc1:read"]}, "secret", algorithm="HS256")
+    with pytest.raises(Exception):
+        validate_token(token_str, "secret")
+
+
+def test_validate_token_rejects_null_scopes():
+    """Test that validate_token rejects tokens with null scopes."""
+    token_str = jwt.encode({"sub": "alice", "scopes": None}, "secret", algorithm="HS256")
+    with pytest.raises(Exception):
+        validate_token(token_str, "secret")
+
+
+def test_validate_token_rejects_non_list_scopes():
+    """Test that validate_token rejects tokens with non-list scopes."""
+    token_str = jwt.encode({"sub": "alice", "scopes": "Document:doc1:read"}, "secret", algorithm="HS256")
+    with pytest.raises(Exception):
+        validate_token(token_str, "secret")
+
+
+def test_validate_token_large_scopes():
+    scopes = [f"Document:doc{i}:read" for i in range(1000)]
+    token_str = create_token("alice", scopes, ttl=60, secret="secret")
+    token = validate_token(token_str, "secret")
+    assert len(token.scopes) == 1000

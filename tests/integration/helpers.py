@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -176,3 +177,14 @@ def issue_rajee_token(principal: str = "test-user") -> tuple[str, list[str]]:
     scopes = body.get("scopes", [])
     assert token, "token missing in response"
     return token, scopes
+
+
+def fetch_jwks_secret() -> str:
+    status, body = request_json("GET", "/.well-known/jwks.json")
+    assert status == 200, body
+    keys = body.get("keys", [])
+    assert keys, "JWKS keys missing"
+    jwks_key = keys[0].get("k")
+    assert jwks_key, "JWKS key material missing"
+    padding = "=" * (-len(jwks_key) % 4)
+    return base64.urlsafe_b64decode(jwks_key + padding).decode("utf-8")

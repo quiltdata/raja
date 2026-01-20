@@ -37,6 +37,22 @@ def test_parse_scope_with_colons_in_action():
     assert scope.action == "read:write"
 
 
+def test_parse_scope_rejects_colon_in_resource_id():
+    """Test that colons in resource IDs are rejected."""
+    with pytest.raises(ScopeParseError):
+        parse_scope("S3Object:bucket/key:with:colons.txt:s3:GetObject")
+
+
+def test_parse_scope_accepts_url_encoded_keys():
+    scope = parse_scope("S3Object:bucket/file%20name.txt:s3:GetObject")
+    assert scope.resource_id == "bucket/file%20name.txt"
+
+
+def test_parse_scope_accepts_unicode_keys():
+    scope = parse_scope("S3Object:bucket/\u6587\u4ef6.txt:s3:GetObject")
+    assert scope.resource_id == "bucket/\u6587\u4ef6.txt"
+
+
 def test_format_scope():
     assert format_scope("Document", "doc123", "read") == "Document:doc123:read"
 

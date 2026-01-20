@@ -107,6 +107,36 @@ describe("S3 Request Parsing", function()
       local result = parse_s3_request("GET", "/", {})
       assert.is_nil(result)
     end)
+
+    it("should reject bucket-only path with trailing slash", function()
+      local result = parse_s3_request("GET", "/bucket/", {})
+      assert.is_nil(result)
+    end)
+
+    it("should reject double-slash paths", function()
+      local result = parse_s3_request("GET", "//key", {})
+      assert.is_nil(result)
+    end)
+
+    it("should reject PUT bucket-only path", function()
+      local result = parse_s3_request("PUT", "/bucket", {})
+      assert.is_nil(result)
+    end)
+
+    it("should reject unknown S3 actions", function()
+      local result = parse_s3_request("GET", "/bucket/key.txt", { acl = "" })
+      assert.is_nil(result)
+    end)
+
+    it("should reject path traversal attempts", function()
+      local result = parse_s3_request("GET", "/bucket/uploads/../secret.txt", {})
+      assert.is_nil(result)
+    end)
+
+    it("should reject null bytes in keys", function()
+      local result = parse_s3_request("GET", "/bucket/uploads\0secret.txt", {})
+      assert.is_nil(result)
+    end)
   end)
 end)
 
@@ -170,6 +200,46 @@ describe("Authorization Logic", function()
       assert.is_false(allowed)
       assert.is_not_nil(string.find(reason, "no scopes"))
     end)
+
+    it("should reject malformed granted scopes", function()
+      local scopes = { "S3Objectbucket/keyaction" }
+      local allowed, reason = authorize(scopes, "S3Object:bucket/key.txt:s3:GetObject")
+      assert.is_false(allowed)
+      assert.is_not_nil(string.find(reason, "invalid scope"))
+    end)
+
+    it("should reject scopes with extra colons", function()
+      local scopes = { "S3Object:bucket:key:action:extra" }
+      local allowed, reason = authorize(scopes, "S3Object:bucket/key:s3:GetObject")
+      assert.is_false(allowed)
+      assert.is_not_nil(string.find(reason, "invalid scope"))
+    end)
+
+    it("should reject empty bucket or key", function()
+      local scopes = { "S3Object:/key:s3:GetObject" }
+      local allowed, reason = authorize(scopes, "S3Object:bucket/key:s3:GetObject")
+      assert.is_false(allowed)
+      assert.is_not_nil(string.find(reason, "missing bucket"))
+    end)
+
+    it("should reject resource type mismatches", function()
+      local scopes = { "S3Object:bucket/key.txt:s3:ListBucket" }
+      local allowed, reason = authorize(scopes, "S3Bucket:bucket:s3:ListBucket")
+      assert.is_false(allowed)
+      assert.is_not_nil(string.find(reason, "resource type mismatch"))
+    end)
+
+    it("should not match prefix without trailing slash", function()
+      local scopes = { "S3Object:bucket/pre:s3:GetObject" }
+      local allowed = authorize(scopes, "S3Object:bucket/prefix/file.txt:s3:GetObject")
+      assert.is_false(allowed)
+    end)
+
+    it("should not match substring prefixes", function()
+      local scopes = { "S3Object:bucket/pre/:s3:GetObject" }
+      local allowed = authorize(scopes, "S3Object:bucket/prefix/file.txt:s3:GetObject")
+      assert.is_false(allowed)
+    end)
   end)
 end)
 
@@ -206,5 +276,25 @@ describe("Query String Parsing", function()
   it("should parse parameter without value", function()
     local result = parse_query_string("uploads")
     assert.are.equal("", result.uploads)
+  end)
+
+  it("should reject duplicate parameters", function()
+    local result = parse_query_string("versionId=x&versionId=y")
+    assert.are.same({ versionId = { "x", "y" } }, result)
+  end)
+
+  it("should reject malformed query strings", function()
+    local result = parse_query_string("&&&")
+    assert.are.same(nil, result)
+  end)
+
+  it("should reject query parameters without keys", function()
+    local result = parse_query_string("=value")
+    assert.are.same(nil, result)
+  end)
+
+  it("should reject conflicting multipart parameters", function()
+    local result = parse_query_string("uploadId=x&uploads=")
+    assert.are.same(nil, result)
   end)
 end)

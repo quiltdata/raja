@@ -1,3 +1,6 @@
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from raja.enforcer import check_scopes, enforce, is_prefix_match
@@ -176,3 +179,63 @@ def test_prefix_match_multipart_implied_by_put() -> None:
         "S3Object:bucket/uploads/:s3:PutObject",
         "S3Object:bucket/uploads/file.txt:s3:UploadPart",
     )
+
+
+def test_prefix_match_bucket_prefix_rejected() -> None:
+    assert not is_prefix_match(
+        "S3Object:bucket-/:s3:GetObject",
+        "S3Object:bucket-other/key.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_trailing_slash_ambiguity() -> None:
+    assert is_prefix_match(
+        "S3Object:bucket/prefix/:s3:GetObject",
+        "S3Object:bucket/prefix/file.txt:s3:GetObject",
+    )
+    assert not is_prefix_match(
+        "S3Object:bucket/prefix/:s3:GetObject",
+        "S3Object:bucket/prefix-other/file.txt:s3:GetObject",
+    )
+    assert not is_prefix_match(
+        "S3Object:bucket/prefix:s3:GetObject",
+        "S3Object:bucket/prefix/file.txt:s3:GetObject",
+    )
+
+
+def test_prefix_match_resource_type_mismatch() -> None:
+    assert not is_prefix_match(
+        "S3Object:bucket/key.txt:s3:ListBucket",
+        "S3Bucket:bucket:s3:ListBucket",
+    )
+
+
+def test_check_scopes_rejects_missing_action() -> None:
+    request = AuthRequest(resource_type="Document", resource_id="doc1", action="read")
+    with pytest.raises(ScopeValidationError):
+        check_scopes(request, ["Document:doc1"])
+
+
+@pytest.mark.slow
+def test_check_scopes_large_token_performance() -> None:
+    request = AuthRequest(resource_type="Document", resource_id="doc1", action="read")
+    granted_scopes = [f"Document:doc{i}:read" for i in range(2000)]
+    granted_scopes.append("Document:doc1:read")
+    start = time.perf_counter()
+    assert check_scopes(request, granted_scopes) is True
+    duration = time.perf_counter() - start
+    assert duration < 0.5
+
+
+@pytest.mark.slow
+def test_check_scopes_concurrent_requests() -> None:
+    request = AuthRequest(resource_type="Document", resource_id="doc1", action="read")
+    granted_scopes = ["Document:doc1:read"]
+
+    def _run() -> bool:
+        return check_scopes(request, granted_scopes)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: _run(), range(50)))
+
+    assert all(results)
