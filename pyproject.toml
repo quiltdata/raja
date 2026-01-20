@@ -92,7 +92,7 @@ clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .
 check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lint, and typecheck" }
 
 # Testing
-test = { cmd = "pytest tests/ -v", help = "Run all tests" }
+test = { cmd = "bash scripts/test_all.sh", help = "Run all unit tests (Python + Rust + Lua)" }
 test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
 coverage = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage (alias for test-cov)" }

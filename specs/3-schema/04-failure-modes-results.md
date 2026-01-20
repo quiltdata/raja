@@ -11,6 +11,10 @@ It is a sequel to `specs/3-schema/03-failure-modes.md` and does not propose fixe
 
 ## Unit Test Failures
 
+These failures reflect limitations in the current custom, regex-based Cedar parser/compiler.
+Recommendation: replace local parsing/compilation with the standard Cedar Rust compiler (or
+another official Cedar toolchain) and gate tests based on `cargo` availability.
+
 ### Cedar Parser / Compiler
 
 - `tests/unit/test_cedar_parser.py::test_parse_policy_supports_principal_in_clause`

@@ -1,0 +1,8 @@
+[package]
+name = "cedar-validate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cedar-policy = "4.8.2"
+glob = "0.3.1"

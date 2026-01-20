@@ -36,6 +36,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Lua (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 luarocks
+          sudo luarocks install busted
+
+      - name: Install Lua (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install lua
+          luarocks install busted
+
       - uses: ./.github/actions/setup-raja
         with:
           python-version: ${{ matrix.python-version }}
@@ -44,7 +60,7 @@ jobs:
       - name: Run unit tests
         env:
           PYTEST_ADDOPTS: --cov=src/raja --cov-report=xml --cov-report=term --junitxml=pytest-results.xml
-        run: ./poe test-unit
+        run: ./poe test
 
       - name: Upload test results
         if: always()

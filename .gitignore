@@ -27,6 +27,10 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# Rust build outputs
+target/
+tools/**/target/
+
 # AWS CDK
 infra/cdk*.json
 infra/cdk.out/
