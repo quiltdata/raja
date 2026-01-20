@@ -309,12 +309,12 @@ These items from [06-failure-fixes.md](06-failure-fixes.md) have integration tes
 
 ### 7.1 Scope Parsing Validation
 
-**Status:** NEEDS VALIDATION
+**Status:** VALIDATED ✅
 
-**Work Required:**
+**Tests Passing:**
 
-- Verify `tests/unit/test_scope.py::test_parse_scope_rejects_colon_in_resource_id` exists and passes
-- Verify `tests/unit/test_token.py::test_validate_token_rejects_non_list_scopes` exists and passes
+- `test_parse_scope_rejects_colon_in_resource_id` (unit test)
+- `test_validate_token_rejects_non_list_scopes` (unit test)
 
 **Reference:** [06-failure-fixes.md](06-failure-fixes.md) Section 2
 

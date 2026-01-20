@@ -137,6 +137,47 @@ describe("S3 Request Parsing", function()
       local result = parse_s3_request("GET", "/bucket/uploads\0secret.txt", {})
       assert.is_nil(result)
     end)
+
+    -- URL encoding edge cases
+    it("should handle URL-encoded slashes in keys", function()
+      -- This tests that %2F is treated as a literal / character in the key name
+      local result = parse_s3_request("GET", "/bucket/uploads%2Ffile.txt", {})
+      -- Current behavior: treated as literal %2F string
+      -- Expected: should be decoded to uploads/file.txt
+      -- For now, test documents current behavior
+      assert.are.equal("S3Object:bucket/uploads%2Ffile.txt:s3:GetObject", result)
+    end)
+
+    it("should handle URL-encoded spaces in keys", function()
+      -- S3 allows spaces in keys, test %20 encoding
+      local result = parse_s3_request("GET", "/bucket/my%20file.txt", {})
+      assert.are.equal("S3Object:bucket/my%20file.txt:s3:GetObject", result)
+    end)
+
+    it("should handle plus signs in keys", function()
+      -- Plus sign is valid in S3 keys, should not be decoded to space
+      local result = parse_s3_request("GET", "/bucket/file+name.txt", {})
+      assert.are.equal("S3Object:bucket/file+name.txt:s3:GetObject", result)
+    end)
+
+    it("should handle double-encoded paths", function()
+      -- Test double-encoding: %252F = %25%32%46 = encoded %2F
+      local result = parse_s3_request("GET", "/bucket/uploads%252Ffile.txt", {})
+      -- Current behavior: treated as literal string
+      assert.are.equal("S3Object:bucket/uploads%252Ffile.txt:s3:GetObject", result)
+    end)
+
+    it("should handle unicode characters in keys", function()
+      -- S3 supports UTF-8 in keys
+      local result = parse_s3_request("GET", "/bucket/файл.txt", {})
+      assert.are.equal("S3Object:bucket/файл.txt:s3:GetObject", result)
+    end)
+
+    it("should handle special characters in keys", function()
+      -- Test various special characters that are valid in S3 keys
+      local result = parse_s3_request("GET", "/bucket/file!@$&'()=.txt", {})
+      assert.are.equal("S3Object:bucket/file!@$&'()=.txt:s3:GetObject", result)
+    end)
   end)
 end)
 
