@@ -50,7 +50,7 @@ The UI uses simple, stable terms:
 
 These modes are convenience bundles; Cedar encodes explicit S3 actions.
 
-### 3.2 Action bundles (v1)
+### 3.2 Action bundles (MVP)
 
 #### 3.2.1 Read bundle
 
@@ -64,7 +64,7 @@ Read bundle plus:
 - `s3:PutObject`
 - (optionally later) multipart helpers such as `s3:AbortMultipartUpload`
 
-**Note:** `s3:DeleteObject` is intentionally excluded from Read/Write in v1; treat delete as a separate escalation later.
+**Note:** `s3:DeleteObject` is intentionally excluded from Read/Write in MVP; treat delete as a separate escalation later.
 
 ### 3.3 Cedar semantics
 
@@ -93,7 +93,7 @@ Decision rule:
 
 ### 4.2 RAJA request shape (bucket-scoped)
 
-Because Quilt v1 is bucket-local, a mint request is shaped as:
+Because Cedar MVP ruleset is bucket-local, a mint request is shaped as:
 
 - `role` (principal)
 - `bucket` (implicit from page context, but explicit in API)
@@ -139,7 +139,7 @@ RAJEE does **not** consult AVP and does **not** interpret business intent.
 
 ### 4.5 How boto3 fits
 
-Clients use **[boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)** to access S3 through the **RAJEE transparent proxy**:
+Clients use **[boto3](https://boto3.amazonaws.com/MVP/documentation/api/latest/index.html)** to access S3 through the **RAJEE transparent proxy**:
 
 1. Client requests a JWT token from RAJA's control plane with specific grants (e.g., `s3:GetObject/my-bucket/path/`)
 2. Client configures boto3 to point to the RAJEE proxy endpoint: `boto3.client('s3', endpoint_url='https://rajee.example.com')`
@@ -189,13 +189,13 @@ This is deliberately analogous to existing read/write semantics, but adds prefix
 
 ### 5.4 Pane HTML (mock)
 
-The v1 mock pane is implemented as a simple bucket-scoped card (see `cedar-admin.html`) with:
+The MVP mock pane is implemented as a simple bucket-scoped card (see `cedar-admin.html`) with:
 
 - A header: “Permissions”
 - An “+ Add rule” action
 - A rules list showing Role, Path, and Access
 
-This UI is intentionally v1-simple and can be wired to real data later.
+This UI is intentionally MVP-simple and can be wired to real data later.
 
 ---
 
@@ -236,7 +236,7 @@ For Cedar-governed buckets, IAM should be restricted to infrastructure roles (e.
 
 ### 7.1 One bucket per rule
 
-In Quilt v1, each Cedar rule targets exactly one bucket (implicit by being configured on the bucket page).
+In the Quilt MVP, each Cedar rule targets exactly one bucket (implicit by being configured on the bucket page).
 
 ### 7.2 One path string per rule
 
