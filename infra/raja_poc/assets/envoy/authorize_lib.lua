@@ -128,18 +128,74 @@ function M.parse_query_string(query_string)
     return {}
   end
 
+  -- Reject malformed query strings (only ampersands)
+  if string.match(query_string, "^&+$") then
+    return nil, "malformed query string"
+  end
+
   local params = {}
+  local has_valid_param = false
+
   for pair in string.gmatch(query_string, "[^&]+") do
+    -- Reject parameters that start with =
+    if string.sub(pair, 1, 1) == "=" then
+      return nil, "parameter without key"
+    end
+
     local key, value = string.match(pair, "([^=]+)=?(.*)")
-    if key then
+
+    -- Reject parameters without keys
+    if not key or key == "" then
+      return nil, "parameter without key"
+    end
+
+    has_valid_param = true
+
+    -- Handle duplicate parameters by creating array
+    if params[key] then
+      if type(params[key]) == "table" then
+        table.insert(params[key], value or "")
+      else
+        params[key] = { params[key], value or "" }
+      end
+    else
       params[key] = value or ""
     end
+  end
+
+  -- Reject conflicting multipart parameters
+  if params["uploadId"] and params["uploads"] then
+    return nil, "conflicting multipart parameters"
   end
 
   return params
 end
 
 local function get_s3_action(method, key, query_params)
+  -- List of known query parameters for S3 API
+  local known_params = {
+    versionId = true,
+    tagging = true,
+    uploads = true,
+    uploadId = true,
+    partNumber = true,
+    versions = true,
+    ["list-type"] = true,
+    prefix = true,
+    location = true,
+    delimiter = true,
+    marker = true,
+    ["max-keys"] = true,
+    ["encoding-type"] = true,
+  }
+
+  -- Reject unknown query parameters
+  for param in pairs(query_params) do
+    if not known_params[param] then
+      return nil
+    end
+  end
+
   if query_params["versionId"] then
     if query_params["tagging"] and method == "GET" then
       return "s3:GetObjectVersionTagging"
@@ -196,7 +252,29 @@ local function get_s3_action(method, key, query_params)
 end
 
 function M.parse_s3_request(method, path, query_params)
-  local clean_path = string.gsub(path or "", "^/", "")
+  -- Security: reject empty, double-slash, or trailing-slash paths
+  if not path or path == "" or path == "/" then
+    return nil, "invalid path"
+  end
+  if string.find(path, "//") then
+    return nil, "double slash in path"
+  end
+  if string.find(path, "/$") and path ~= "/" then
+    return nil, "trailing slash in path"
+  end
+
+  local clean_path = string.gsub(path, "^/", "")
+
+  -- Security: reject path traversal attempts
+  if string.find(clean_path, "%.%.") then
+    return nil, "path traversal attempt"
+  end
+
+  -- Security: reject null bytes
+  if string.find(clean_path, "\0") then
+    return nil, "null byte in path"
+  end
+
   local bucket, key = string.match(clean_path, "([^/]+)/(.*)")
   if not bucket then
     bucket = clean_path
@@ -236,14 +314,19 @@ function M.authorize(scopes, requested_scope)
     return false, "no scopes in token"
   end
 
+  local last_reason = "no matching scope"
   for _, scope in ipairs(scopes) do
     local allowed, reason = matches_prefix(scope, requested_scope)
     if allowed then
       return true, reason
     end
+    -- Preserve validation errors (malformed scopes, type mismatches), not normal matching failures
+    if reason and (string.find(reason, "invalid scope") or string.find(reason, "missing bucket") or string.find(reason, "resource type mismatch")) then
+      last_reason = reason
+    end
   end
 
-  return false, "no matching scope"
+  return false, last_reason
 end
 
 return M
