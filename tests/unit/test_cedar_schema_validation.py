@@ -18,7 +18,8 @@ def _cedar_tool_available() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not _cedar_tool_available(), reason="cargo or CEDAR_VALIDATE_BIN is required for schema validation"
+    not _cedar_tool_available(),
+    reason="cargo or CEDAR_VALIDATE_BIN is required for schema validation",
 )
 
 
@@ -47,7 +48,12 @@ def test_schema_validates_resource_type():
     schema = CedarSchema(resource_types={"Document", "File"}, actions={"read", "write"})
 
     policy = CedarPolicy(
-        id="test", effect="permit", principal="User::alice", action="read", resource="Unknown::doc123", resource_type="Unknown"
+        id="test",
+        effect="permit",
+        principal='User::"alice"',
+        action='Action::"read"',
+        resource='Unknown::"doc123"',
+        resource_type="Unknown",
     )
 
     with pytest.raises(ValueError, match="unknown resource type: Unknown"):
@@ -61,9 +67,9 @@ def test_schema_validates_action():
     policy = CedarPolicy(
         id="test",
         effect="permit",
-        principal="User::alice",
-        action="write",
-        resource="Document::doc123",
+        principal='User::"alice"',
+        action='Action::"write"',
+        resource='Document::"doc123"',
         resource_type="Document",
     )
 
@@ -82,9 +88,9 @@ def test_schema_validates_principal_type():
     policy = CedarPolicy(
         id="test",
         effect="permit",
-        principal="Admin::alice",
-        action="read",
-        resource="Document::doc123",
+        principal='Admin::"alice"',
+        action='Action::"read"',
+        resource='Document::"doc123"',
         resource_type="Document",
     )
 
@@ -104,9 +110,9 @@ def test_schema_validates_action_resource_constraint():
     policy = CedarPolicy(
         id="test",
         effect="permit",
-        principal="User::alice",
-        action="read",
-        resource="File::file123",
+        principal='User::"alice"',
+        action='Action::"read"',
+        resource='File::"file123"',
         resource_type="File",
     )
 
@@ -126,9 +132,9 @@ def test_schema_allows_valid_policy():
     policy = CedarPolicy(
         id="test",
         effect="permit",
-        principal="User::alice",
-        action="read",
-        resource="Document::doc123",
+        principal='User::"alice"',
+        action='Action::"read"',
+        resource='Document::"doc123"',
         resource_type="Document",
     )
 
@@ -140,8 +146,8 @@ def test_validate_policy_against_schema_valid(tmp_path):
     """Test policy validation against schema file."""
     schema_path = tmp_path / "schema.cedar"
     schema_path.write_text("""
-    entity User {}
-    entity S3Bucket {}
+    entity User;
+    entity S3Bucket;
 
     action "s3:ListBucket" appliesTo {
         principal: [User],
@@ -165,8 +171,8 @@ def test_validate_policy_against_schema_invalid(tmp_path):
     """Test policy validation rejects schema violations."""
     schema_path = tmp_path / "schema.cedar"
     schema_path.write_text("""
-    entity User {}
-    entity Document {}
+    entity User;
+    entity Document;
 
     action "read" appliesTo {
         principal: [User],
@@ -238,8 +244,8 @@ def test_schema_validation_with_cli(tmp_path):
     """Test schema validation using Cedar CLI."""
     schema_path = tmp_path / "schema.cedar"
     schema_path.write_text("""
-    entity User {}
-    entity Document {}
+    entity User;
+    entity Document;
 
     action "read" appliesTo {
         principal: [User],

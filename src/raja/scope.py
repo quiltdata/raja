@@ -218,7 +218,9 @@ def expand_wildcard_scope(
 
 
 def filter_scopes_by_pattern(
-    scopes: Sequence[str], include_patterns: list[str] | None = None, exclude_patterns: list[str] | None = None
+    scopes: Sequence[str],
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
 ) -> list[str]:
     """Filter scopes by inclusion and exclusion patterns.
 
@@ -246,7 +248,10 @@ def filter_scopes_by_pattern(
         filtered = [
             scope_str
             for scope_str in filtered
-            if any(scope_matches(parse_scope(scope_str), parse_scope(pattern)) for pattern in include_patterns)
+            if any(
+                scope_matches(parse_scope(scope_str), parse_scope(pattern))
+                for pattern in include_patterns
+            )
         ]
 
     # Apply exclusion patterns
@@ -254,7 +259,10 @@ def filter_scopes_by_pattern(
         filtered = [
             scope_str
             for scope_str in filtered
-            if not any(scope_matches(parse_scope(scope_str), parse_scope(pattern)) for pattern in exclude_patterns)
+            if not any(
+                scope_matches(parse_scope(scope_str), parse_scope(pattern))
+                for pattern in exclude_patterns
+            )
         ]
 
     return filtered

@@ -190,7 +190,9 @@ def test_instantiate_template_alphanumeric_variables() -> None:
     assert "Document:report:read" in result["alice"]
 
 
-def test_instantiate_template_with_schema_validation(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_instantiate_template_with_schema_validation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     """Test template instantiation with schema validation."""
     # Create a simple schema file
     schema_path = tmp_path / "schema.cedar"

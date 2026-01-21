@@ -115,9 +115,7 @@ def test_expand_wildcard_scope_resource_id_wildcard():
 
 def test_expand_wildcard_scope_resource_type():
     """Test expanding resource type wildcard with context."""
-    result = expand_wildcard_scope(
-        "*:doc123:read", resource_types=["Document", "File", "Image"]
-    )
+    result = expand_wildcard_scope("*:doc123:read", resource_types=["Document", "File", "Image"])
     assert len(result) == 3
     assert "Document:doc123:read" in result
     assert "File:doc123:read" in result

@@ -39,6 +39,9 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Cedar CLI
+        run: cargo install cedar-policy-cli
+
       - name: Install Lua (Linux)
         if: runner.os == 'Linux'
         run: |

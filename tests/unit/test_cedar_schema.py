@@ -7,6 +7,7 @@ from raja.models import CedarPolicy
 def test_validate_policy_accepts_known_resource_and_action():
     schema = CedarSchema(resource_types={"S3Object"}, actions={"s3:GetObject"})
     policy = CedarPolicy(
+        id="policy1",
         effect="permit",
         principal='User::"alice"',
         action='Action::"s3:GetObject"',
@@ -18,6 +19,7 @@ def test_validate_policy_accepts_known_resource_and_action():
 def test_validate_policy_rejects_unknown_resource():
     schema = CedarSchema(resource_types={"S3Object"}, actions={"s3:GetObject"})
     policy = CedarPolicy(
+        id="policy2",
         effect="permit",
         principal='User::"alice"',
         action='Action::"s3:GetObject"',
@@ -30,6 +32,7 @@ def test_validate_policy_rejects_unknown_resource():
 def test_validate_policy_rejects_unknown_action():
     schema = CedarSchema(resource_types={"S3Object"}, actions={"s3:GetObject"})
     policy = CedarPolicy(
+        id="policy3",
         effect="permit",
         principal='User::"alice"',
         action='Action::"s3:DeleteObject"',

@@ -190,31 +190,36 @@ def _run_cedar_validate_schema(schema_path: str) -> dict[str, Any]:
         RuntimeError: If Cedar tooling is unavailable
         ValueError: If schema is invalid
     """
-    cedar_bin = os.environ.get("CEDAR_VALIDATE_BIN")
-    if cedar_bin:
-        command = [cedar_bin, "validate-schema", schema_path]
-        workdir = None
-    else:
-        if not shutil.which("cargo"):
-            raise RuntimeError("cargo is required to validate Cedar schemas")
-        repo_root = Path(__file__).resolve().parents[3]
-        command = ["cargo", "run", "--quiet", "--bin", "cedar_validate", "--", "schema", schema_path]
-        workdir = str(repo_root / "tools" / "cedar-validate")
+    if not _cedar_cli_available():
+        raise RuntimeError("Cedar CLI or Rust toolchain is not available")
 
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        cwd=workdir,
-        check=False,
-    )
+    # Use cedar check-parse to validate schema syntax
+    cedar_bin = os.environ.get("CEDAR_VALIDATE_BIN", "cedar")
 
-    if result.returncode != 0:
-        error_msg = result.stderr.strip() or "schema validation failed"
-        raise ValueError(f"Cedar schema validation failed: {error_msg}")
+    try:
+        result = subprocess.run(
+            [cedar_bin, "check-parse", "--schema", schema_path, "--error-format", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-    # Schema validation successful
-    return {"valid": True}
+        if result.returncode != 0:
+            # Cedar CLI outputs errors in stdout with --error-format json
+            error_output = result.stdout or result.stderr
+            try:
+                error_data = json.loads(error_output)
+                # Extract message from Cedar CLI JSON error format
+                error_msg = error_data.get("message", error_output)
+            except (json.JSONDecodeError, KeyError):
+                error_msg = error_output
+
+            raise ValueError(f"Cedar schema validation failed: {error_msg}")
+
+        return {"valid": True, "output": result.stdout}
+
+    except FileNotFoundError:
+        raise RuntimeError(f"Cedar CLI not found: {cedar_bin}")
 
 
 def load_cedar_schema(schema_path: str, validate: bool = True) -> CedarSchema:
@@ -293,45 +298,66 @@ def validate_policy_against_schema(
         ValueError: If policy violates schema constraints
         RuntimeError: If Cedar CLI is unavailable and use_cedar_cli is True
     """
+    import tempfile
+
     if use_cedar_cli and _cedar_cli_available():
-        cedar_bin = os.environ.get("CEDAR_VALIDATE_BIN")
-        if cedar_bin:
-            command = [cedar_bin, "validate", "--schema", schema_path, "--policy", "-"]
-            workdir = None
-        else:
-            if not shutil.which("cargo"):
-                raise RuntimeError("cargo is required to validate Cedar policies")
-            repo_root = Path(__file__).resolve().parents[3]
-            command = ["cargo", "run", "--quiet", "--bin", "cedar_validate", "--", "policy", "--schema", schema_path]
-            workdir = str(repo_root / "tools" / "cedar-validate")
+        # Use Cedar CLI for validation
+        cedar_bin = os.environ.get("CEDAR_VALIDATE_BIN", "cedar")
 
-        result = subprocess.run(
-            command,
-            input=policy_str,
-            capture_output=True,
-            text=True,
-            cwd=workdir,
-            check=False,
-        )
+        # Write policy to temporary file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".cedar", delete=False) as f:
+            f.write(policy_str)
+            policy_path = f.name
 
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or "policy validation failed"
-            raise ValueError(f"Cedar policy validation failed: {error_msg}")
-    else:
-        # Fallback to basic schema validation
-        schema = load_cedar_schema(schema_path, validate=False)
-        # Parse policy and validate basic constraints
-        from .parser import parse_policy
-        from ..models import CedarPolicy
+        try:
+            result = subprocess.run(
+                [
+                    cedar_bin,
+                    "validate",
+                    "--schema",
+                    schema_path,
+                    "--policies",
+                    policy_path,
+                    "--error-format",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
 
-        parsed = parse_policy(policy_str, schema_path=None)
-        # Create minimal CedarPolicy for validation
-        policy = CedarPolicy(
-            id="temp",
-            effect=parsed.effect,
-            principal=parsed.principal,
-            action=parsed.actions[0] if parsed.actions else "",
-            resource=f"{parsed.resource_type}::{parsed.resource_id}",
-            resource_type=parsed.resource_type,
-        )
-        schema.validate_policy(policy)
+            if result.returncode != 0:
+                # Cedar CLI outputs errors in stdout with --error-format json
+                error_output = result.stdout or result.stderr
+                try:
+                    error_data = json.loads(error_output)
+                    # Extract message from Cedar CLI JSON error format
+                    error_msg = error_data.get("message", error_output)
+                except (json.JSONDecodeError, KeyError):
+                    error_msg = error_output
+
+                raise ValueError(f"Cedar policy validation failed: {error_msg}")
+
+        finally:
+            # Clean up temporary file
+            os.unlink(policy_path)
+
+        return
+
+    # Fallback to basic schema validation
+    schema = load_cedar_schema(schema_path, validate=False)
+    # Parse policy and validate basic constraints
+    from ..models import CedarPolicy
+    from .parser import parse_policy
+
+    parsed = parse_policy(policy_str, schema_path=None)
+    # Create minimal CedarPolicy for validation
+    policy = CedarPolicy(
+        id="temp",
+        effect=parsed.effect,
+        principal=parsed.principal,
+        action=parsed.actions[0] if parsed.actions else "",
+        resource=f"{parsed.resource_type}::{parsed.resource_id}",
+        resource_type=parsed.resource_type,
+    )
+    schema.validate_policy(policy)

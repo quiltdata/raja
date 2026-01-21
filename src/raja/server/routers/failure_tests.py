@@ -31,7 +31,7 @@ tests_dir = Path(__file__).parent.parent.parent.parent.parent / "tests"
 if tests_dir.exists() and str(tests_dir) not in sys.path:
     sys.path.insert(0, str(tests_dir))
 
-from shared.token_builder import TokenBuilder  # noqa: E402
+from shared.token_builder import TokenBuilder  # noqa: E402  # type: ignore[import-not-found]
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/failure-tests", tags=["failure-tests"])
@@ -514,7 +514,7 @@ DEFAULT_ACTION = "s3:GetObject"
 
 def _build_token(secret: str, exp_offset: int) -> str:
     """Build a token for failure mode testing using shared TokenBuilder."""
-    return (
+    token: str = (
         TokenBuilder(secret=secret, issuer=_harness_issuer(), audience=_harness_audience())
         .with_subject("User::failure-mode")
         .with_expiration_offset(exp_offset)
@@ -524,6 +524,7 @@ def _build_token(secret: str, exp_offset: int) -> str:
         .with_custom_header("typ", "RAJ")
         .build()
     )
+    return token
 
 
 def _tamper_signature(token: str) -> str:
@@ -838,7 +839,7 @@ def _runner_prefix_attacks(secret: str) -> FailureTestRun:
         "key": "test.txt",
         "action": DEFAULT_ACTION,
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     status = FailureTestStatus.PASS if denied else FailureTestStatus.FAIL
@@ -875,7 +876,7 @@ def _runner_substring_attacks(secret: str) -> FailureTestRun:
         "key": "test.txt",
         "action": DEFAULT_ACTION,
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     status = FailureTestStatus.PASS if denied else FailureTestStatus.FAIL
@@ -912,7 +913,7 @@ def _runner_case_sensitivity(secret: str) -> FailureTestRun:
         "key": "test.txt",
         "action": DEFAULT_ACTION,
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     status = FailureTestStatus.PASS if denied else FailureTestStatus.FAIL
@@ -949,7 +950,7 @@ def _runner_action_specificity(secret: str) -> FailureTestRun:
         "key": DEFAULT_RESOURCE["key"] or "test.txt",
         "action": "s3:PutObject",
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     failed_on_action = response.get("failed_check") == "action"
@@ -1098,8 +1099,12 @@ def _runner_scope_ordering(secret: str) -> FailureTestRun:
 
     # Test requests that should be allowed
     test_requests = [
-        AuthRequest(resource_type="S3Object", resource_id="bucket-a/key1.txt", action="s3:GetObject"),
-        AuthRequest(resource_type="S3Object", resource_id="bucket-b/key2.txt", action="s3:GetObject"),
+        AuthRequest(
+            resource_type="S3Object", resource_id="bucket-a/key1.txt", action="s3:GetObject"
+        ),
+        AuthRequest(
+            resource_type="S3Object", resource_id="bucket-b/key2.txt", action="s3:GetObject"
+        ),
         AuthRequest(resource_type="S3Bucket", resource_id="bucket-c", action="s3:ListBucket"),
     ]
 
@@ -1109,7 +1114,7 @@ def _runner_scope_ordering(secret: str) -> FailureTestRun:
     )
 
     inconsistencies = []
-    for i, req in enumerate(test_requests + [denied_request]):
+    for req in test_requests + [denied_request]:
         result_a = check_scopes(req, scopes_order_a)
         result_b = check_scopes(req, scopes_order_b)
         result_c = check_scopes(req, scopes_order_c)
@@ -1168,7 +1173,7 @@ def _runner_empty_scope_handling(secret: str) -> FailureTestRun:
         "key": DEFAULT_RESOURCE["key"] or "test.txt",
         "action": DEFAULT_ACTION,
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     status = FailureTestStatus.PASS if denied else FailureTestStatus.FAIL
@@ -1209,8 +1214,7 @@ def _runner_missing_authorization_header(secret: str) -> FailureTestRun:
         actual="Integration tests verify Envoy rejects missing auth header",
         details={
             "note": (
-                "See tests/integration/test_failure_modes.py"
-                "::test_envoy_rejects_malformed_tokens"
+                "See tests/integration/test_failure_modes.py::test_envoy_rejects_malformed_tokens"
             )
         },
         timestamp=time.time(),
@@ -1239,7 +1243,7 @@ def _runner_malformed_s3_requests(secret: str) -> FailureTestRun:
             token=token,
             bucket="",  # Invalid: empty bucket
             key="test.txt",
-            action=DEFAULT_ACTION,
+            action=DEFAULT_ACTION,  # type: ignore[arg-type]
         )
         response = s3_harness_enforce(enforce_request, secret=secret)
         status = FailureTestStatus.FAIL
@@ -1284,7 +1288,7 @@ def _runner_path_traversal(secret: str) -> FailureTestRun:
         "key": "public/../secret.txt",
         "action": DEFAULT_ACTION,
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     # Path traversal should be blocked by exact key matching
@@ -1363,7 +1367,7 @@ def _runner_http_method_mapping(secret: str) -> FailureTestRun:
         "key": "test/file.txt",
         "action": "s3:GetObject",
     }
-    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)
+    response = s3_harness_enforce(S3EnforceRequest(**enforce_request), secret=secret)  # type: ignore[arg-type]
 
     denied = not response.get("allowed", True)
     action_mismatch = response.get("failed_check") == "action"

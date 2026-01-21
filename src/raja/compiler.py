@@ -234,7 +234,10 @@ def compile_policies(
                     permits[principal].append(scope)
         elif parsed.effect == "forbid":
             if not handle_forbids:
-                raise ValueError("forbid policies are not yet fully supported (set handle_forbids=True to enable)")
+                raise ValueError(
+                    "forbid policies are not yet fully supported "
+                    "(set handle_forbids=True to enable)"
+                )
             if principal not in forbids:
                 forbids[principal] = []
             for scope in scopes:
@@ -277,9 +280,7 @@ def expand_wildcard_actions(action_pattern: str, resource_type: str) -> list[str
     # Phase 4: TODO - Implement action hierarchy expansion
     # For now, return the pattern as-is if no wildcard, or raise error
     if "*" in action_pattern:
-        raise ValueError(
-            f"wildcard action patterns are not yet supported: {action_pattern}"
-        )
+        raise ValueError(f"wildcard action patterns are not yet supported: {action_pattern}")
     return [action_pattern]
 
 
