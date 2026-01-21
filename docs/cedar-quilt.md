@@ -4,11 +4,11 @@
 
 Quilt is adding **[Cedar](https://docs.cedarpolicy.com/)** evaluated by **[Amazon Verified Permissions](https://docs.aws.amazon.com/verified-permissions/latest/userguide/what-is-avp.html)** (AVP) as an **alternative policy engine** alongside **[AWS IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html)**. Cedar efficiently enables fine-grained, path-level access control within and across buckets with a simpler, more scalable policy than Quilt can support via IAM.
 
-Admins can now easily and reliable grant a Quilt role access to specific paths (e.g., `incoming/` or `reports/2024.parquet`) rather than entire buckets. The runtime enforcement path uses an internal issuer/enforcer split:
+Admins can now easily and reliably grant a Quilt role access to specific paths (e.g., `incoming/` or `reports/2024.parquet`) rather than entire buckets. The runtime enforcement path uses an internal issuer/enforcer split:
 
 - **RAJA**: consults AVP to decide whether access is allowed, then mints a signed authorization artifact.
 - **RAJ**: the signed artifact, implemented as a **[JWT](https://datatracker.ietf.org/doc/html/rfc7519)**.
-- **RAJEE**: validates the JWT mechanically and turns it into an enforceable S3 capability (STS creds or pre-signed URLs), without re-judging.
+- **RAJEE**: validates the JWT mechanically and enforces S3 access through a transparent proxy, without re-judging.
 
 Admins do **not** think in RAJ/JWT terms. Admin terminology distinguishes **Cedar** (path-level rules) from **IAM** (bucket-level policies) as alternative policy engines for different use cases.
 
@@ -88,7 +88,7 @@ Decision rule:
 
 - **AVP** evaluates Cedar rules against a request (principal, action, resource, context).
 - **RAJA** calls AVP and, when allowed, mints a **RAJ JWT**.
-- **RAJEE** validates the RAJ JWT and produces an S3-enforceable capability.
+- **RAJEE** validates the RAJ JWT and enforces S3 access through a transparent Envoy proxy.
 - **S3** remains the enforcement substrate; it never evaluates Cedar.
 
 ### 4.2 RAJA request shape (bucket-scoped)
@@ -139,10 +139,22 @@ RAJEE does **not** consult AVP and does **not** interpret business intent.
 
 ### 4.5 How boto3 fits
 
-Clients ultimately call **[boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)** against S3 using an enforceable capability produced by RAJEE:
+Clients use **[boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)** to access S3 through the **RAJEE transparent proxy**:
 
-- preferred: short-lived **[STS](https://docs.aws.amazon.com/STS/latest/APIReference/welcome.html)** credentials scoped to the authorized bucket+path+actions
-- alternate: S3 pre-signed URLs for narrow, key-specific operations
+1. Client requests a JWT token from RAJA's control plane with specific grants (e.g., `s3:GetObject/my-bucket/path/`)
+2. Client configures boto3 to point to the RAJEE proxy endpoint: `boto3.client('s3', endpoint_url='https://rajee.example.com')`
+3. Client attaches the JWT token to S3 API requests via the `Authorization: Bearer <token>` header
+4. RAJEE's Envoy proxy intercepts the request and calls its external authorizer
+5. The authorizer validates the JWT and performs prefix-based authorization (pure string matching: `request.startswith(grant)`)
+6. If authorized, Envoy forwards the native S3 API request to real S3 and streams the response back
+7. boto3 receives the S3 response transparently
+
+**Key characteristics:**
+
+- **True S3 compatibility**: All boto3 operations work natively (GET, PUT, DELETE, LIST, multipart uploads, etc.)
+- **Zero policy evaluation**: RAJEE performs only JWT validation + prefix matching (no AVP, no DynamoDB lookups)
+- **Streaming**: No size limits (unlike Lambda-based approaches)
+- **Transparent proxy**: Envoy forwards requests unmodified; S3 handles all operation complexity
 
 ---
 
