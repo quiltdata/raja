@@ -28,6 +28,9 @@ local function action_matches(granted_action, requested_action)
   if requested_action == "s3:HeadObject" and granted_action == "s3:GetObject" then
     return true
   end
+  if requested_action == "s3:GetObjectAttributes" and granted_action == "s3:GetObject" then
+    return true
+  end
   if multipart_actions[requested_action] and granted_action == "s3:PutObject" then
     return true
   end
@@ -187,6 +190,7 @@ local function get_s3_action(method, key, query_params)
     marker = true,
     ["max-keys"] = true,
     ["encoding-type"] = true,
+    attributes = true,
   }
 
   -- Reject unknown query parameters
@@ -224,6 +228,8 @@ local function get_s3_action(method, key, query_params)
     return "s3:ListBucket"
   elseif query_params["location"] then
     return "s3:GetBucketLocation"
+  elseif query_params["attributes"] then
+    return "s3:GetObjectAttributes"
   end
 
   if method == "GET" then

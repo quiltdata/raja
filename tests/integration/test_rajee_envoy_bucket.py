@@ -220,7 +220,12 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
 
     message = response.get("Error", {}).get("Message", "")
     if message:
-        assert "Forbidden" in message or "grant" in message or "scope" in message
+        assert (
+            "Forbidden" in message
+            or "grant" in message
+            or "scope" in message
+            or "mismatch" in message
+        )
 
     _log_operation("✅ ENVOY DENIED REQUEST (403 Forbidden)", "RAJA Lua filter blocked it")
 

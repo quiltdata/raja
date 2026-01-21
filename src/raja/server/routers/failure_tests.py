@@ -31,7 +31,14 @@ tests_dir = Path(__file__).parent.parent.parent.parent.parent / "tests"
 if tests_dir.exists() and str(tests_dir) not in sys.path:
     sys.path.insert(0, str(tests_dir))
 
-from shared.token_builder import TokenBuilder  # noqa: E402  # type: ignore[import-not-found]
+try:
+    from shared.token_builder import TokenBuilder  # noqa: E402  # type: ignore[import-not-found]
+
+    TOKEN_BUILDER_AVAILABLE = True
+except ImportError:
+    # TokenBuilder not available (e.g., in Lambda); failure tests will return 503
+    TOKEN_BUILDER_AVAILABLE = False
+    TokenBuilder = None
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/failure-tests", tags=["failure-tests"])
@@ -1768,6 +1775,10 @@ def get_failure_test_definition(
 def run_failure_test(
     test_id: str, secret: str = Depends(dependencies.get_harness_secret)
 ) -> dict[str, Any]:
+    if not TOKEN_BUILDER_AVAILABLE:
+        raise HTTPException(
+            status_code=503, detail="Failure tests unavailable (TokenBuilder not found)"
+        )
     run = _execute_test(test_id, secret)
     return run.to_dict()
 
@@ -1776,6 +1787,10 @@ def run_failure_test(
 def run_failure_category(
     category: str, secret: str = Depends(dependencies.get_harness_secret)
 ) -> dict[str, Any]:
+    if not TOKEN_BUILDER_AVAILABLE:
+        raise HTTPException(
+            status_code=503, detail="Failure tests unavailable (TokenBuilder not found)"
+        )
     if category not in CATEGORY_META:
         raise HTTPException(status_code=404, detail="Unknown failure category")
     results = []

@@ -235,6 +235,15 @@ function envoy_on_request(request_handle)
     return
   end
 
+  -- Validate that all scopes are non-null strings
+  for i, scope in ipairs(scopes) do
+    if type(scope) ~= "string" then
+      request_handle:logWarn(string.format("Invalid scope at index %d: expected string, got %s", i, type(scope)))
+      respond_xml(request_handle, 403, "AccessDenied", "invalid scope in token")
+      return
+    end
+  end
+
   local allowed, reason = auth_lib.authorize(scopes, request_scope)
 
   if allowed then
