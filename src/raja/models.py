@@ -89,6 +89,7 @@ class Token(BaseModel):
 
 
 class CedarPolicy(BaseModel):
+    id: str
     effect: Literal["permit", "forbid"]
     principal: str
     action: str
@@ -99,7 +100,7 @@ class CedarPolicy(BaseModel):
     parent_id: str | None = None
     conditions: list[str] = Field(default_factory=list)
 
-    @field_validator("principal", "action", "resource")
+    @field_validator("id", "principal", "action", "resource")
     @classmethod
     def _policy_parts_non_empty(cls, value: str) -> str:
         if not value or value.strip() == "":
