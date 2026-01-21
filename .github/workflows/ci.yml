@@ -52,7 +52,7 @@ jobs:
       - name: Install Lua (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install lua
+          brew install lua luarocks
           luarocks install busted
 
       - uses: ./.github/actions/setup-raja
