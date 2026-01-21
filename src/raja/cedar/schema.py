@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from ..models import CedarPolicy
@@ -218,8 +217,8 @@ def _run_cedar_validate_schema(schema_path: str) -> dict[str, Any]:
 
         return {"valid": True, "output": result.stdout}
 
-    except FileNotFoundError:
-        raise RuntimeError(f"Cedar CLI not found: {cedar_bin}")
+    except FileNotFoundError as e:
+        raise RuntimeError(f"Cedar CLI not found: {cedar_bin}") from e
 
 
 def load_cedar_schema(schema_path: str, validate: bool = True) -> CedarSchema:
