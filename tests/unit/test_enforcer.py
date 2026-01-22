@@ -3,10 +3,17 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from raja.enforcer import check_scopes, enforce, enforce_package_grant, is_prefix_match
+from raja.enforcer import (
+    check_scopes,
+    enforce,
+    enforce_package_grant,
+    enforce_translation_grant,
+    is_prefix_match,
+)
 from raja.exceptions import ScopeValidationError
-from raja.models import AuthRequest, PackageAccessRequest
-from raja.token import create_token, create_token_with_package_grant
+from raja.models import AuthRequest, PackageAccessRequest, S3Location
+from raja.package_map import PackageMap
+from raja.token import create_token, create_token_with_package_grant, create_token_with_package_map
 
 
 def test_enforce_allows_matching_scope():
@@ -256,6 +263,88 @@ def test_enforce_package_grant_denies_write_with_read_mode() -> None:
     decision = enforce_package_grant(token_str, request, secret, checker)
     assert decision.allowed is False
     assert decision.reason == "action not permitted by token mode"
+
+
+def test_enforce_translation_grant_allows_and_returns_targets() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret=secret,
+    )
+    request = PackageAccessRequest(
+        bucket="logical-bucket", key="logical/file.csv", action="s3:GetObject"
+    )
+
+    def resolver(uri: str) -> PackageMap:
+        assert uri == quilt_uri
+        return PackageMap(
+            entries={
+                "logical/file.csv": [
+                    S3Location(bucket="physical-bucket", key="data/file.csv")
+                ]
+            }
+        )
+
+    decision = enforce_translation_grant(token_str, request, secret, resolver)
+    assert decision.allowed is True
+    assert decision.matched_scope == quilt_uri
+    assert decision.translated_targets == [
+        S3Location(bucket="physical-bucket", key="data/file.csv")
+    ]
+
+
+def test_enforce_translation_grant_denies_bucket_mismatch() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret=secret,
+    )
+    request = PackageAccessRequest(
+        bucket="other-bucket", key="logical/file.csv", action="s3:GetObject"
+    )
+
+    def resolver(uri: str) -> PackageMap:
+        return PackageMap(entries={})
+
+    decision = enforce_translation_grant(token_str, request, secret, resolver)
+    assert decision.allowed is False
+    assert decision.reason == "logical request not permitted by token"
+
+
+def test_enforce_translation_grant_denies_unmapped_key() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret=secret,
+    )
+    request = PackageAccessRequest(
+        bucket="logical-bucket", key="logical/file.csv", action="s3:GetObject"
+    )
+
+    def resolver(uri: str) -> PackageMap:
+        return PackageMap(entries={})
+
+    decision = enforce_translation_grant(token_str, request, secret, resolver)
+    assert decision.allowed is False
+    assert decision.reason == "logical key not mapped in package"
 
 
 def test_check_scopes_rejects_missing_action() -> None:

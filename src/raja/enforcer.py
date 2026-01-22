@@ -7,8 +7,14 @@ from pydantic import ValidationError
 
 from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
 from .models import AuthRequest, Decision, PackageAccessRequest, Scope
+from .package_map import PackageMap
 from .scope import format_scope, parse_scope
-from .token import TokenValidationError, validate_package_token, validate_token
+from .token import (
+    TokenValidationError,
+    validate_package_map_token,
+    validate_package_token,
+    validate_token,
+)
 
 
 def _matches_key(granted: str, requested: str) -> bool:
@@ -235,3 +241,68 @@ def enforce_package_grant(
         action=request.action,
     )
     return Decision(allowed=False, reason="object not in package")
+
+
+def enforce_translation_grant(
+    token_str: str,
+    request: PackageAccessRequest,
+    secret: str,
+    manifest_resolver: Callable[[str], PackageMap],
+) -> Decision:
+    """Enforce authorization for translation grants with logical-to-physical mapping."""
+    try:
+        token = validate_package_map_token(token_str, secret)
+    except TokenExpiredError as exc:
+        logger.warning("package_map_token_expired_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="token expired")
+    except TokenInvalidError as exc:
+        logger.warning("package_map_token_invalid_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="invalid token")
+    except TokenValidationError as exc:
+        logger.warning("package_map_token_validation_failed_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason=str(exc))
+    except Exception as exc:
+        logger.error("unexpected_package_map_token_error", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="internal error during token validation")
+
+    try:
+        if not _package_action_allowed(token.mode, request.action):
+            return Decision(allowed=False, reason="action not permitted by token mode")
+        if request.bucket != token.logical_bucket or request.key != token.logical_key:
+            return Decision(allowed=False, reason="logical request not permitted by token")
+    except ValidationError as exc:
+        logger.warning("package_map_request_validation_failed", error=str(exc))
+        return Decision(allowed=False, reason="invalid request")
+
+    try:
+        package_map = manifest_resolver(token.quilt_uri)
+        targets = package_map.translate(request.key)
+    except Exception as exc:
+        logger.error("package_map_translation_failed", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="package map translation failed")
+
+    if not targets:
+        logger.warning(
+            "package_map_translation_missing",
+            principal=token.subject,
+            quilt_uri=token.quilt_uri,
+            logical_bucket=request.bucket,
+            logical_key=request.key,
+        )
+        return Decision(allowed=False, reason="logical key not mapped in package")
+
+    logger.info(
+        "package_map_translation_allowed",
+        principal=token.subject,
+        quilt_uri=token.quilt_uri,
+        logical_bucket=request.bucket,
+        logical_key=request.key,
+        action=request.action,
+        targets_count=len(targets),
+    )
+    return Decision(
+        allowed=True,
+        reason="logical object translated",
+        matched_scope=token.quilt_uri,
+        translated_targets=targets,
+    )

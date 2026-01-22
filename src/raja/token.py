@@ -7,7 +7,8 @@ import jwt
 import structlog
 
 from .exceptions import TokenExpiredError, TokenInvalidError, TokenValidationError
-from .models import PackageToken, Token
+from .models import PackageMapToken, PackageToken, Token
+from .package_map import parse_s3_path
 from .quilt_uri import validate_quilt_uri
 
 logger = structlog.get_logger(__name__)
@@ -87,6 +88,41 @@ def create_token_with_package_grant(
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
+def create_token_with_package_map(
+    subject: str,
+    quilt_uri: str,
+    mode: str,
+    ttl: int,
+    secret: str,
+    logical_bucket: str | None = None,
+    logical_key: str | None = None,
+    logical_s3_path: str | None = None,
+    issuer: str | None = None,
+    audience: str | list[str] | None = None,
+) -> str:
+    """Create a signed JWT containing a package map translation grant."""
+    issued_at = int(time.time())
+    expires_at = issued_at + ttl
+    payload = {
+        "sub": subject,
+        "quilt_uri": quilt_uri,
+        "mode": mode,
+        "iat": issued_at,
+        "exp": expires_at,
+    }
+    if logical_s3_path:
+        payload["logical_s3_path"] = logical_s3_path
+    if logical_bucket:
+        payload["logical_bucket"] = logical_bucket
+    if logical_key:
+        payload["logical_key"] = logical_key
+    if issuer:
+        payload["iss"] = issuer
+    if audience:
+        payload["aud"] = audience
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
 def validate_package_token(token_str: str, secret: str) -> PackageToken:
     """Validate a JWT signature and return a decoded PackageToken model."""
     try:
@@ -128,6 +164,72 @@ def validate_package_token(token_str: str, secret: str) -> PackageToken:
         )
     except Exception as exc:
         logger.error("package_token_model_creation_failed", error=str(exc), exc_info=True)
+        raise TokenValidationError(f"failed to create token model: {exc}") from exc
+
+
+def validate_package_map_token(token_str: str, secret: str) -> PackageMapToken:
+    """Validate a JWT signature and return a decoded PackageMapToken model."""
+    try:
+        payload = jwt.decode(token_str, secret, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError as exc:
+        logger.warning("package_map_token_expired", error=str(exc))
+        raise TokenExpiredError("token expired") from exc
+    except jwt.InvalidTokenError as exc:
+        logger.warning("package_map_token_invalid", error=str(exc))
+        raise TokenInvalidError("invalid token") from exc
+    except Exception as exc:
+        logger.error("unexpected_package_map_token_validation_error", error=str(exc), exc_info=True)
+        raise TokenValidationError(f"unexpected token validation error: {exc}") from exc
+
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.strip():
+        raise TokenValidationError("token subject is required")
+
+    quilt_uri = payload.get("quilt_uri")
+    if not isinstance(quilt_uri, str) or not quilt_uri.strip():
+        raise TokenValidationError("token quilt_uri is required")
+
+    try:
+        quilt_uri = validate_quilt_uri(quilt_uri)
+    except ValueError as exc:
+        raise TokenValidationError(f"invalid quilt uri: {exc}") from exc
+
+    mode = payload.get("mode")
+    if mode not in {"read", "readwrite"}:
+        raise TokenValidationError("token mode must be 'read' or 'readwrite'")
+
+    logical_bucket = payload.get("logical_bucket")
+    logical_key = payload.get("logical_key")
+    logical_s3_path = payload.get("logical_s3_path")
+    if logical_s3_path:
+        try:
+            parsed_bucket, parsed_key = parse_s3_path(str(logical_s3_path))
+        except ValueError as exc:
+            raise TokenValidationError(f"invalid logical_s3_path: {exc}") from exc
+        if logical_bucket and logical_bucket != parsed_bucket:
+            raise TokenValidationError("logical_bucket does not match logical_s3_path")
+        if logical_key and logical_key != parsed_key:
+            raise TokenValidationError("logical_key does not match logical_s3_path")
+        logical_bucket = parsed_bucket
+        logical_key = parsed_key
+
+    if not isinstance(logical_bucket, str) or not logical_bucket.strip():
+        raise TokenValidationError("token logical_bucket is required")
+    if not isinstance(logical_key, str) or not logical_key.strip():
+        raise TokenValidationError("token logical_key is required")
+
+    try:
+        return PackageMapToken(
+            subject=subject,
+            quilt_uri=quilt_uri,
+            mode=mode,
+            logical_bucket=logical_bucket,
+            logical_key=logical_key,
+            issued_at=int(payload.get("iat", 0)),
+            expires_at=int(payload.get("exp", 0)),
+        )
+    except Exception as exc:
+        logger.error("package_map_token_model_creation_failed", error=str(exc), exc_info=True)
         raise TokenValidationError(f"failed to create token model: {exc}") from exc
 
 

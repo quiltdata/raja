@@ -560,6 +560,57 @@ To avoid repeated package resolution:
 - Not needed (Quilt+ URIs are immutable by design)
 - If URI is mutable (shouldn't be allowed), TTL = 0
 
+### 6.5 Translation Access Grants (TAJ): Logical → Physical Mapping
+
+Quilt package manifests can include **logical → physical key mapping**.
+
+This enables a second data-plane capability: a **Translation Access Grant (TAJ)**.
+
+A TAJ is still anchored to the **same immutable package identifier** (the same `quilt_uri` used by package grants). The difference is how RAJEE interprets and processes the incoming request.
+
+#### 6.5.1 What changes vs package-grant membership enforcement
+
+For a normal package grant, the incoming `(bucket, key)` is treated as a **physical** S3 object, and RAJEE answers:
+
+- `ALLOW` if `(bucket, key)` is a member of the package
+- `DENY` otherwise
+
+For a TAJ, the incoming `(bucket, key)` is treated as a **logical** S3 object reference, and RAJEE performs **translation**:
+
+a) The incoming bucket/key is interpreted **logically** (a logical namespace), not as the physical storage location.
+
+b) The external authorizer (Lambda) returns the **mapped physical target** `(bucket, key)` (or a small set of targets), not just yes/no.
+
+c) A follow-on filter (e.g., Envoy Lua) **repackages** the request so the downstream call is made against the **physical** bucket/key.
+
+This is request termination + re-signing in disguise: the platform must treat the translated request as a *new* request, executed under platform credentials.
+
+#### 6.5.2 Token shape for TAJ
+
+A TAJ can reuse the same core claims as a package grant token:
+
+- `quilt_uri` (immutable)
+- `mode` (`read` / `readwrite`)
+
+and adds one additional mechanically-enforceable claim describing the **logical request surface**:
+
+- `logical_bucket` and `logical_key` (or a single `logical_s3_path` string)
+
+The TAJ MUST NOT include the mapping table. TAJEE derives mappings by resolving the immutable `quilt_uri` and consulting the manifest.
+
+#### 6.5.3 Enforcement pipeline (TAJ)
+
+At a high level:
+
+1. Validate JWT (as usual)
+2. Treat incoming `(bucket, key)` as **logical**
+3. Resolve `quilt_uri` → manifest (cacheable; immutable)
+4. Translate logical `(bucket, key)` → physical `(bucket, key)`
+5. Repackage the request (e.g., Lua filter rewrites host/path/headers)
+6. Execute against S3 using platform credentials
+
+If translation fails (unknown logical key, parse failure, missing manifest), the system fails closed: `DENY`.
+
 ---
 
 ## 7. Integration with Existing Path Grants
@@ -587,7 +638,8 @@ A RAJ may contain **either**:
   "mode": "read"
 }
 
-// NOT BOTH in same token (keep tokens focused)
+// Tokens are focused: either physical membership enforcement or logical translation.
+// (A single JWT can technically carry both claims, but treat that as an advanced/rare case.)
 ```
 
 ### 7.3 Enforcement Routing
@@ -596,12 +648,23 @@ RAJEE checks token type and routes accordingly:
 
 ```python
 def enforce(raj: JWT, request: S3Request) -> Decision:
+    """
+    Route enforcement based on token claims.
+
+    - Path grants: physical prefix enforcement
+    - Package grants: physical membership enforcement (bucket/key are physical)
+    - TAJ: logical translation + downstream execution (bucket/key are logical)
+    """
     if "grants" in raj.claims:
         return enforce_prefix_grant(raj, request)
-    elif "quilt_uri" in raj.claims:
-        return enforce_package_grant(raj, request)
-    else:
-        return Decision.DENY("Unknown token type")
+
+    if "quilt_uri" in raj.claims:
+        # TAJ if logical surface claims are present
+        if "logical_s3_path" in raj.claims or ("logical_bucket" in raj.claims and "logical_key" in raj.claims):
+            return enforce_translation_grant(raj, request)  # returns rewritten physical target(s)
+        return enforce_package_grant(raj, request)  # physical membership check
+
+    return Decision.DENY("Unknown token type")
 ```
 
 ---
