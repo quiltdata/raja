@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .cedar.entities import parse_entity
 from .cedar.parser import ParsedPolicy, parse_policy
+from .quilt_uri import parse_quilt_uri
 from .scope import format_scope
 
 _TEMPLATE_RE = re.compile(r"\{\{([a-zA-Z0-9_]+)\}\}")
@@ -125,6 +126,19 @@ def _principal_id(policy: ParsedPolicy) -> str:
     return principal_id
 
 
+def _parse_package_identifier(resource_id: str) -> tuple[str, str]:
+    """Extract package name and hash from a resource identifier."""
+    if resource_id.startswith("quilt+"):
+        parsed = parse_quilt_uri(resource_id)
+        return parsed.package_name, parsed.hash
+    if "@" not in resource_id:
+        raise ValueError("package resource must include an immutable hash")
+    package_name, package_hash = resource_id.rsplit("@", 1)
+    if not package_name or not package_hash:
+        raise ValueError("package resource must include name and hash")
+    return package_name, package_hash
+
+
 def _compile_scopes(policy: ParsedPolicy) -> list[str]:
     """Compile parsed policy to scope strings.
 
@@ -161,6 +175,13 @@ def _compile_scopes(policy: ParsedPolicy) -> list[str]:
         bucket_id = _expand_templates(resource_id)
         _validate_bucket_id(bucket_id)
         return [format_scope(resource_type, bucket_id, action) for action in actions]
+
+    if resource_type == "Package":
+        if policy.parent_ids:
+            raise ValueError("Package policies must not include parent constraints")
+        package_name, package_hash = _parse_package_identifier(resource_id)
+        package_id = f"{package_name}@{package_hash}"
+        return [format_scope(resource_type, package_id, action) for action in actions]
 
     if policy.parent_ids:
         raise ValueError("resource parent constraints are not supported for this type")

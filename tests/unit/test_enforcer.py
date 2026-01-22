@@ -224,6 +224,31 @@ def test_prefix_match_resource_type_mismatch() -> None:
     )
 
 
+def test_prefix_match_package_exact() -> None:
+    assert is_prefix_match(
+        "Package:example/dataset@abc123def456:quilt:ReadPackage",
+        "Package:example/dataset@abc123def456:quilt:ReadPackage",
+    )
+
+
+def test_prefix_match_package_wildcard_name() -> None:
+    assert is_prefix_match(
+        "Package:experiment/*@abc123def456:quilt:ReadPackage",
+        "Package:experiment/run1@abc123def456:quilt:ReadPackage",
+    )
+    assert not is_prefix_match(
+        "Package:experiment/*@abc123def456:quilt:ReadPackage",
+        "Package:analysis/run1@abc123def456:quilt:ReadPackage",
+    )
+
+
+def test_prefix_match_package_hash_mismatch() -> None:
+    assert not is_prefix_match(
+        "Package:example/dataset@abc123def456:quilt:ReadPackage",
+        "Package:example/dataset@zzz999:quilt:ReadPackage",
+    )
+
+
 def test_enforce_package_grant_allows_member() -> None:
     secret = "secret"
     quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"

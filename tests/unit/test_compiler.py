@@ -15,6 +15,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _force_cedar_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAJA_USE_CEDAR_CLI", "true")
+
+
 def test_compile_policy_permit():
     policy = (
         'permit(principal == User::"alice", action == Action::"s3:GetObject", '
@@ -23,6 +28,24 @@ def test_compile_policy_permit():
     )
     compiled = compile_policy(policy)
     assert compiled == {"alice": ["S3Object:analytics-data/report.csv:s3:GetObject"]}
+
+
+def test_compile_policy_package_resource() -> None:
+    policy = (
+        'permit(principal == User::"alice", action == Action::"quilt:ReadPackage", '
+        'resource == Package::"quilt+s3://registry#package=example/dataset@abc123def456");'
+    )
+    compiled = compile_policy(policy)
+    assert compiled == {"alice": ["Package:example/dataset@abc123def456:quilt:ReadPackage"]}
+
+
+def test_compile_policy_package_resource_with_wildcard() -> None:
+    policy = (
+        'permit(principal == User::"alice", action == Action::"quilt:ReadPackage", '
+        'resource == Package::"quilt+s3://registry#package=experiment/*@abc123def456");'
+    )
+    compiled = compile_policy(policy)
+    assert compiled == {"alice": ["Package:experiment/*@abc123def456:quilt:ReadPackage"]}
 
 
 def test_compile_policy_forbid_rejected():

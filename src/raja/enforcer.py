@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
 from .models import AuthRequest, Decision, PackageAccessRequest, Scope
 from .package_map import PackageMap
+from .quilt_uri import package_name_matches
 from .scope import format_scope, parse_scope
 from .token import (
     TokenValidationError,
@@ -22,6 +23,15 @@ def _matches_key(granted: str, requested: str) -> bool:
     if granted.endswith("/"):
         return requested.startswith(granted)
     return granted == requested
+
+
+def _parse_package_scope_id(resource_id: str) -> tuple[str, str] | None:
+    if "@" not in resource_id:
+        return None
+    package_name, package_hash = resource_id.rsplit("@", 1)
+    if not package_name or not package_hash:
+        return None
+    return package_name, package_hash
 
 
 _MULTIPART_ACTIONS = {
@@ -61,6 +71,17 @@ def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
 
     if granted.resource_type == "S3Bucket":
         return granted.resource_id == requested.resource_id
+
+    if granted.resource_type == "Package":
+        granted_parts = _parse_package_scope_id(granted.resource_id)
+        requested_parts = _parse_package_scope_id(requested.resource_id)
+        if not granted_parts or not requested_parts:
+            return False
+        granted_name, granted_hash = granted_parts
+        requested_name, requested_hash = requested_parts
+        if granted_hash != requested_hash:
+            return False
+        return package_name_matches(granted_name, requested_name)
 
     return granted.resource_id == requested.resource_id
 
@@ -219,10 +240,14 @@ def enforce_with_routing(
             return Decision(allowed=False, reason="invalid request for package token")
         if has_logical:
             if manifest_resolver is None:
-                return Decision(allowed=False, reason="manifest resolver is required")
+                from .manifest import resolve_package_map
+
+                manifest_resolver = resolve_package_map
             return enforce_translation_grant(token_str, request, secret, manifest_resolver)
         if membership_checker is None:
-            return Decision(allowed=False, reason="membership checker is required")
+            from .manifest import package_membership_checker
+
+            membership_checker = package_membership_checker
         return enforce_package_grant(token_str, request, secret, membership_checker)
 
     return Decision(allowed=False, reason="unsupported token type")
