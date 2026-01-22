@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from .models import S3Location
 from .package_map import PackageMap
 from .quilt_uri import parse_quilt_uri
 
 
-def _load_quilt3():
+def _load_quilt3() -> Any:
     try:
         import quilt3  # type: ignore[import-not-found]
     except Exception as exc:  # pragma: no cover - exercised via callers

@@ -7,9 +7,9 @@ import pytest
 from raja.enforcer import (
     check_scopes,
     enforce,
-    enforce_with_routing,
     enforce_package_grant,
     enforce_translation_grant,
+    enforce_with_routing,
     is_prefix_match,
 )
 from raja.exceptions import ScopeValidationError
@@ -411,9 +411,7 @@ def test_enforce_with_routing_uses_package_grant() -> None:
     def checker(uri: str, bucket: str, key: str) -> bool:
         return uri == quilt_uri and bucket == "bucket" and key == "data/file.csv"
 
-    decision = enforce_with_routing(
-        token_str, request, secret, membership_checker=checker
-    )
+    decision = enforce_with_routing(token_str, request, secret, membership_checker=checker)
     assert decision.allowed is True
 
 
@@ -440,9 +438,7 @@ def test_enforce_with_routing_uses_translation_grant() -> None:
             }
         )
 
-    decision = enforce_with_routing(
-        token_str, request, secret, manifest_resolver=resolver
-    )
+    decision = enforce_with_routing(token_str, request, secret, manifest_resolver=resolver)
     assert decision.allowed is True
 
 

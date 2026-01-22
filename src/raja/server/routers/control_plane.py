@@ -15,10 +15,10 @@ from raja import compile_policy, create_token
 from raja.cedar.entities import parse_entity
 from raja.package_map import parse_s3_path
 from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
-from raja.token import create_token_with_package_grant, create_token_with_package_map
 from raja.server import dependencies
 from raja.server.audit import build_audit_item
 from raja.server.logging_config import get_logger
+from raja.token import create_token_with_package_grant, create_token_with_package_map
 
 logger = get_logger(__name__)
 
@@ -156,7 +156,8 @@ def _authorize_package(
     if context is not None:
         request["context"] = {"contextMap": context}
     response = avp.is_authorized(**request)
-    return response.get("decision") == "ALLOW"
+    decision: str = response.get("decision", "DENY")
+    return decision == "ALLOW"
 
 
 @router.post("/compile")

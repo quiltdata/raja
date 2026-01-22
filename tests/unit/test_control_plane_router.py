@@ -200,6 +200,7 @@ def test_issue_translation_token_allows():
     assert response["quilt_uri"] == "quilt+s3://registry#package=my/pkg@abc123def456"
     assert "token" in response
 
+
 def test_list_principals_with_limit():
     """Test listing principals with a limit."""
     table = MagicMock()
