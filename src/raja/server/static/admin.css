@@ -200,6 +200,164 @@ pre {
   to { opacity: 1; transform: translateY(0); }
 }
 
+.failure-tests {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.failure-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.failure-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.failure-category-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.failure-category-pill {
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border);
+  background: #fffdfa;
+  cursor: pointer;
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.failure-category-pill.active {
+  background: var(--accent);
+  color: #fffaf2;
+  border-color: transparent;
+}
+
+.failure-test-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.failure-test-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  background: #fffdfa;
+  box-shadow: 0 12px 24px rgba(29, 27, 22, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.failure-test-card header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.failure-test-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.failure-priority-badge {
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.failure-priority-badge.CRITICAL {
+  background: #b72d2c;
+  color: #fff;
+}
+
+.failure-priority-badge.HIGH {
+  background: #c96f2b;
+  color: #fff;
+}
+
+.failure-priority-badge.MEDIUM {
+  background: #d5a021;
+  color: #fff;
+}
+
+.failure-priority-badge.LOW {
+  background: #7f8f41;
+  color: #fff;
+}
+
+.failure-test-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.failure-expected,
+.failure-actual {
+  font-size: 0.85rem;
+  background: #fff;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 0.5rem 0.7rem;
+  color: var(--ink);
+}
+
+.failure-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+}
+
+.failure-status-pill.PASS {
+  background: rgba(60, 122, 111, 0.15);
+  color: var(--accent-2);
+}
+
+.failure-status-pill.FAIL,
+.failure-status-pill.ERROR {
+  background: rgba(239, 106, 68, 0.15);
+  color: var(--accent);
+}
+
+.failure-run-summary {
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.failure-run-summary strong {
+  color: var(--ink);
+}
+
+.failure-test-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
 @media (max-width: 720px) {
   header {
     padding: 2rem 6vw 1rem;

@@ -92,7 +92,7 @@ clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .
 check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lint, and typecheck" }
 
 # Testing
-test = { cmd = "pytest tests/ -v", help = "Run all tests" }
+test = { cmd = "bash scripts/test_all.sh", help = "Run all unit tests (Python + Rust + Lua)" }
 test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
 test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
 coverage = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage (alias for test-cov)" }
@@ -103,6 +103,7 @@ demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help
 
 # AWS deployment
 deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Deploy CDK stack to AWS, then load and compile policies" }
+deploy-fast = { shell = "IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag) && bash scripts/build-envoy-image.sh --tag \"$IMAGE_TAG\" --push && IMAGE_TAG=\"$IMAGE_TAG\" ./poe deploy", help = "Build/push Envoy image by content hash, then deploy with the pre-built image" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
@@ -143,3 +144,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "shared.token_builder"
+ignore_missing_imports = true

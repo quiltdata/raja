@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from raja.server import audit, dependencies
 from raja.server.logging_config import configure_logging, get_logger
-from raja.server.routers import control_plane_router, harness_router
+from raja.server.routers import control_plane_router, failure_tests_router, harness_router
 
 # Configure structured logging at module level
 configure_logging()
@@ -98,6 +98,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Include domain-specific routers
 app.include_router(control_plane_router)
+app.include_router(failure_tests_router)
 app.include_router(harness_router)
 
 
@@ -110,10 +111,26 @@ def admin_home() -> HTMLResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     """Health check endpoint."""
     logger.debug("health_check_requested")
-    return {"status": "ok"}
+
+    dependency_checks: dict[str, str] = {}
+
+    def _check(name: str, fn: Any) -> None:
+        try:
+            fn()
+            dependency_checks[name] = "ok"
+        except Exception as exc:
+            dependency_checks[name] = f"error: {exc}"
+
+    _check("jwt_secret", dependencies.get_jwt_secret)
+    _check("principal_table", dependencies.get_principal_table)
+    _check("mappings_table", dependencies.get_mappings_table)
+    _check("audit_table", dependencies.get_audit_table)
+
+    status = "ok" if all(value == "ok" for value in dependency_checks.values()) else "degraded"
+    return {"status": status, "dependencies": dependency_checks}
 
 
 @app.get("/audit")

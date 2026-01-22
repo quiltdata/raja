@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quilt Bucket • Permissions</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: #f5f6f8;
+      color: #1f2937;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      margin: 24px;
+      padding: 16px 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .card p {
+      margin: 0 0 16px;
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .btn {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .rules {
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .rule {
+      display: grid;
+      grid-template-columns: 1.5fr 1.5fr 1fr 80px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 14px;
+    }
+
+    .rule.header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #6b7280;
+    }
+
+    .muted {
+      color: #6b7280;
+      font-style: italic;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #eef2ff;
+      color: #3730a3;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .row-actions button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <section class="card">
+    <h2>Permissions</h2>
+    <p>
+      Configure Cedar-based access to objects in this bucket.
+      Leave path empty to apply to the entire bucket.
+    </p>
+
+    <div class="actions">
+      <button class="btn">+ Add rule</button>
+    </div>
+
+    <div class="rules">
+      <div class="rule header">
+        <div>Role</div>
+        <div>Path</div>
+        <div>Access</div>
+        <div></div>
+      </div>
+
+      <div class="rule">
+        <div><strong>ReadQuiltBucket</strong></div>
+        <div class="muted">(entire bucket)</div>
+        <div><span class="badge">Read</span></div>
+        <div class="row-actions">
+          <button title="Edit">✎</button>
+          <button title="Delete">🗑</button>
+        </div>
+      </div>
+
+      <div class="rule">
+        <div><strong>ReadWriteQuiltBucket</strong></div>
+        <div>incoming/</div>
+        <div><span class="badge">Read / Write</span></div>
+        <div class="row-actions">
+          <button title="Edit">✎</button>
+          <button title="Delete">🗑</button>
+        </div>
+      </div>
+
+      <div class="rule">
+        <div><strong>Canary</strong></div>
+        <div>canary/</div>
+        <div><span class="badge">Read</span></div>
+        <div class="row-actions">
+          <button title="Edit">✎</button>
+          <button title="Delete">🗑</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

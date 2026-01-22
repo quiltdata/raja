@@ -164,15 +164,18 @@ For optimal deployment speed, build and push the Envoy Docker image separately:
 # 1. Deploy infrastructure with ECR repository (first time only)
 ./poe deploy
 
-# 2. Build and push Envoy image to ECR
+# 2. Build and push Envoy image to ECR (content-hash tag; skips if already exists)
 ./poe build-envoy-push
 
 # 3. Deploy with pre-built image (fast - skips Docker build)
-export IMAGE_TAG=$(git rev-parse --short HEAD)
+export IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag)
 ./poe deploy
 
 # Subsequent deployments: Only rebuild image when Envoy code changes
-./poe build-envoy-push && export IMAGE_TAG=$(git rev-parse --short HEAD) && ./poe deploy
+./poe build-envoy-push && export IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag) && ./poe deploy
+
+# One-command fast deployment (build/push if needed, then deploy with IMAGE_TAG)
+./poe deploy-fast
 ```
 
 #### Standard Deployment (Legacy)
@@ -351,6 +354,7 @@ Essential commands for development workflow:
 
 # AWS deployment
 ./poe deploy              # Deploy CDK stack to AWS
+./poe deploy-fast         # Build/push Envoy image by content hash, then deploy
 ./poe destroy             # Destroy CDK stack
 
 # Full workflow
@@ -488,7 +492,6 @@ Full type hints with Pydantic models. Mypy strict mode enabled.
 When deployed to AWS, RAJA exposes these endpoints:
 
 - `POST /token` - Issue JWT tokens with scopes
-- `POST /authorize` - Check authorization (enforce)
 - `GET /introspect` - Decode and inspect token claims
 - `GET /health` - Health check
 

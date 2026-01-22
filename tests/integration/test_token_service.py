@@ -3,16 +3,23 @@ import base64
 import jwt
 import pytest
 
-from .helpers import issue_rajee_token, issue_token, request_json, require_api_issuer
+from .helpers import (
+    issue_rajee_token,
+    issue_token,
+    request_json,
+    require_api_issuer,
+    require_rajee_test_bucket,
+)
 
 
 @pytest.mark.integration
 def test_token_service_issues_token_for_known_principal():
-    token, scopes = issue_token("alice")
+    token, scopes = issue_token("test-user")
     assert token
+    bucket = require_rajee_test_bucket()
     expected = {
-        "S3Object:analytics-data/:s3:GetObject",
-        "S3Bucket:analytics-data:s3:ListBucket",
+        f"S3Object:{bucket}/rajee-integration/:s3:GetObject",
+        f"S3Bucket:{bucket}:s3:ListBucket",
     }
     assert expected.issubset(set(scopes))
 
@@ -26,7 +33,7 @@ def test_token_service_rejects_unknown_principal():
 
 @pytest.mark.integration
 def test_rajee_token_validates_against_jwks():
-    token = issue_rajee_token()
+    token, scopes = issue_rajee_token()
     status, body = request_json("GET", "/.well-known/jwks.json")
     assert status == 200
 
@@ -45,5 +52,5 @@ def test_rajee_token_validates_against_jwks():
         audience="raja-s3-proxy",
         issuer=require_api_issuer(),
     )
-    assert payload.get("sub") == "alice"
-    assert "grants" in payload
+    assert payload.get("sub") == "test-user"
+    assert payload.get("scopes") == scopes

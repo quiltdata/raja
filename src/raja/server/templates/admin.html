@@ -176,6 +176,25 @@
           <pre id="audit">Not loaded.</pre>
         </div>
       </section>
+      <section class="card failure-tests" style="--delay: 0.25s;">
+        <div class="failure-header">
+          <div>
+            <h2>Failure Mode Test Suite</h2>
+            <p>Execute documented failure modes and inspect why expected failures occur.</p>
+          </div>
+          <div class="failure-header-actions">
+            <button class="secondary" id="failure-run-category" disabled>Run category</button>
+            <button class="secondary" id="failure-export-results" disabled>Export results</button>
+          </div>
+        </div>
+        <div class="failure-category-selector" id="failure-category-selector">
+          Loading failure test categories…
+        </div>
+        <div class="failure-test-list" id="failure-test-list">
+          Loading failure test definitions…
+        </div>
+        <div class="failure-run-summary" id="failure-run-summary"></div>
+      </section>
     </main>
     <script src="/static/admin.js"></script>
   </body>
