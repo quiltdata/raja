@@ -1,5 +1,5 @@
 from .compiler import compile_policies, compile_policy
-from .enforcer import enforce
+from .enforcer import enforce, enforce_package_grant
 from .exceptions import (
     AuthorizationError,
     InsufficientScopesError,
@@ -12,15 +12,32 @@ from .exceptions import (
     TokenInvalidError,
     TokenValidationError,
 )
-from .models import AuthRequest, CedarPolicy, Decision, Scope, Token
+from .models import (
+    AuthRequest,
+    CedarPolicy,
+    Decision,
+    PackageAccessRequest,
+    PackageToken,
+    Scope,
+    Token,
+)
 from .scope import format_scope, is_subset, parse_scope
-from .token import create_token, create_token_with_grants, decode_token, validate_token
+from .token import (
+    create_token,
+    create_token_with_grants,
+    create_token_with_package_grant,
+    decode_token,
+    validate_package_token,
+    validate_token,
+)
 
 __all__ = [
     # Models
     "AuthRequest",
     "CedarPolicy",
     "Decision",
+    "PackageAccessRequest",
+    "PackageToken",
     "Scope",
     "Token",
     # Functions
@@ -28,11 +45,14 @@ __all__ = [
     "compile_policy",
     "create_token",
     "create_token_with_grants",
+    "create_token_with_package_grant",
     "decode_token",
     "enforce",
+    "enforce_package_grant",
     "format_scope",
     "is_subset",
     "parse_scope",
+    "validate_package_token",
     "validate_token",
     # Exceptions
     "AuthorizationError",

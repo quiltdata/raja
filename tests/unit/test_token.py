@@ -8,8 +8,10 @@ from raja.models import Token
 from raja.token import (
     create_token,
     create_token_with_grants,
+    create_token_with_package_grant,
     decode_token,
     is_expired,
+    validate_package_token,
     validate_token,
 )
 
@@ -155,6 +157,57 @@ def test_create_token_with_grants_without_issuer_audience():
     assert payload["grants"] == ["grant1", "grant2"]
     assert "iss" not in payload
     assert "aud" not in payload
+
+
+def test_create_token_with_package_grant_includes_claims():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        ttl=60,
+        secret="secret",
+        issuer="https://issuer.test",
+        audience=["raja"],
+    )
+    payload = decode_token(token_str)
+    assert payload["sub"] == "alice"
+    assert payload["quilt_uri"] == quilt_uri
+    assert payload["mode"] == "read"
+    assert payload["iss"] == "https://issuer.test"
+    assert payload["aud"] == ["raja"]
+
+
+def test_validate_package_token_returns_model():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="readwrite",
+        ttl=60,
+        secret="secret",
+    )
+    token = validate_package_token(token_str, "secret")
+    assert token.subject == "alice"
+    assert token.quilt_uri == quilt_uri
+    assert token.mode == "readwrite"
+
+
+def test_validate_package_token_rejects_missing_quilt_uri():
+    token_str = jwt.encode({"sub": "alice", "mode": "read"}, "secret", algorithm="HS256")
+    with pytest.raises(TokenValidationError):
+        validate_package_token(token_str, "secret")
+
+
+def test_validate_package_token_rejects_invalid_mode():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = jwt.encode(
+        {"sub": "alice", "quilt_uri": quilt_uri, "mode": "write"},
+        "secret",
+        algorithm="HS256",
+    )
+    with pytest.raises(TokenValidationError):
+        validate_package_token(token_str, "secret")
 
 
 def test_validate_token_rejects_missing_subject():

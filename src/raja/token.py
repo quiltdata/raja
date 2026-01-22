@@ -7,7 +7,8 @@ import jwt
 import structlog
 
 from .exceptions import TokenExpiredError, TokenInvalidError, TokenValidationError
-from .models import Token
+from .models import PackageToken, Token
+from .quilt_uri import validate_quilt_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +59,76 @@ def create_token_with_grants(
     if audience:
         payload["aud"] = audience
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def create_token_with_package_grant(
+    subject: str,
+    quilt_uri: str,
+    mode: str,
+    ttl: int,
+    secret: str,
+    issuer: str | None = None,
+    audience: str | list[str] | None = None,
+) -> str:
+    """Create a signed JWT containing a package grant."""
+    issued_at = int(time.time())
+    expires_at = issued_at + ttl
+    payload = {
+        "sub": subject,
+        "quilt_uri": quilt_uri,
+        "mode": mode,
+        "iat": issued_at,
+        "exp": expires_at,
+    }
+    if issuer:
+        payload["iss"] = issuer
+    if audience:
+        payload["aud"] = audience
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def validate_package_token(token_str: str, secret: str) -> PackageToken:
+    """Validate a JWT signature and return a decoded PackageToken model."""
+    try:
+        payload = jwt.decode(token_str, secret, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError as exc:
+        logger.warning("package_token_expired", error=str(exc))
+        raise TokenExpiredError("token expired") from exc
+    except jwt.InvalidTokenError as exc:
+        logger.warning("package_token_invalid", error=str(exc))
+        raise TokenInvalidError("invalid token") from exc
+    except Exception as exc:
+        logger.error("unexpected_package_token_validation_error", error=str(exc), exc_info=True)
+        raise TokenValidationError(f"unexpected token validation error: {exc}") from exc
+
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.strip():
+        raise TokenValidationError("token subject is required")
+
+    quilt_uri = payload.get("quilt_uri")
+    if not isinstance(quilt_uri, str) or not quilt_uri.strip():
+        raise TokenValidationError("token quilt_uri is required")
+
+    try:
+        quilt_uri = validate_quilt_uri(quilt_uri)
+    except ValueError as exc:
+        raise TokenValidationError(f"invalid quilt uri: {exc}") from exc
+
+    mode = payload.get("mode")
+    if mode not in {"read", "readwrite"}:
+        raise TokenValidationError("token mode must be 'read' or 'readwrite'")
+
+    try:
+        return PackageToken(
+            subject=subject,
+            quilt_uri=quilt_uri,
+            mode=mode,
+            issued_at=int(payload.get("iat", 0)),
+            expires_at=int(payload.get("exp", 0)),
+        )
+    except Exception as exc:
+        logger.error("package_token_model_creation_failed", error=str(exc), exc_info=True)
+        raise TokenValidationError(f"failed to create token model: {exc}") from exc
 
 
 def validate_token(token_str: str, secret: str) -> Token:

@@ -3,10 +3,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from raja.enforcer import check_scopes, enforce, is_prefix_match
+from raja.enforcer import check_scopes, enforce, enforce_package_grant, is_prefix_match
 from raja.exceptions import ScopeValidationError
-from raja.models import AuthRequest
-from raja.token import create_token
+from raja.models import AuthRequest, PackageAccessRequest
+from raja.token import create_token, create_token_with_package_grant
 
 
 def test_enforce_allows_matching_scope():
@@ -208,6 +208,54 @@ def test_prefix_match_resource_type_mismatch() -> None:
         "S3Object:bucket/key.txt:s3:ListBucket",
         "S3Bucket:bucket:s3:ListBucket",
     )
+
+
+def test_enforce_package_grant_allows_member() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:GetObject")
+
+    def checker(uri: str, bucket: str, key: str) -> bool:
+        return uri == quilt_uri and bucket == "bucket" and key == "data/file.csv"
+
+    decision = enforce_package_grant(token_str, request, secret, checker)
+    assert decision.allowed is True
+    assert decision.matched_scope == quilt_uri
+
+
+def test_enforce_package_grant_denies_non_member() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = PackageAccessRequest(bucket="bucket", key="other.csv", action="s3:GetObject")
+
+    def checker(uri: str, bucket: str, key: str) -> bool:
+        return False
+
+    decision = enforce_package_grant(token_str, request, secret, checker)
+    assert decision.allowed is False
+    assert decision.reason == "object not in package"
+
+
+def test_enforce_package_grant_denies_write_with_read_mode() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:PutObject")
+
+    def checker(uri: str, bucket: str, key: str) -> bool:
+        return True
+
+    decision = enforce_package_grant(token_str, request, secret, checker)
+    assert decision.allowed is False
+    assert decision.reason == "action not permitted by token mode"
 
 
 def test_check_scopes_rejects_missing_action() -> None:

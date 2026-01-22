@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import structlog
 from pydantic import ValidationError
 
 from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
-from .models import AuthRequest, Decision, Scope
+from .models import AuthRequest, Decision, PackageAccessRequest, Scope
 from .scope import format_scope, parse_scope
-from .token import TokenValidationError, validate_token
+from .token import TokenValidationError, validate_package_token, validate_token
 
 
 def _matches_key(granted: str, requested: str) -> bool:
@@ -54,6 +56,14 @@ def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
         return granted.resource_id == requested.resource_id
 
     return granted.resource_id == requested.resource_id
+
+
+def _package_action_allowed(mode: str, action: str) -> bool:
+    if action in {"s3:GetObject", "s3:HeadObject"}:
+        return mode in {"read", "readwrite"}
+    if action == "s3:PutObject" or action in _MULTIPART_ACTIONS:
+        return mode == "readwrite"
+    return False
 
 
 logger = structlog.get_logger(__name__)
@@ -166,3 +176,62 @@ def enforce(token_str: str, request: AuthRequest, secret: str) -> Decision:
         granted_scopes_count=len(token.scopes),
     )
     return Decision(allowed=False, reason="scope not granted")
+
+
+def enforce_package_grant(
+    token_str: str,
+    request: PackageAccessRequest,
+    secret: str,
+    membership_checker: Callable[[str, str, str], bool],
+) -> Decision:
+    """Enforce authorization for package grants with membership checking."""
+    try:
+        token = validate_package_token(token_str, secret)
+    except TokenExpiredError as exc:
+        logger.warning("package_token_expired_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="token expired")
+    except TokenInvalidError as exc:
+        logger.warning("package_token_invalid_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="invalid token")
+    except TokenValidationError as exc:
+        logger.warning("package_token_validation_failed_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason=str(exc))
+    except Exception as exc:
+        logger.error("unexpected_package_token_error", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="internal error during token validation")
+
+    try:
+        if not _package_action_allowed(token.mode, request.action):
+            return Decision(allowed=False, reason="action not permitted by token mode")
+    except ValidationError as exc:
+        logger.warning("package_request_validation_failed", error=str(exc))
+        return Decision(allowed=False, reason="invalid request")
+
+    try:
+        allowed = membership_checker(token.quilt_uri, request.bucket, request.key)
+    except Exception as exc:
+        logger.error("package_membership_check_failed", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="package membership check failed")
+
+    if allowed:
+        logger.info(
+            "package_authorization_allowed",
+            principal=token.subject,
+            quilt_uri=token.quilt_uri,
+            bucket=request.bucket,
+            key=request.key,
+            action=request.action,
+        )
+        return Decision(
+            allowed=True, reason="object is member of package", matched_scope=token.quilt_uri
+        )
+
+    logger.warning(
+        "package_authorization_denied",
+        principal=token.subject,
+        quilt_uri=token.quilt_uri,
+        bucket=request.bucket,
+        key=request.key,
+        action=request.action,
+    )
+    return Decision(allowed=False, reason="object not in package")

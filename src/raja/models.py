@@ -68,6 +68,19 @@ class AuthRequest(ResourceValidatorMixin):
     context: dict[str, Any] | None = None
 
 
+class PackageAccessRequest(BaseModel):
+    bucket: str
+    key: str
+    action: str
+
+    @field_validator("bucket", "key", "action")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("value must be non-empty")
+        return value
+
+
 class Decision(BaseModel):
     allowed: bool
     reason: str
@@ -83,6 +96,21 @@ class Token(BaseModel):
     @field_validator("subject")
     @classmethod
     def _subject_non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("subject must be non-empty")
+        return value
+
+
+class PackageToken(BaseModel):
+    subject: str
+    quilt_uri: str
+    mode: Literal["read", "readwrite"]
+    issued_at: int
+    expires_at: int
+
+    @field_validator("subject")
+    @classmethod
+    def _package_subject_non_empty(cls, value: str) -> str:
         if not value or value.strip() == "":
             raise ValueError("subject must be non-empty")
         return value
