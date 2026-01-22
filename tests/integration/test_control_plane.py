@@ -4,10 +4,12 @@ from .helpers import request_json
 
 
 @pytest.mark.integration
-def test_control_plane_compiles_policies():
-    status, body = request_json("POST", "/compile")
+def test_control_plane_policies_loaded_to_avp():
+    """Verify that policies have been loaded to AVP."""
+    status, body = request_json("GET", "/policies")
     assert status == 200
-    assert body.get("policies_compiled", 0) >= 1
+    policies = body.get("policies", [])
+    assert len(policies) >= 1, "No policies found in AVP. Run ./poe load-policies first."
 
 
 @pytest.mark.integration

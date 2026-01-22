@@ -141,6 +141,7 @@ def test_parse_actual_raja_schema():
     assert "Role" in entity_types
     assert "S3Bucket" in entity_types
     assert "S3Object" in entity_types
+    assert "Package" in entity_types
 
     # Check S3Object hierarchy
     assert "S3Bucket" in entity_types["S3Object"]["memberOfTypes"]
@@ -151,12 +152,16 @@ def test_parse_actual_raja_schema():
     assert "s3:PutObject" in actions
     assert "s3:DeleteObject" in actions
     assert "s3:ListBucket" in actions
+    assert "quilt:ReadPackage" in actions
 
     # Verify action structure
     get_object = actions["s3:GetObject"]
     assert "appliesTo" in get_object
     assert set(get_object["appliesTo"]["principalTypes"]) == {"User", "Role"}
     assert "S3Object" in get_object["appliesTo"]["resourceTypes"]
+
+    read_package = actions["quilt:ReadPackage"]
+    assert "Package" in read_package["appliesTo"]["resourceTypes"]
 
 
 @pytest.mark.unit

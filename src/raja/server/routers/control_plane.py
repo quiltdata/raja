@@ -9,12 +9,16 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-from raja import compile_policy, create_token
+from raja import create_token
+from raja.cedar.entities import parse_entity
+from raja.package_map import parse_s3_path
+from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
 from raja.server import dependencies
 from raja.server.audit import build_audit_item
 from raja.server.logging_config import get_logger
+from raja.token import create_token_with_package_grant, create_token_with_package_map
 
 logger = get_logger(__name__)
 
@@ -40,6 +44,44 @@ class RevokeTokenRequest(BaseModel):
     token: str
 
 
+class PackageTokenRequest(BaseModel):
+    """Request model for package token issuance."""
+
+    principal: str
+    resource: str
+    action: str = "quilt:ReadPackage"
+    context: dict[str, Any] | None = None
+
+
+class TranslationTokenRequest(BaseModel):
+    """Request model for translation token issuance."""
+
+    principal: str
+    resource: str
+    action: str = "quilt:ReadPackage"
+    logical_bucket: str | None = None
+    logical_key: str | None = None
+    logical_s3_path: str | None = None
+    context: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_logical(self) -> TranslationTokenRequest:
+        has_path = bool(self.logical_s3_path)
+        has_bucket = bool(self.logical_bucket)
+        has_key = bool(self.logical_key)
+        if has_path:
+            bucket, key = parse_s3_path(str(self.logical_s3_path))
+            if has_bucket and self.logical_bucket != bucket:
+                raise ValueError("logical_bucket does not match logical_s3_path")
+            if has_key and self.logical_key != key:
+                raise ValueError("logical_key does not match logical_s3_path")
+            self.logical_bucket = bucket
+            self.logical_key = key
+        if not self.logical_bucket or not self.logical_key:
+            raise ValueError("logical_bucket and logical_key are required")
+        return self
+
+
 POLICY_STORE_ID = os.environ.get("POLICY_STORE_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 
@@ -62,86 +104,60 @@ def _get_request_id(request: Request) -> str:
 router = APIRouter(prefix="", tags=["control-plane"])
 
 
-@router.post("/compile")
-def compile_policies(
-    request: Request,
-    avp: Any = Depends(dependencies.get_avp_client),
-    mappings_table: Any = Depends(dependencies.get_mappings_table),
-    principal_table: Any = Depends(dependencies.get_principal_table),
-    audit_table: Any = Depends(dependencies.get_audit_table),
-) -> dict[str, Any]:
-    logger.info("policy_compilation_started")
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-
-    policies_response = avp.list_policies(policyStoreId=policy_store_id, maxResults=100)
-    policies_compiled = 0
-    principal_scopes: dict[str, set[str]] = {}
-
-    for policy_item in policies_response.get("policies", []):
-        policy_id = policy_item["policyId"]
-        policy_response = avp.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
-        definition = policy_response.get("definition", {})
-        static_def = definition.get("static", {})
-        cedar_statement = static_def.get("statement", "")
-        if not cedar_statement:
-            logger.warning("policy_missing_statement", policy_id=policy_id)
-            continue
-
-        try:
-            principal_scope_map = compile_policy(cedar_statement)
-            logger.debug(
-                "policy_compiled",
-                policy_id=policy_id,
-                principals_count=len(principal_scope_map),
-            )
-        except Exception as exc:
-            logger.error(
-                "policy_compilation_failed",
-                policy_id=policy_id,
-                error=str(exc),
-            )
-            continue
-
-        for principal, scope_list in principal_scope_map.items():
-            updated_at = int(time.time())
-            mappings_table.put_item(
-                Item={"policy_id": policy_id, "scopes": scope_list, "updated_at": updated_at}
-            )
-            principal_scopes.setdefault(principal, set()).update(scope_list)
-
-        policies_compiled += 1
-
-    for principal, scopes in principal_scopes.items():
-        principal_table.put_item(
-            Item={"principal": principal, "scopes": list(scopes), "updated_at": int(time.time())}
-        )
-        logger.debug("principal_scopes_stored", principal=principal, scopes_count=len(scopes))
-
-    logger.info(
-        "policy_compilation_completed",
-        policies_compiled=policies_compiled,
-        principals_count=len(principal_scopes),
-    )
-
+def _extract_quilt_uri(resource: str) -> str:
     try:
-        audit_table.put_item(
-            Item=build_audit_item(
-                principal="system",
-                action="policy.compile",
-                resource=policy_store_id,
-                decision="SUCCESS",
-                policy_store_id=policy_store_id,
-                request_id=_get_request_id(request),
-            )
-        )
-    except Exception as exc:
-        logger.warning("audit_log_write_failed", error=str(exc))
+        resource_type, resource_id = parse_entity(resource)
+        if resource_type != "Package":
+            raise ValueError("resource must be a Package entity")
+        return validate_quilt_uri(resource_id)
+    except ValueError:
+        return validate_quilt_uri(resource)
 
+
+def _build_package_entity(quilt_uri: str) -> dict[str, Any]:
+    parsed = parse_quilt_uri(quilt_uri)
     return {
-        "message": "Policies compiled successfully",
-        "policies_compiled": policies_compiled,
-        "principals": len(principal_scopes),
+        "identifier": {"entityType": "Package", "entityId": quilt_uri},
+        "attributes": {
+            "registry": {"string": parsed.registry},
+            "packageName": {"string": parsed.package_name},
+            "hash": {"string": parsed.hash},
+        },
     }
+
+
+def _build_entity_reference(entity: str) -> dict[str, str]:
+    try:
+        entity_type, entity_id = parse_entity(entity)
+        return {"entityType": entity_type, "entityId": entity_id}
+    except ValueError:
+        if "::" in entity:
+            entity_type, entity_id = entity.split("::", 1)
+            if entity_type and entity_id:
+                return {"entityType": entity_type, "entityId": entity_id}
+        raise
+
+
+def _authorize_package(
+    avp: Any,
+    principal: str,
+    action: str,
+    quilt_uri: str,
+    context: dict[str, Any] | None = None,
+) -> bool:
+    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
+    request: dict[str, Any] = {
+        "policyStoreId": policy_store_id,
+        "principal": _build_entity_reference(principal),
+        "action": {"actionType": "Action", "actionId": action},
+        "resource": {"entityType": "Package", "entityId": quilt_uri},
+        "entities": {"entityList": [_build_package_entity(quilt_uri)]},
+    }
+    if context is not None:
+        request["context"] = {"contextMap": context}
+    response = avp.is_authorized(**request)
+    decision: str = response.get("decision", "DENY")
+    return decision == "ALLOW"
 
 
 @router.post("/token")
@@ -219,6 +235,147 @@ def issue_token(
         logger.warning("audit_log_write_failed", error=str(exc))
 
     return {"token": token, "principal": payload.principal, "scopes": scopes}
+
+
+@router.post("/token/package")
+def issue_package_token(
+    request: Request,
+    payload: PackageTokenRequest,
+    avp: Any = Depends(dependencies.get_avp_client),
+    audit_table: Any = Depends(dependencies.get_audit_table),
+    secret: str = Depends(dependencies.get_jwt_secret),
+) -> dict[str, Any]:
+    logger.info("package_token_requested", principal=payload.principal)
+
+    if payload.action != "quilt:ReadPackage":
+        raise HTTPException(status_code=400, detail="quilt:WritePackage is not supported")
+
+    try:
+        quilt_uri = _extract_quilt_uri(payload.resource)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        allowed = _authorize_package(
+            avp, payload.principal, payload.action, quilt_uri, payload.context
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not allowed:
+        try:
+            audit_table.put_item(
+                Item=build_audit_item(
+                    principal=payload.principal,
+                    action="token.issue.package",
+                    resource=quilt_uri,
+                    decision="DENY",
+                    policy_store_id=POLICY_STORE_ID,
+                    request_id=_get_request_id(request),
+                )
+            )
+        except Exception as exc:
+            logger.warning("audit_log_write_failed", error=str(exc))
+        raise HTTPException(status_code=403, detail="package access denied")
+
+    token = create_token_with_package_grant(
+        subject=payload.principal,
+        quilt_uri=quilt_uri,
+        mode="read",
+        ttl=TOKEN_TTL,
+        secret=secret,
+    )
+
+    try:
+        audit_table.put_item(
+            Item=build_audit_item(
+                principal=payload.principal,
+                action="token.issue.package",
+                resource=quilt_uri,
+                decision="SUCCESS",
+                policy_store_id=POLICY_STORE_ID,
+                request_id=_get_request_id(request),
+            )
+        )
+    except Exception as exc:
+        logger.warning("audit_log_write_failed", error=str(exc))
+
+    return {"token": token, "principal": payload.principal, "quilt_uri": quilt_uri, "mode": "read"}
+
+
+@router.post("/token/translation")
+def issue_translation_token(
+    request: Request,
+    payload: TranslationTokenRequest,
+    avp: Any = Depends(dependencies.get_avp_client),
+    audit_table: Any = Depends(dependencies.get_audit_table),
+    secret: str = Depends(dependencies.get_jwt_secret),
+) -> dict[str, Any]:
+    logger.info("translation_token_requested", principal=payload.principal)
+
+    if payload.action != "quilt:ReadPackage":
+        raise HTTPException(status_code=400, detail="quilt:WritePackage is not supported")
+
+    try:
+        quilt_uri = _extract_quilt_uri(payload.resource)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        allowed = _authorize_package(
+            avp, payload.principal, payload.action, quilt_uri, payload.context
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not allowed:
+        try:
+            audit_table.put_item(
+                Item=build_audit_item(
+                    principal=payload.principal,
+                    action="token.issue.translation",
+                    resource=quilt_uri,
+                    decision="DENY",
+                    policy_store_id=POLICY_STORE_ID,
+                    request_id=_get_request_id(request),
+                )
+            )
+        except Exception as exc:
+            logger.warning("audit_log_write_failed", error=str(exc))
+        raise HTTPException(status_code=403, detail="package access denied")
+
+    token = create_token_with_package_map(
+        subject=payload.principal,
+        quilt_uri=quilt_uri,
+        mode="read",
+        ttl=TOKEN_TTL,
+        secret=secret,
+        logical_bucket=payload.logical_bucket,
+        logical_key=payload.logical_key,
+    )
+
+    try:
+        audit_table.put_item(
+            Item=build_audit_item(
+                principal=payload.principal,
+                action="token.issue.translation",
+                resource=quilt_uri,
+                decision="SUCCESS",
+                policy_store_id=POLICY_STORE_ID,
+                request_id=_get_request_id(request),
+            )
+        )
+    except Exception as exc:
+        logger.warning("audit_log_write_failed", error=str(exc))
+
+    return {
+        "token": token,
+        "principal": payload.principal,
+        "quilt_uri": quilt_uri,
+        "mode": "read",
+        "logical_bucket": payload.logical_bucket,
+        "logical_key": payload.logical_key,
+    }
 
 
 @router.post("/token/revoke")

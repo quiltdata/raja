@@ -1,18 +1,37 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import structlog
 from pydantic import ValidationError
 
 from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
-from .models import AuthRequest, Decision, Scope
+from .models import AuthRequest, Decision, PackageAccessRequest, Scope
+from .package_map import PackageMap
+from .quilt_uri import package_name_matches
 from .scope import format_scope, parse_scope
-from .token import TokenValidationError, validate_token
+from .token import (
+    TokenValidationError,
+    decode_token,
+    validate_package_map_token,
+    validate_package_token,
+    validate_token,
+)
 
 
 def _matches_key(granted: str, requested: str) -> bool:
     if granted.endswith("/"):
         return requested.startswith(granted)
     return granted == requested
+
+
+def _parse_package_scope_id(resource_id: str) -> tuple[str, str] | None:
+    if "@" not in resource_id:
+        return None
+    package_name, package_hash = resource_id.rsplit("@", 1)
+    if not package_name or not package_hash:
+        return None
+    return package_name, package_hash
 
 
 _MULTIPART_ACTIONS = {
@@ -53,7 +72,24 @@ def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
     if granted.resource_type == "S3Bucket":
         return granted.resource_id == requested.resource_id
 
+    if granted.resource_type == "Package":
+        granted_parts = _parse_package_scope_id(granted.resource_id)
+        requested_parts = _parse_package_scope_id(requested.resource_id)
+        if not granted_parts or not requested_parts:
+            return False
+        granted_name, granted_hash = granted_parts
+        requested_name, requested_hash = requested_parts
+        if granted_hash != requested_hash:
+            return False
+        return package_name_matches(granted_name, requested_name)
+
     return granted.resource_id == requested.resource_id
+
+
+def _package_action_allowed(mode: str, action: str) -> bool:
+    if mode != "read":
+        return False
+    return action in {"s3:GetObject", "s3:HeadObject"}
 
 
 logger = structlog.get_logger(__name__)
@@ -166,3 +202,176 @@ def enforce(token_str: str, request: AuthRequest, secret: str) -> Decision:
         granted_scopes_count=len(token.scopes),
     )
     return Decision(allowed=False, reason="scope not granted")
+
+
+def enforce_with_routing(
+    token_str: str,
+    request: AuthRequest | PackageAccessRequest,
+    secret: str,
+    membership_checker: Callable[[str, str, str], bool] | None = None,
+    manifest_resolver: Callable[[str], PackageMap] | None = None,
+) -> Decision:
+    """Route enforcement based on token claim structure."""
+    try:
+        payload = decode_token(token_str)
+    except TokenInvalidError as exc:
+        logger.warning("token_decode_failed_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="invalid token")
+    except Exception as exc:
+        logger.error("unexpected_token_decode_error", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="internal error during token routing")
+
+    has_scopes = "scopes" in payload
+    has_quilt = "quilt_uri" in payload
+    has_logical = any(
+        key in payload for key in ("logical_bucket", "logical_key", "logical_s3_path")
+    )
+
+    if has_scopes and (has_quilt or has_logical):
+        return Decision(allowed=False, reason="mixed token types are not supported")
+
+    if has_scopes:
+        if not isinstance(request, AuthRequest):
+            return Decision(allowed=False, reason="invalid request for scope token")
+        return enforce(token_str, request, secret)
+
+    if has_quilt:
+        if not isinstance(request, PackageAccessRequest):
+            return Decision(allowed=False, reason="invalid request for package token")
+        if has_logical:
+            if manifest_resolver is None:
+                from .manifest import resolve_package_map
+
+                manifest_resolver = resolve_package_map
+            return enforce_translation_grant(token_str, request, secret, manifest_resolver)
+        if membership_checker is None:
+            from .manifest import package_membership_checker
+
+            membership_checker = package_membership_checker
+        return enforce_package_grant(token_str, request, secret, membership_checker)
+
+    return Decision(allowed=False, reason="unsupported token type")
+
+
+def enforce_package_grant(
+    token_str: str,
+    request: PackageAccessRequest,
+    secret: str,
+    membership_checker: Callable[[str, str, str], bool],
+) -> Decision:
+    """Enforce authorization for package grants with membership checking."""
+    try:
+        token = validate_package_token(token_str, secret)
+    except TokenExpiredError as exc:
+        logger.warning("package_token_expired_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="token expired")
+    except TokenInvalidError as exc:
+        logger.warning("package_token_invalid_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="invalid token")
+    except TokenValidationError as exc:
+        logger.warning("package_token_validation_failed_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason=str(exc))
+    except Exception as exc:
+        logger.error("unexpected_package_token_error", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="internal error during token validation")
+
+    try:
+        if not _package_action_allowed(token.mode, request.action):
+            return Decision(allowed=False, reason="action not permitted by token mode")
+    except ValidationError as exc:
+        logger.warning("package_request_validation_failed", error=str(exc))
+        return Decision(allowed=False, reason="invalid request")
+
+    try:
+        allowed = membership_checker(token.quilt_uri, request.bucket, request.key)
+    except Exception as exc:
+        logger.error("package_membership_check_failed", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="package membership check failed")
+
+    if allowed:
+        logger.info(
+            "package_authorization_allowed",
+            principal=token.subject,
+            quilt_uri=token.quilt_uri,
+            bucket=request.bucket,
+            key=request.key,
+            action=request.action,
+        )
+        return Decision(
+            allowed=True, reason="object is member of package", matched_scope=token.quilt_uri
+        )
+
+    logger.warning(
+        "package_authorization_denied",
+        principal=token.subject,
+        quilt_uri=token.quilt_uri,
+        bucket=request.bucket,
+        key=request.key,
+        action=request.action,
+    )
+    return Decision(allowed=False, reason="object not in package")
+
+
+def enforce_translation_grant(
+    token_str: str,
+    request: PackageAccessRequest,
+    secret: str,
+    manifest_resolver: Callable[[str], PackageMap],
+) -> Decision:
+    """Enforce authorization for translation grants with logical-to-physical mapping."""
+    try:
+        token = validate_package_map_token(token_str, secret)
+    except TokenExpiredError as exc:
+        logger.warning("package_map_token_expired_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="token expired")
+    except TokenInvalidError as exc:
+        logger.warning("package_map_token_invalid_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="invalid token")
+    except TokenValidationError as exc:
+        logger.warning("package_map_token_validation_failed_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason=str(exc))
+    except Exception as exc:
+        logger.error("unexpected_package_map_token_error", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="internal error during token validation")
+
+    try:
+        if not _package_action_allowed(token.mode, request.action):
+            return Decision(allowed=False, reason="action not permitted by token mode")
+        if request.bucket != token.logical_bucket or request.key != token.logical_key:
+            return Decision(allowed=False, reason="logical request not permitted by token")
+    except ValidationError as exc:
+        logger.warning("package_map_request_validation_failed", error=str(exc))
+        return Decision(allowed=False, reason="invalid request")
+
+    try:
+        package_map = manifest_resolver(token.quilt_uri)
+        targets = package_map.translate(request.key)
+    except Exception as exc:
+        logger.error("package_map_translation_failed", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="package map translation failed")
+
+    if not targets:
+        logger.warning(
+            "package_map_translation_missing",
+            principal=token.subject,
+            quilt_uri=token.quilt_uri,
+            logical_bucket=request.bucket,
+            logical_key=request.key,
+        )
+        return Decision(allowed=False, reason="logical key not mapped in package")
+
+    logger.info(
+        "package_map_translation_allowed",
+        principal=token.subject,
+        quilt_uri=token.quilt_uri,
+        logical_bucket=request.bucket,
+        logical_key=request.key,
+        action=request.action,
+        targets_count=len(targets),
+    )
+    return Decision(
+        allowed=True,
+        reason="logical object translated",
+        matched_scope=token.quilt_uri,
+        translated_targets=targets,
+    )

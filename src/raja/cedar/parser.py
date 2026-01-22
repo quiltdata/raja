@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from .entities import parse_entity
 
@@ -22,69 +20,6 @@ class ParsedPolicy:
     resource_id: str
     parent_type: str | None
     parent_ids: list[str]
-
-
-_LEGACY_EFFECT_RE = re.compile(r"^(permit|forbid)\s*\(", re.IGNORECASE)
-_LEGACY_PRINCIPAL_RE = re.compile(r"\bprincipal\s*(==|in)\s*([^,\)&]+)", re.IGNORECASE)
-_LEGACY_ACTION_RE = re.compile(r"\baction\s*(==|in)\s*([^,\)&]+)", re.IGNORECASE)
-_LEGACY_ACTION_LIST_RE = re.compile(r"\baction\s+in\s*\[([^\]]+)\]", re.IGNORECASE)
-_LEGACY_RESOURCE_RE = re.compile(r"\bresource\s*==\s*([^,\)&]+)", re.IGNORECASE)
-_LEGACY_RESOURCE_IN_RE = re.compile(r"\bresource\s+in\s+([^,\)&}]+)", re.IGNORECASE)
-
-
-def _legacy_parse_policy(policy_str: str) -> ParsedPolicy:
-    """Legacy regex-based Cedar policy parser.
-
-    This parser provides basic Cedar policy parsing without requiring
-    external tools. It is used as a fallback when Cedar CLI is unavailable.
-    """
-    cleaned = re.sub(r"//.*$", "", policy_str, flags=re.MULTILINE).strip().rstrip(";")
-    effect_match = _LEGACY_EFFECT_RE.match(cleaned)
-    if not effect_match:
-        raise ValueError("policy must start with permit(...) or forbid(...)")
-    effect = cast(Literal["permit", "forbid"], effect_match.group(1).lower())
-
-    principal_match = _LEGACY_PRINCIPAL_RE.search(cleaned)
-    action_match = _LEGACY_ACTION_RE.search(cleaned)
-    resource_match = _LEGACY_RESOURCE_RE.search(cleaned)
-    if not principal_match or not action_match or not resource_match:
-        raise ValueError("policy must include principal, action, and resource")
-
-    principal = principal_match.group(2).strip()
-    action_clause = action_match.group(2).strip()
-    resource = resource_match.group(1).strip()
-
-    actions: list[str] = []
-    list_match = _LEGACY_ACTION_LIST_RE.search(cleaned)
-    if list_match:
-        for raw in list_match.group(1).split(","):
-            _, action_id = parse_entity(raw.strip())
-            actions.append(action_id)
-    else:
-        _, action_id = parse_entity(action_clause)
-        actions.append(action_id)
-
-    resource_type, resource_id = parse_entity(resource)
-
-    parent_ids: list[str] = []
-    parent_type: str | None = None
-    for match in _LEGACY_RESOURCE_IN_RE.finditer(cleaned):
-        parent_entity = match.group(1).strip()
-        parent_type_value, parent_id_value = parse_entity(parent_entity)
-        if parent_type_value != "S3Bucket":
-            raise ValueError("resource hierarchy must be S3Object in S3Bucket")
-        parent_type = parent_type_value
-        parent_ids.append(parent_id_value)
-
-    return ParsedPolicy(
-        effect=effect,
-        principal=principal,
-        actions=actions,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        parent_type=parent_type,
-        parent_ids=parent_ids,
-    )
 
 
 def parse_resource_clause(
@@ -193,11 +128,6 @@ def _parse_conditions(conditions: list[dict[str, Any]]) -> tuple[str | None, lis
     return "S3Bucket", parent_ids
 
 
-def _cedar_cli_available() -> bool:
-    """Check if Cedar CLI or Rust toolchain is available."""
-    return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_PARSE_BIN"))
-
-
 def _run_cedar_parse(policy_str: str, schema_path: str | None = None) -> dict[str, Any]:
     """Run Cedar parser via Rust subprocess.
 
@@ -254,33 +184,8 @@ def _run_cedar_parse(policy_str: str, schema_path: str | None = None) -> dict[st
     return parsed
 
 
-def _should_use_cedar_cli() -> bool:
-    """Check if Cedar CLI should be used based on feature flag.
-
-    Cedar CLI is used if:
-    - RAJA_USE_CEDAR_CLI=true (explicitly enabled)
-    - RAJA_USE_CEDAR_CLI is not set AND Cedar tools are available
-
-    Cedar CLI is NOT used if:
-    - RAJA_USE_CEDAR_CLI=false (explicitly disabled)
-    """
-    use_cli = os.environ.get("RAJA_USE_CEDAR_CLI", "").lower()
-
-    if use_cli == "false":
-        return False
-
-    if use_cli == "true":
-        return True
-
-    # Default: use Cedar CLI if available
-    return _cedar_cli_available()
-
-
 def parse_policy(policy_str: str, schema_path: str | None = None) -> ParsedPolicy:
     """Parse a Cedar policy statement.
-
-    Uses Cedar CLI parser if available (via RAJA_USE_CEDAR_CLI feature flag),
-    otherwise falls back to legacy regex-based parser.
 
     Args:
         policy_str: Cedar policy text
@@ -291,22 +196,9 @@ def parse_policy(policy_str: str, schema_path: str | None = None) -> ParsedPolic
 
     Raises:
         ValueError: If policy is invalid or malformed
+        RuntimeError: If Cedar parsing tooling is unavailable
     """
-    use_cedar_cli = _should_use_cedar_cli()
-
-    if use_cedar_cli:
-        try:
-            parsed = _run_cedar_parse(policy_str, schema_path)
-        except RuntimeError as exc:
-            warnings.warn(
-                f"falling back to legacy Cedar parsing: {exc}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            return _legacy_parse_policy(policy_str)
-    else:
-        # Use legacy parser
-        return _legacy_parse_policy(policy_str)
+    parsed = _run_cedar_parse(policy_str, schema_path)
 
     # Extract components from Cedar CLI output
     effect = parsed.get("effect")

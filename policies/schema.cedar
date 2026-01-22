@@ -9,6 +9,13 @@ entity Role {}
 entity S3Bucket {}
 entity S3Object in [S3Bucket] {}
 
+// Quilt Package Resources
+entity Package {
+  registry: String,
+  packageName: String,
+  hash: String,
+}
+
 // S3 Actions
 action "s3:GetObject" appliesTo {
   principal: [User, Role],
@@ -88,4 +95,10 @@ action "s3:GetBucketLocation" appliesTo {
 action "s3:DeleteBucket" appliesTo {
   principal: [User, Role],
   resource: [S3Bucket]
+}
+
+// Quilt Package Actions
+action "quilt:ReadPackage" appliesTo {
+  principal: [User, Role],
+  resource: [Package]
 }

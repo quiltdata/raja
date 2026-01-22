@@ -8,8 +8,12 @@ from raja.models import Token
 from raja.token import (
     create_token,
     create_token_with_grants,
+    create_token_with_package_grant,
+    create_token_with_package_map,
     decode_token,
     is_expired,
+    validate_package_map_token,
+    validate_package_token,
     validate_token,
 )
 
@@ -155,6 +159,170 @@ def test_create_token_with_grants_without_issuer_audience():
     assert payload["grants"] == ["grant1", "grant2"]
     assert "iss" not in payload
     assert "aud" not in payload
+
+
+def test_create_token_with_package_grant_includes_claims():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        ttl=60,
+        secret="secret",
+        issuer="https://issuer.test",
+        audience=["raja"],
+    )
+    payload = decode_token(token_str)
+    assert payload["sub"] == "alice"
+    assert payload["quilt_uri"] == quilt_uri
+    assert payload["mode"] == "read"
+    assert payload["iss"] == "https://issuer.test"
+    assert payload["aud"] == ["raja"]
+
+
+def test_validate_package_token_returns_model():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        ttl=60,
+        secret="secret",
+    )
+    token = validate_package_token(token_str, "secret")
+    assert token.subject == "alice"
+    assert token.quilt_uri == quilt_uri
+    assert token.mode == "read"
+
+
+def test_create_token_with_package_map_includes_claims():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret="secret",
+        issuer="https://issuer.test",
+        audience=["raja"],
+    )
+    payload = decode_token(token_str)
+    assert payload["sub"] == "alice"
+    assert payload["quilt_uri"] == quilt_uri
+    assert payload["mode"] == "read"
+    assert payload["logical_bucket"] == "logical-bucket"
+    assert payload["logical_key"] == "logical/file.csv"
+    assert payload["iss"] == "https://issuer.test"
+    assert payload["aud"] == ["raja"]
+
+
+def test_create_token_with_package_grant_rejects_write_mode():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    with pytest.raises(ValueError):
+        create_token_with_package_grant(
+            "alice",
+            quilt_uri=quilt_uri,
+            mode="readwrite",
+            ttl=60,
+            secret="secret",
+        )
+
+
+def test_create_token_with_package_map_rejects_write_mode():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    with pytest.raises(ValueError):
+        create_token_with_package_map(
+            "alice",
+            quilt_uri=quilt_uri,
+            mode="readwrite",
+            logical_bucket="logical-bucket",
+            logical_key="logical/file.csv",
+            ttl=60,
+            secret="secret",
+        )
+
+
+def test_validate_package_map_token_returns_model():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret="secret",
+    )
+    token = validate_package_map_token(token_str, "secret")
+    assert token.subject == "alice"
+    assert token.quilt_uri == quilt_uri
+    assert token.mode == "read"
+    assert token.logical_bucket == "logical-bucket"
+    assert token.logical_key == "logical/file.csv"
+
+
+def test_validate_package_map_token_rejects_missing_logical_claims():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = jwt.encode(
+        {"sub": "alice", "quilt_uri": quilt_uri, "mode": "read"},
+        "secret",
+        algorithm="HS256",
+    )
+    with pytest.raises(TokenValidationError):
+        validate_package_map_token(token_str, "secret")
+
+
+def test_validate_package_map_token_rejects_conflicting_logical_path():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = jwt.encode(
+        {
+            "sub": "alice",
+            "quilt_uri": quilt_uri,
+            "mode": "read",
+            "logical_bucket": "bucket-a",
+            "logical_key": "path/file.csv",
+            "logical_s3_path": "s3://bucket-b/other.csv",
+        },
+        "secret",
+        algorithm="HS256",
+    )
+    with pytest.raises(TokenValidationError):
+        validate_package_map_token(token_str, "secret")
+
+
+def test_validate_package_map_token_rejects_invalid_logical_path():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = jwt.encode(
+        {
+            "sub": "alice",
+            "quilt_uri": quilt_uri,
+            "mode": "read",
+            "logical_s3_path": "not-a-path",
+        },
+        "secret",
+        algorithm="HS256",
+    )
+    with pytest.raises(TokenValidationError):
+        validate_package_map_token(token_str, "secret")
+
+
+def test_validate_package_token_rejects_missing_quilt_uri():
+    token_str = jwt.encode({"sub": "alice", "mode": "read"}, "secret", algorithm="HS256")
+    with pytest.raises(TokenValidationError):
+        validate_package_token(token_str, "secret")
+
+
+def test_validate_package_token_rejects_invalid_mode():
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = jwt.encode(
+        {"sub": "alice", "quilt_uri": quilt_uri, "mode": "readwrite"},
+        "secret",
+        algorithm="HS256",
+    )
+    with pytest.raises(TokenValidationError):
+        validate_package_token(token_str, "secret")
 
 
 def test_validate_token_rejects_missing_subject():

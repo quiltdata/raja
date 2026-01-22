@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.4.4"
+version = "0.5.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -99,14 +99,16 @@ coverage = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=
 test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name = "action", positional = true, default = "up" }], help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
 # Demo
-demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration with verbose output" }
+demo = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py tests/integration/test_rajee_package_grant.py tests/integration/test_rajee_translation_grant.py -v -s", help = "Run all RAJEE demonstrations: S3 proxy, package grants, and translation grants" }
+demo-envoy = { cmd = "pytest tests/integration/test_rajee_envoy_bucket.py -v -s", help = "Run RAJEE Envoy S3 proxy demonstration only" }
+demo-package = { cmd = "pytest tests/integration/test_rajee_package_grant.py -v -s", help = "Run package grant (RAJ-package) demonstrations" }
+demo-translation = { cmd = "pytest tests/integration/test_rajee_translation_grant.py -v -s", help = "Run translation grant (TAJ-package) demonstrations" }
 
 # AWS deployment
-deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies", "compile-policies"], help = "Deploy CDK stack to AWS, then load and compile policies" }
+deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies"], help = "Deploy CDK stack to AWS and load policies to AVP" }
 deploy-fast = { shell = "IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag) && bash scripts/build-envoy-image.sh --tag \"$IMAGE_TAG\" --push && IMAGE_TAG=\"$IMAGE_TAG\" ./poe deploy", help = "Build/push Envoy image by content hash, then deploy with the pre-built image" }
 destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
-compile-policies = { cmd = "python scripts/invoke_compiler.py", help = "Compile policies to scopes" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
 # Docker image building

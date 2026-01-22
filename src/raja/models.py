@@ -68,10 +68,36 @@ class AuthRequest(ResourceValidatorMixin):
     context: dict[str, Any] | None = None
 
 
+class PackageAccessRequest(BaseModel):
+    bucket: str
+    key: str
+    action: str
+
+    @field_validator("bucket", "key", "action")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("value must be non-empty")
+        return value
+
+
+class S3Location(BaseModel):
+    bucket: str
+    key: str
+
+    @field_validator("bucket", "key")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("value must be non-empty")
+        return value
+
+
 class Decision(BaseModel):
     allowed: bool
     reason: str
     matched_scope: str | None = None
+    translated_targets: list[S3Location] | None = None
 
 
 class Token(BaseModel):
@@ -85,6 +111,38 @@ class Token(BaseModel):
     def _subject_non_empty(cls, value: str) -> str:
         if not value or value.strip() == "":
             raise ValueError("subject must be non-empty")
+        return value
+
+
+class PackageToken(BaseModel):
+    subject: str
+    quilt_uri: str
+    mode: Literal["read"]
+    issued_at: int
+    expires_at: int
+
+    @field_validator("subject")
+    @classmethod
+    def _package_subject_non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("subject must be non-empty")
+        return value
+
+
+class PackageMapToken(BaseModel):
+    subject: str
+    quilt_uri: str
+    mode: Literal["read"]
+    logical_bucket: str
+    logical_key: str
+    issued_at: int
+    expires_at: int
+
+    @field_validator("subject", "logical_bucket", "logical_key")
+    @classmethod
+    def _package_map_fields_non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("value must be non-empty")
         return value
 
 
