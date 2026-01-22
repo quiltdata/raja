@@ -8,6 +8,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-01-21
+
+### Added
+
+- **Cedar CLI integration**: Native Rust-based Cedar policy compilation with Python fallback
+  - Rust tool `cedar-validate` for policy parsing and validation
+  - Cedar CLI installation in CI workflows (Linux + macOS)
+  - Lua + LuaRocks installation for Envoy testing
+- **Hierarchical S3 authorization**: Bucket-level and object-level scope enforcement
+  - Template expansion for exact bucket validation
+  - Prefix-based authorization with wildcard support
+  - Scope validation utilities with comprehensive tests
+- **Failure mode testing**: Comprehensive test harness for validation gaps
+  - 40+ failure mode test runners for admin UI
+  - Property-based testing with hypothesis
+  - Integration tests for failure scenarios
+- **Test utilities**: Shared token builder and S3 client helpers
+  - Centralized token generation utilities (`tests/shared/token_builder.py`)
+  - S3 client helpers for integration tests (`tests/shared/s3_client.py`)
+- **Documentation**:
+  - Cedar/AVP authorization model documentation
+  - PostgreSQL schema for RAJEE
+  - RAJEE manifest and integration architecture
+  - Comprehensive failure mode analysis and fixes
+  - Schema validation specifications (`specs/3-schema/`)
+  - Cedar integration README
+
+### Changed
+
+- **Test coverage**: Improved from 82% to 90% (#22)
+- **Scope enforcement**: Enhanced hierarchical S3 scope matching in Envoy Lua filters
+- **Token validation**: Stricter JWT validation and security checks
+- **Compiler**: Support for forbid policies and template expansion
+- **Control plane**: Enhanced `/compile` and `/token` endpoints with audit logging
+- **CI workflow**: Now runs full test suite including Lua tests (not just unit tests)
+- **Documentation structure**: Moved integration proof to specs directory
+
+### Fixed
+
+- **Lua tests**: Fixed 13 failing tests with proper security validations and error handling
+- **CI**: Install luarocks on macOS and fail loudly on missing test tools
+- **Schema validation**: Added exception chaining (B904 linting fix)
+- **Import organization**: Applied ruff import cleanup across codebase
+- **Test suite**: Fixed failures in integration and unit tests with improved security validation
+
+### Security
+
+- **Enforcer hardening**: Fail-closed enforcement with explicit deny for malformed requests
+- **Token validation**: Enhanced JWT validation with issuer and expiration checks
+- **Scope validation**: Stricter scope format validation and wildcard handling
+
+## [0.4.3] - 2026-01-16
+
 ### Added
 
 - **RAJEE policies**: New integration policy for Alice to authorize `rajee-integration/` in test buckets
