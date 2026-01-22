@@ -65,10 +65,10 @@ def test_package_grant_allows_member_file():
     print("\n" + "=" * 80)
     print("📦 PACKAGE GRANT AUTHORIZATION - ALLOW SCENARIO")
     print("=" * 80)
-    print(f"\n[STEP 1] Package Grant Token Created")
-    print(f"   Principal: User::demo-analyst")
+    print("\n[STEP 1] Package Grant Token Created")
+    print("   Principal: User::demo-analyst")
     print(f"   Package URI: {quilt_uri}")
-    print(f"   Mode: read")
+    print("   Mode: read")
     print(f"   Token length: {len(token)} chars")
 
     # Request access to a file that IS in the package
@@ -78,7 +78,7 @@ def test_package_grant_allows_member_file():
         action="s3:GetObject",
     )
 
-    print(f"\n[STEP 2] Checking Package Membership")
+    print("\n[STEP 2] Checking Package Membership")
     print(f"   S3 Object: s3://{request.bucket}/{request.key}")
     print(f"   Action: {request.action}")
 
@@ -90,7 +90,7 @@ def test_package_grant_allows_member_file():
         membership_checker=mock_membership_checker_allow_all,
     )
 
-    print(f"\n[STEP 3] Authorization Decision")
+    print("\n[STEP 3] Authorization Decision")
     print(f"   Result: {'✅ ALLOWED' if decision.allowed else '🚫 DENIED'}")
     print(f"   Reason: {decision.reason}")
     if decision.matched_scope:
@@ -132,7 +132,7 @@ def test_package_grant_denies_non_member_file():
     print("\n" + "=" * 80)
     print("🚫 PACKAGE GRANT AUTHORIZATION - DENY SCENARIO")
     print("=" * 80)
-    print(f"\n[STEP 1] Package Grant Token Created")
+    print("\n[STEP 1] Package Grant Token Created")
     print(f"   Package URI: {quilt_uri}")
 
     # Request access to a file that is NOT in the package
@@ -142,9 +142,9 @@ def test_package_grant_denies_non_member_file():
         action="s3:GetObject",
     )
 
-    print(f"\n[STEP 2] Checking Package Membership")
+    print("\n[STEP 2] Checking Package Membership")
     print(f"   S3 Object: s3://{request.bucket}/{request.key}")
-    print(f"   ⚠️  This object is NOT in the package")
+    print("   ⚠️  This object is NOT in the package")
 
     # Enforce authorization
     decision = enforce_package_grant(
@@ -154,7 +154,7 @@ def test_package_grant_denies_non_member_file():
         membership_checker=mock_membership_checker_allow_all,
     )
 
-    print(f"\n[STEP 3] Authorization Decision")
+    print("\n[STEP 3] Authorization Decision")
     print(f"   Result: {'✅ ALLOWED' if decision.allowed else '🚫 DENIED'}")
     print(f"   Reason: {decision.reason}")
 
@@ -191,7 +191,7 @@ def test_package_grant_with_specific_file_list():
     print("\n" + "=" * 80)
     print("📋 PACKAGE GRANT WITH EXPLICIT FILE LIST")
     print("=" * 80)
-    print(f"\n[STEP 1] Package Contains 3 Files")
+    print("\n[STEP 1] Package Contains 3 Files")
     print("   • rajee-integration/package-demo/data.csv")
     print("   • rajee-integration/package-demo/README.md")
     print("   • rajee-integration/package-demo/results.json")
@@ -204,7 +204,7 @@ def test_package_grant_with_specific_file_list():
         ("other-prefix/data.csv", False, "File NOT in package"),
     ]
 
-    print(f"\n[STEP 2] Testing Access to Various Files")
+    print("\n[STEP 2] Testing Access to Various Files")
 
     for key, expected_allow, description in test_cases:
         request = PackageAccessRequest(
@@ -262,7 +262,7 @@ def test_package_grant_denies_write_operations():
         "s3:DeleteObjectVersion",
     ]
 
-    print(f"\n[TEST] Attempting Write Operations (mode=read)")
+    print("\n[TEST] Attempting Write Operations (mode=read)")
 
     for action in write_operations:
         request = PackageAccessRequest(

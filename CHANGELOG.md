@@ -8,6 +8,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-01-22
+
+### Added
+
+- **Manifest-based authorization**: Package grant and translation grant support for Quilt packages
+  - New `Package` entity type in Cedar schema with registry, packageName, and hash attributes
+  - `quilt:ReadPackage` action for package-level authorization
+  - `PackageToken` model for immutable package grants (`quilt_uri` + `mode`)
+  - `PackageMapToken` model for logical-to-physical path translation grants
+  - `PackageAccessRequest` model for S3 access requests in package context
+  - `PackageMap` class for resolving package manifests to physical S3 locations
+- **Package grant enforcement**: Content-based authorization anchored to immutable package manifests
+  - `enforce_package_grant()` - validates package membership via manifest resolution
+  - `enforce_translation_grant()` - validates logical path translation to physical S3 locations
+  - `enforce_with_routing()` - routes enforcement based on token claim structure (scopes vs packages)
+  - Package name wildcard matching (e.g., `my/pkg/*` matches `my/pkg/subdir`)
+  - Package scope parsing and validation (`Package:pkg@hash:read`)
+- **Token creation functions**: Factory functions for package-based tokens
+  - `create_token_with_package_grant()` - issue package grant tokens with Quilt URIs
+  - `create_token_with_package_map()` - issue translation grant tokens with logical paths
+  - `validate_package_token()` - validate and decode package grant tokens
+  - `validate_package_map_token()` - validate and decode translation grant tokens
+- **Quilt URI utilities**: Parse and validate Quilt package URIs (`src/raja/quilt_uri.py`)
+  - URI parsing with registry, package name, and hash extraction
+  - Package name wildcard matching for hierarchical authorization
+  - URI validation with comprehensive error messages
+- **Package map utilities**: S3 path parsing and package manifest resolution (`src/raja/package_map.py`)
+  - Parse S3 paths into bucket/key components
+  - Resolve package manifests from registry to physical locations
+- **Lambda handler**: Package resolver Lambda for manifest resolution (`lambda_handlers/package_resolver/`)
+- **Integration tests**: Comprehensive demonstrations of manifest-based authorization
+  - `test_rajee_package_grant.py` - 4 tests for package grant enforcement (allow/deny member files, write operations)
+  - `test_rajee_translation_grant.py` - 6 tests for translation grant enforcement (mapped/unmapped paths, multi-region, write operations)
+  - `test_package_map.py` - integration test for package map resolution
+- **Documentation**: Extensive design and implementation documentation
+  - `docs/rajee-manifest.md` - admin-facing guide for manifest-based authorization
+  - `specs/4-manifest/01-package-grant.md` - package grant design (903 lines)
+  - `specs/4-manifest/02-package-map.md` - package map design (52 lines)
+  - `specs/4-manifest/03-package-gaps.md` - analysis of gaps and edge cases (336 lines)
+  - `specs/4-manifest/04-package-hardening.md` - security hardening considerations (441 lines)
+  - `specs/4-manifest/05-package-more.md` - advanced features and extensions (746 lines)
+  - `specs/4-manifest/06-demo-coverage.md` - demonstration coverage analysis (371 lines)
+- **Unit tests**: Comprehensive unit test coverage for new modules
+  - `test_manifest.py` - 64 lines of manifest parsing and validation tests
+  - `test_package_map.py` - 22 lines of package map utility tests
+  - `test_quilt_uri.py` - 55 lines of Quilt URI parsing and validation tests
+  - Expanded `test_enforcer.py` with 306+ new lines for package grant enforcement
+  - Expanded `test_token.py` with 168+ new lines for package token validation
+  - Expanded `test_compiler.py` with 23+ new lines for package scope compilation
+  - Expanded `test_control_plane_router.py` with 91+ new lines for package grant API endpoints
+
+### Changed
+
+- **Cedar parser**: Removed legacy Cedar statement parsing (`parse_cedar_to_statements()`)
+  - Parser now focuses on policy extraction and validation
+  - Simplified parser interface with fewer internal parsing steps
+- **Compiler**: Enhanced to support package scopes in policy compilation
+  - Added package scope extraction from Cedar policies
+  - Support for `Package` entity types in policy analysis
+- **Enforcer**: Extended with package-aware authorization logic
+  - Package scope matching with wildcard support
+  - Package action validation (read-only enforcement)
+  - Routing logic to dispatch between scope-based and package-based enforcement
+- **Token operations**: Extended with package grant validation and creation
+  - Token validation now handles multiple claim structures (scopes, quilt_uri, logical paths)
+  - Comprehensive error handling for malformed package tokens
+- **Control plane API**: Enhanced with package grant token issuance endpoints
+  - Extended `/token` endpoint to support `grant_type=package` and `grant_type=translation`
+  - API now accepts `quilt_uri`, `logical_bucket`, `logical_key`, and `logical_s3_path` parameters
+  - Expanded API response models to include package grant tokens
+- **Public API**: Expanded exports to include package grant functionality
+  - 15+ new exports in `src/raja/__init__.py` for package grants
+  - All package-related models, functions, and utilities now publicly accessible
+- **Dependencies**: Added `pyproject.toml` dev dependencies for manifest testing
+
+### Fixed
+
+- **Type checking**: Fixed type errors in package grant enforcement logic
+- **Code formatting**: Applied ruff formatting across all new modules
+
 ## [0.4.4] - 2026-01-21
 
 ### Added

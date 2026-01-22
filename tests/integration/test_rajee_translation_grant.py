@@ -114,11 +114,11 @@ def test_translation_grant_allows_mapped_path():
     print("\n" + "=" * 80)
     print("🔄 TRANSLATION ACCESS GRANT (TAJ) - SUCCESSFUL TRANSLATION")
     print("=" * 80)
-    print(f"\n[STEP 1] Translation Grant Token Created")
-    print(f"   Principal: User::data-engineer")
+    print("\n[STEP 1] Translation Grant Token Created")
+    print("   Principal: User::data-engineer")
     print(f"   Package URI: {quilt_uri}")
     print(f"   Logical Path: s3://{logical_bucket}/{logical_key}")
-    print(f"   Mode: read")
+    print("   Mode: read")
 
     # Request access to the logical path
     request = PackageAccessRequest(
@@ -127,7 +127,7 @@ def test_translation_grant_allows_mapped_path():
         action="s3:GetObject",
     )
 
-    print(f"\n[STEP 2] Resolving Package Manifest")
+    print("\n[STEP 2] Resolving Package Manifest")
     print("   • Fetching manifest from registry (mocked)")
     print("   • Extracting logical-to-physical mappings")
 
@@ -139,12 +139,12 @@ def test_translation_grant_allows_mapped_path():
         manifest_resolver=mock_manifest_resolver_simple,
     )
 
-    print(f"\n[STEP 3] Translation Result")
+    print("\n[STEP 3] Translation Result")
     print(f"   Authorization: {'✅ ALLOWED' if decision.allowed else '🚫 DENIED'}")
     print(f"   Reason: {decision.reason}")
 
     if decision.translated_targets:
-        print(f"\n   📍 Physical Target(s):")
+        print("\n   📍 Physical Target(s):")
         for target in decision.translated_targets:
             print(f"      • s3://{target.bucket}/{target.key}")
 
@@ -192,7 +192,7 @@ def test_translation_grant_denies_unmapped_path():
     print("\n" + "=" * 80)
     print("🚫 TRANSLATION ACCESS GRANT - WRONG LOGICAL PATH")
     print("=" * 80)
-    print(f"\n[STEP 1] TAJ Token Allows Only")
+    print("\n[STEP 1] TAJ Token Allows Only")
     print(f"   Logical Path: s3://{logical_bucket}/{logical_key}")
 
     # Request access to a DIFFERENT logical path
@@ -202,7 +202,7 @@ def test_translation_grant_denies_unmapped_path():
         action="s3:GetObject",
     )
 
-    print(f"\n[STEP 2] Attempting Access to Different Path")
+    print("\n[STEP 2] Attempting Access to Different Path")
     print(f"   Requested: s3://{request.bucket}/{request.key}")
     print("   ⚠️  This path is NOT authorized by the token")
 
@@ -213,8 +213,8 @@ def test_translation_grant_denies_unmapped_path():
         manifest_resolver=mock_manifest_resolver_simple,
     )
 
-    print(f"\n[STEP 3] Authorization Decision")
-    print(f"   Result: 🚫 DENIED")
+    print("\n[STEP 3] Authorization Decision")
+    print("   Result: 🚫 DENIED")
     print(f"   Reason: {decision.reason}")
 
     print("\n" + "=" * 80)
@@ -257,7 +257,7 @@ def test_translation_grant_denies_missing_manifest_entry():
     print("\n" + "=" * 80)
     print("🚫 TRANSLATION ACCESS GRANT - MISSING MANIFEST ENTRY")
     print("=" * 80)
-    print(f"\n[STEP 1] TAJ Token Created")
+    print("\n[STEP 1] TAJ Token Created")
     print(f"   Logical Path: s3://{logical_bucket}/{logical_key}")
 
     request = PackageAccessRequest(
@@ -266,7 +266,7 @@ def test_translation_grant_denies_missing_manifest_entry():
         action="s3:GetObject",
     )
 
-    print(f"\n[STEP 2] Checking Package Manifest")
+    print("\n[STEP 2] Checking Package Manifest")
     print("   ⚠️  Logical key NOT found in package manifest")
 
     decision = enforce_translation_grant(
@@ -276,8 +276,8 @@ def test_translation_grant_denies_missing_manifest_entry():
         manifest_resolver=mock_manifest_resolver_simple,
     )
 
-    print(f"\n[STEP 3] Authorization Decision")
-    print(f"   Result: 🚫 DENIED")
+    print("\n[STEP 3] Authorization Decision")
+    print("   Result: 🚫 DENIED")
     print(f"   Reason: {decision.reason}")
 
     print("\n" + "=" * 80)
@@ -327,7 +327,7 @@ def test_translation_grant_multi_region_replication():
         action="s3:GetObject",
     )
 
-    print(f"\n[STEP 1] Logical Path Request")
+    print("\n[STEP 1] Logical Path Request")
     print(f"   s3://{logical_bucket}/{logical_key}")
 
     decision = enforce_translation_grant(
@@ -337,12 +337,12 @@ def test_translation_grant_multi_region_replication():
         manifest_resolver=mock_manifest_resolver_multi_region,
     )
 
-    print(f"\n[STEP 2] Translation Result")
-    print(f"   Authorization: ✅ ALLOWED")
+    print("\n[STEP 2] Translation Result")
+    print("   Authorization: ✅ ALLOWED")
     print(f"   Physical Targets: {len(decision.translated_targets or [])} location(s)")
 
     if decision.translated_targets:
-        print(f"\n   📍 Replicated Locations:")
+        print("\n   📍 Replicated Locations:")
         for i, target in enumerate(decision.translated_targets, 1):
             print(f"      {i}. s3://{target.bucket}/{target.key}")
 
@@ -396,7 +396,7 @@ def test_translation_grant_denies_write_operations():
         "s3:DeleteObjectVersion",
     ]
 
-    print(f"\n[TEST] Attempting Write Operations (mode=read)")
+    print("\n[TEST] Attempting Write Operations (mode=read)")
 
     for action in write_operations:
         request = PackageAccessRequest(
@@ -437,7 +437,7 @@ def test_translation_grant_multiple_files():
     print("\n" + "=" * 80)
     print("📋 TRANSLATION GRANT - MULTIPLE FILE TRANSLATIONS")
     print("=" * 80)
-    print(f"\n[STEP 1] Package Contains Multiple Logical Files")
+    print("\n[STEP 1] Package Contains Multiple Logical Files")
     print("   • data/input.csv → physical-storage/v1/dataset-abc123/input.csv")
     print("   • data/output.json → physical-storage/v1/dataset-abc123/output.json")
     print("   • README.md → physical-storage/v1/dataset-abc123/README.md")
@@ -448,7 +448,7 @@ def test_translation_grant_multiple_files():
         ("README.md", "physical-storage/v1/dataset-abc123/README.md"),
     ]
 
-    print(f"\n[STEP 2] Testing Translation for Each File")
+    print("\n[STEP 2] Testing Translation for Each File")
 
     for logical_key, expected_physical_key in test_cases:
         # Create token for this logical path

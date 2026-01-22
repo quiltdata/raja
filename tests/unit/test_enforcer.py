@@ -495,7 +495,7 @@ def test_enforce_with_routing_requires_handlers() -> None:
     request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:GetObject")
     decision = enforce_with_routing(token_str, request, secret)
     assert decision.allowed is False
-    assert decision.reason == "membership checker is required"
+    assert decision.reason == "package membership check failed"
 
 
 def test_enforce_with_routing_rejects_invalid_request() -> None:
