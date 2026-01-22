@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,48 @@ from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
+
+_TEMPLATE_RE = re.compile(r"\{\{([a-zA-Z0-9_]+)\}\}")
+
+
+def _template_context() -> dict[str, str]:
+    context = {
+        "account": os.environ.get("AWS_ACCOUNT_ID") or os.environ.get("CDK_DEFAULT_ACCOUNT") or "",
+        "region": os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("CDK_DEFAULT_REGION")
+        or "",
+        "env": os.environ.get("RAJA_ENV") or os.environ.get("ENV") or "",
+    }
+
+    if not context["account"]:
+        try:
+            context["account"] = boto3.client("sts").get_caller_identity()["Account"]
+        except Exception:
+            pass
+
+    if not context["region"]:
+        region = boto3.session.Session().region_name
+        if region:
+            context["region"] = region
+
+    return context
+
+
+def _expand_templates(statement: str) -> str:
+    context = _template_context()
+
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        value = context.get(key)
+        if not value:
+            raise ValueError(f"template variable '{key}' is not set")
+        return value
+
+    expanded = _TEMPLATE_RE.sub(replace, statement)
+    if "{{" in expanded or "}}" in expanded:
+        raise ValueError("unresolved template placeholders in policy statement")
+    return expanded
 
 
 def _split_statements(policy_text: str) -> list[str]:
@@ -24,7 +67,8 @@ def _split_statements(policy_text: str) -> list[str]:
 
 
 def _normalize_statement(statement: str) -> str:
-    return statement.strip()
+    normalized = statement.strip()
+    return _expand_templates(normalized) if "{{" in normalized else normalized
 
 
 def _load_policy_files(policies_dir: Path) -> list[str]:
@@ -149,6 +193,7 @@ def main() -> None:
     if not region:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
+    os.environ.setdefault("AWS_REGION", region)
 
     # Load policies
     repo_root = Path(__file__).resolve().parents[1]

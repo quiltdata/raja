@@ -5,8 +5,56 @@ from pydantic import ValidationError
 
 from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
 from .models import AuthRequest, Decision, Scope
-from .scope import format_scope, is_subset
+from .scope import format_scope, parse_scope
 from .token import TokenValidationError, validate_token
+
+
+def _matches_key(granted: str, requested: str) -> bool:
+    if granted.endswith("/"):
+        return requested.startswith(granted)
+    return granted == requested
+
+
+_MULTIPART_ACTIONS = {
+    "s3:InitiateMultipartUpload",
+    "s3:UploadPart",
+    "s3:CompleteMultipartUpload",
+    "s3:AbortMultipartUpload",
+}
+
+
+def _action_matches(granted_action: str, requested_action: str) -> bool:
+    if granted_action == requested_action:
+        return True
+    if requested_action == "s3:HeadObject" and granted_action == "s3:GetObject":
+        return True
+    if requested_action in _MULTIPART_ACTIONS and granted_action == "s3:PutObject":
+        return True
+    return False
+
+
+def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
+    """Check if requested scope matches granted scope (key prefix matching only)."""
+    granted = parse_scope(granted_scope)
+    requested = parse_scope(requested_scope)
+
+    if granted.resource_type != requested.resource_type:
+        return False
+    if not _action_matches(granted.action, requested.action):
+        return False
+
+    if granted.resource_type == "S3Object":
+        if "/" not in granted.resource_id or "/" not in requested.resource_id:
+            return False
+        granted_bucket, granted_key = granted.resource_id.split("/", 1)
+        requested_bucket, requested_key = requested.resource_id.split("/", 1)
+        return granted_bucket == requested_bucket and _matches_key(granted_key, requested_key)
+
+    if granted.resource_type == "S3Bucket":
+        return granted.resource_id == requested.resource_id
+
+    return granted.resource_id == requested.resource_id
+
 
 logger = structlog.get_logger(__name__)
 
@@ -39,7 +87,14 @@ def check_scopes(request: AuthRequest, granted_scopes: list[str]) -> bool:
         raise ScopeValidationError(f"unexpected error creating scope: {exc}") from exc
 
     try:
-        return is_subset(requested_scope, granted_scopes)
+        requested_scope_str = format_scope(
+            requested_scope.resource_type,
+            requested_scope.resource_id,
+            requested_scope.action,
+        )
+        return any(
+            is_prefix_match(granted_scope, requested_scope_str) for granted_scope in granted_scopes
+        )
     except Exception as exc:
         logger.error("scope_subset_check_failed", error=str(exc), exc_info=True)
         raise ScopeValidationError(f"failed to check scope subset: {exc}") from exc

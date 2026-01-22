@@ -9,6 +9,21 @@ package.cpath = package.cpath
 local auth_lib = require("authorize_lib")
 local cjson = require("cjson")
 
+local function respond_xml(request_handle, status, code, message)
+  local body = string.format(
+    "<Error><Code>%s</Code><Message>%s</Message></Error>",
+    code,
+    message
+  )
+  request_handle:respond(
+    {
+      [":status"] = tostring(status),
+      ["content-type"] = "application/xml",
+    },
+    body
+  )
+end
+
 local function split_csv(value)
   local items = {}
   if not value or value == "" then
@@ -23,7 +38,7 @@ local function split_csv(value)
   return items
 end
 
-local public_grants = split_csv(os.getenv("RAJEE_PUBLIC_GRANTS"))
+local public_scopes = split_csv(os.getenv("RAJA_PUBLIC_SCOPES") or os.getenv("RAJEE_PUBLIC_GRANTS"))
 
 local function base64url_decode(input)
   local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -67,6 +82,36 @@ local function base64url_decode(input)
   end)
 end
 
+local function extract_bearer_token(headers)
+  local header_value = headers:get("x-raja-authorization") or headers:get("authorization")
+  if not header_value then
+    return nil
+  end
+  local token = string.match(header_value, "[Bb]earer%s+(.+)")
+  return token or header_value
+end
+
+local function decode_jwt_payload(token)
+  if not token then
+    return nil
+  end
+  local parts = {}
+  for part in string.gmatch(token, "[^.]+") do
+    table.insert(parts, part)
+  end
+  if #parts < 2 then
+    return nil
+  end
+  local payload_json = base64url_decode(parts[2])
+  local ok, decoded = pcall(function()
+    return cjson.decode(payload_json)
+  end)
+  if ok then
+    return decoded
+  end
+  return nil
+end
+
 function envoy_on_request(request_handle)
   local method = request_handle:headers():get(":method")
   local path = request_handle:headers():get(":path")
@@ -92,17 +137,22 @@ function envoy_on_request(request_handle)
   local clean_path = path_parts[1] or path
   local query_string = path_parts[2] or ""
   local query_params = auth_lib.parse_query_string(query_string)
-  local request_string = auth_lib.parse_s3_request(method, clean_path, query_params)
+  local request_scope, parse_error = auth_lib.parse_s3_request(method, clean_path, query_params)
+  if not request_scope then
+    request_handle:logWarn("Failed to parse S3 request: " .. tostring(parse_error))
+    respond_xml(request_handle, 403, "AccessDenied", tostring(parse_error))
+    return
+  end
 
-  if #public_grants > 0 then
-    local public_allowed, public_reason = auth_lib.authorize(public_grants, request_string)
+  if #public_scopes > 0 then
+    local public_allowed, public_reason = auth_lib.authorize(public_scopes, request_scope)
     if public_allowed then
       request_handle:logInfo(
-        string.format("ALLOW: %s (reason: %s)", request_string, public_reason)
+        string.format("ALLOW: %s (reason: %s)", request_scope, public_reason)
       )
       request_handle:headers():add("x-raja-decision", "allow")
       request_handle:headers():add("x-raja-reason", public_reason)
-      request_handle:headers():add("x-raja-request", request_string)
+      request_handle:headers():add("x-raja-request", request_scope)
       return
     end
   end
@@ -135,27 +185,77 @@ function envoy_on_request(request_handle)
     return
   end
 
-  local grants = jwt_payload.grants or {}
-  local allowed, reason = auth_lib.authorize(grants, request_string)
-
-  if allowed then
-    request_handle:logInfo(string.format("ALLOW: %s (reason: %s)", request_string, reason))
-    request_handle:headers():add("x-raja-decision", "allow")
-    request_handle:headers():add("x-raja-reason", reason)
-    request_handle:headers():add("x-raja-request", request_string)
+  if not jwt_payload.sub or jwt_payload.sub == "" then
+    request_handle:logWarn("Missing subject in JWT payload")
+    request_handle:respond(
+      {[":status"] = "401"},
+      "Unauthorized: Missing subject"
+    )
     return
   end
 
-  request_handle:logWarn(string.format("DENY: %s (reason: %s)", request_string, reason))
-  request_handle:respond(
-    {
-      [":status"] = "403",
-      ["x-raja-decision"] = "deny",
-      ["x-raja-reason"] = reason,
-      ["x-raja-request"] = request_string,
-    },
-    "Forbidden: " .. reason
-  )
+  local expected_audience = os.getenv("RAJA_AUDIENCE") or "raja-s3-proxy"
+  local token = extract_bearer_token(request_handle:headers())
+  local token_payload = decode_jwt_payload(token)
+  local aud = token_payload and token_payload.aud or jwt_payload.aud
+  local aud_ok = false
+  if type(aud) == "string" then
+    aud_ok = aud == expected_audience
+  elseif type(aud) == "table" then
+    for _, value in ipairs(aud) do
+      if value == expected_audience then
+        aud_ok = true
+        break
+      end
+    end
+  end
+  if not aud_ok then
+    request_handle:logWarn("Invalid audience in JWT payload")
+    request_handle:respond(
+      {[":status"] = "401"},
+      "Unauthorized: Invalid audience"
+    )
+    return
+  end
+
+  local exp = jwt_payload.exp
+  if type(exp) == "number" and os.time() >= exp then
+    request_handle:logWarn("Expired JWT payload")
+    request_handle:respond(
+      {[":status"] = "401"},
+      "Unauthorized: Token expired"
+    )
+    return
+  end
+
+  local scopes = jwt_payload.scopes or jwt_payload.grants or {}
+  if type(scopes) ~= "table" then
+    request_handle:logWarn("Invalid scopes type in JWT payload")
+    respond_xml(request_handle, 403, "AccessDenied", "invalid scopes type")
+    return
+  end
+
+  -- Validate that all scopes are non-null strings
+  for i, scope in ipairs(scopes) do
+    if type(scope) ~= "string" then
+      request_handle:logWarn(string.format("Invalid scope at index %d: expected string, got %s", i, type(scope)))
+      respond_xml(request_handle, 403, "AccessDenied", "invalid scope in token")
+      return
+    end
+  end
+
+  local allowed, reason = auth_lib.authorize(scopes, request_scope)
+
+  if allowed then
+    request_handle:logInfo(string.format("ALLOW: %s (reason: %s)", request_scope, reason))
+    request_handle:headers():add("x-raja-decision", "allow")
+    request_handle:headers():add("x-raja-reason", reason)
+    request_handle:headers():add("x-raja-request", request_scope)
+    return
+  end
+
+  request_handle:logWarn(string.format("DENY: %s (reason: %s)", request_scope, reason))
+  respond_xml(request_handle, 403, "AccessDenied", reason)
 end
 
 function envoy_on_response(response_handle)

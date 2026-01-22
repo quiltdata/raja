@@ -24,6 +24,12 @@ jobs:
           python-version: '3.12'
           install-extras: dev
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Cedar CLI
+        run: cargo install cedar-policy-cli
+
       - name: Determine tag
         shell: bash
         run: |

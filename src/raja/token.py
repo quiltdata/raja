@@ -87,10 +87,20 @@ def validate_token(token_str: str, secret: str) -> Token:
         logger.error("unexpected_token_validation_error", error=str(exc), exc_info=True)
         raise TokenValidationError(f"unexpected token validation error: {exc}") from exc
 
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.strip():
+        raise TokenValidationError("token subject is required")
+
+    scopes = payload.get("scopes")
+    if scopes is None:
+        raise TokenValidationError("token scopes are required")
+    if not isinstance(scopes, list):
+        raise TokenValidationError("token scopes must be a list")
+
     try:
         return Token(
-            subject=payload.get("sub", ""),
-            scopes=list(payload.get("scopes", [])),
+            subject=subject,
+            scopes=scopes,
             issued_at=int(payload.get("iat", 0)),
             expires_at=int(payload.get("exp", 0)),
         )

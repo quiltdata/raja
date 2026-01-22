@@ -1,13 +1,14 @@
 #!/bin/bash
 # Build and push Envoy container image to ECR
-# Usage: ./scripts/build-envoy-image.sh [--tag TAG] [--push] [--platform PLATFORM]
+# Usage: ./scripts/build-envoy-image.sh [--tag TAG] [--push] [--platform PLATFORM] [--print-tag]
 
-set -e
+set -euo pipefail
 
 # Parse arguments
 PUSH=false
 IMAGE_TAG=""
 PLATFORM=""
+PRINT_TAG=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,23 +24,53 @@ while [[ $# -gt 0 ]]; do
             PLATFORM="$2"
             shift 2
             ;;
+        --print-tag)
+            PRINT_TAG=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--tag TAG] [--push] [--platform PLATFORM]"
+            echo "Usage: $0 [--tag TAG] [--push] [--platform PLATFORM] [--print-tag]"
             exit 1
             ;;
     esac
 done
 
-# Get git commit hash for tagging if not provided
-if [ -z "$IMAGE_TAG" ]; then
-    IMAGE_TAG=$(git rev-parse --short HEAD)
-    echo "No tag specified, using git hash: ${IMAGE_TAG}"
-fi
-
 # Get repository root
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+compute_image_tag() {
+    local -a files
+    shopt -s nullglob
+    files=(
+        "infra/raja_poc/assets/envoy/Dockerfile"
+        infra/raja_poc/assets/envoy/*.sh
+        infra/raja_poc/assets/envoy/*.lua
+        infra/raja_poc/assets/envoy/*.tmpl
+    )
+    local hash
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "Error: no Envoy files found for hashing." >&2
+        exit 1
+    fi
+    hash=$(cat "${files[@]}" | shasum -a 256 | cut -c1-8)
+    shopt -u nullglob
+    echo "$hash"
+}
+
+# Get content hash for tagging if not provided
+if [ -z "$IMAGE_TAG" ]; then
+    IMAGE_TAG=$(compute_image_tag)
+    if [ "$PRINT_TAG" = false ]; then
+        echo "No tag specified, using content hash: ${IMAGE_TAG}"
+    fi
+fi
+
+if [ "$PRINT_TAG" = true ]; then
+    echo "${IMAGE_TAG}"
+    exit 0
+fi
 
 # Get ECR repository URI from CDK outputs
 echo "Getting ECR repository URI from CloudFormation..."
@@ -62,6 +93,18 @@ echo "ECR Repository: ${REPO_URI}"
 # Extract AWS region from repository URI
 AWS_REGION=$(echo "$REPO_URI" | cut -d'.' -f4)
 echo "AWS Region: ${AWS_REGION}"
+
+if [ "$PUSH" = true ]; then
+    REPO_NAME="${REPO_URI#*/}"
+    if aws ecr describe-images \
+        --repository-name "${REPO_NAME}" \
+        --image-ids imageTag="${IMAGE_TAG}" \
+        --region "${AWS_REGION}" >/dev/null 2>&1; then
+        echo ""
+        echo "Image ${REPO_URI}:${IMAGE_TAG} already exists in ECR; skipping build and push."
+        exit 0
+    fi
+fi
 
 # Build image
 echo ""
