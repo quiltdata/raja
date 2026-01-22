@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 
-from raja import compile_policy, create_token
+from raja import create_token
 from raja.cedar.entities import parse_entity
 from raja.package_map import parse_s3_path
 from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
@@ -158,88 +158,6 @@ def _authorize_package(
     response = avp.is_authorized(**request)
     decision: str = response.get("decision", "DENY")
     return decision == "ALLOW"
-
-
-@router.post("/compile")
-def compile_policies(
-    request: Request,
-    avp: Any = Depends(dependencies.get_avp_client),
-    mappings_table: Any = Depends(dependencies.get_mappings_table),
-    principal_table: Any = Depends(dependencies.get_principal_table),
-    audit_table: Any = Depends(dependencies.get_audit_table),
-) -> dict[str, Any]:
-    logger.info("policy_compilation_started")
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-
-    policies_response = avp.list_policies(policyStoreId=policy_store_id, maxResults=100)
-    policies_compiled = 0
-    principal_scopes: dict[str, set[str]] = {}
-
-    for policy_item in policies_response.get("policies", []):
-        policy_id = policy_item["policyId"]
-        policy_response = avp.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
-        definition = policy_response.get("definition", {})
-        static_def = definition.get("static", {})
-        cedar_statement = static_def.get("statement", "")
-        if not cedar_statement:
-            logger.warning("policy_missing_statement", policy_id=policy_id)
-            continue
-
-        try:
-            principal_scope_map = compile_policy(cedar_statement)
-            logger.debug(
-                "policy_compiled",
-                policy_id=policy_id,
-                principals_count=len(principal_scope_map),
-            )
-        except Exception as exc:
-            logger.error(
-                "policy_compilation_failed",
-                policy_id=policy_id,
-                error=str(exc),
-            )
-            continue
-
-        for principal, scope_list in principal_scope_map.items():
-            updated_at = int(time.time())
-            mappings_table.put_item(
-                Item={"policy_id": policy_id, "scopes": scope_list, "updated_at": updated_at}
-            )
-            principal_scopes.setdefault(principal, set()).update(scope_list)
-
-        policies_compiled += 1
-
-    for principal, scopes in principal_scopes.items():
-        principal_table.put_item(
-            Item={"principal": principal, "scopes": list(scopes), "updated_at": int(time.time())}
-        )
-        logger.debug("principal_scopes_stored", principal=principal, scopes_count=len(scopes))
-
-    logger.info(
-        "policy_compilation_completed",
-        policies_compiled=policies_compiled,
-        principals_count=len(principal_scopes),
-    )
-
-    try:
-        audit_table.put_item(
-            Item=build_audit_item(
-                principal="system",
-                action="policy.compile",
-                resource=policy_store_id,
-                decision="SUCCESS",
-                policy_store_id=policy_store_id,
-                request_id=_get_request_id(request),
-            )
-        )
-    except Exception as exc:
-        logger.warning("audit_log_write_failed", error=str(exc))
-
-    return {
-        "message": "Policies compiled successfully",
-        "policies_compiled": policies_compiled,
-        "principals": len(principal_scopes),
-    }
 
 
 @router.post("/token")
