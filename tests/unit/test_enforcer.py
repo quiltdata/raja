@@ -285,9 +285,7 @@ def test_enforce_translation_grant_allows_and_returns_targets() -> None:
         assert uri == quilt_uri
         return PackageMap(
             entries={
-                "logical/file.csv": [
-                    S3Location(bucket="physical-bucket", key="data/file.csv")
-                ]
+                "logical/file.csv": [S3Location(bucket="physical-bucket", key="data/file.csv")]
             }
         )
 

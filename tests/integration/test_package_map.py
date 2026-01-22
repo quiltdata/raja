@@ -29,9 +29,7 @@ def test_translation_grant_allows_with_control_plane_secret() -> None:
         assert uri == quilt_uri
         return PackageMap(
             entries={
-                "logical/file.csv": [
-                    S3Location(bucket="physical-bucket", key="data/file.csv")
-                ]
+                "logical/file.csv": [S3Location(bucket="physical-bucket", key="data/file.csv")]
             }
         )
 
