@@ -72,6 +72,8 @@ def create_token_with_package_grant(
     audience: str | list[str] | None = None,
 ) -> str:
     """Create a signed JWT containing a package grant."""
+    if mode != "read":
+        raise ValueError("package tokens only support read mode")
     issued_at = int(time.time())
     expires_at = issued_at + ttl
     payload = {
@@ -101,6 +103,8 @@ def create_token_with_package_map(
     audience: str | list[str] | None = None,
 ) -> str:
     """Create a signed JWT containing a package map translation grant."""
+    if mode != "read":
+        raise ValueError("package tokens only support read mode")
     issued_at = int(time.time())
     expires_at = issued_at + ttl
     payload = {
@@ -151,8 +155,8 @@ def validate_package_token(token_str: str, secret: str) -> PackageToken:
         raise TokenValidationError(f"invalid quilt uri: {exc}") from exc
 
     mode = payload.get("mode")
-    if mode not in {"read", "readwrite"}:
-        raise TokenValidationError("token mode must be 'read' or 'readwrite'")
+    if mode != "read":
+        raise TokenValidationError("token mode must be 'read'")
 
     try:
         return PackageToken(
@@ -195,8 +199,8 @@ def validate_package_map_token(token_str: str, secret: str) -> PackageMapToken:
         raise TokenValidationError(f"invalid quilt uri: {exc}") from exc
 
     mode = payload.get("mode")
-    if mode not in {"read", "readwrite"}:
-        raise TokenValidationError("token mode must be 'read' or 'readwrite'")
+    if mode != "read":
+        raise TokenValidationError("token mode must be 'read'")
 
     logical_bucket = payload.get("logical_bucket")
     logical_key = payload.get("logical_key")

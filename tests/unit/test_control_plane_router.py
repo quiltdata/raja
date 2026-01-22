@@ -110,6 +110,96 @@ def test_issue_token_audit_failure():
     assert "token" in response
 
 
+def test_issue_package_token_allows():
+    control_plane.POLICY_STORE_ID = "store-123"
+    avp = MagicMock()
+    avp.is_authorized.return_value = {"decision": "ALLOW"}
+    audit_table = MagicMock()
+
+    payload = control_plane.PackageTokenRequest(
+        principal='Role::"analyst"',
+        resource='Package::"quilt+s3://registry#package=my/pkg@abc123def456"',
+        action="quilt:ReadPackage",
+    )
+    response = control_plane.issue_package_token(
+        _make_request(),
+        payload,
+        avp=avp,
+        audit_table=audit_table,
+        secret="secret",
+    )
+
+    assert response["principal"] == 'Role::"analyst"'
+    assert response["quilt_uri"] == "quilt+s3://registry#package=my/pkg@abc123def456"
+    assert "token" in response
+
+
+def test_issue_package_token_denied_by_policy():
+    control_plane.POLICY_STORE_ID = "store-123"
+    avp = MagicMock()
+    avp.is_authorized.return_value = {"decision": "DENY"}
+    audit_table = MagicMock()
+
+    payload = control_plane.PackageTokenRequest(
+        principal='Role::"analyst"',
+        resource='Package::"quilt+s3://registry#package=my/pkg@abc123def456"',
+        action="quilt:ReadPackage",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        control_plane.issue_package_token(
+            _make_request(),
+            payload,
+            avp=avp,
+            audit_table=audit_table,
+            secret="secret",
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_issue_package_token_rejects_write_action():
+    payload = control_plane.PackageTokenRequest(
+        principal='Role::"analyst"',
+        resource='Package::"quilt+s3://registry#package=my/pkg@abc123def456"',
+        action="quilt:WritePackage",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        control_plane.issue_package_token(
+            _make_request(),
+            payload,
+            avp=MagicMock(),
+            audit_table=MagicMock(),
+            secret="secret",
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+def test_issue_translation_token_allows():
+    control_plane.POLICY_STORE_ID = "store-123"
+    avp = MagicMock()
+    avp.is_authorized.return_value = {"decision": "ALLOW"}
+    audit_table = MagicMock()
+
+    payload = control_plane.TranslationTokenRequest(
+        principal='Role::"analyst"',
+        resource='Package::"quilt+s3://registry#package=my/pkg@abc123def456"',
+        action="quilt:ReadPackage",
+        logical_s3_path="s3://logical-bucket/logical/file.csv",
+    )
+    response = control_plane.issue_translation_token(
+        _make_request(),
+        payload,
+        avp=avp,
+        audit_table=audit_table,
+        secret="secret",
+    )
+
+    assert response["logical_bucket"] == "logical-bucket"
+    assert response["logical_key"] == "logical/file.csv"
+    assert response["quilt_uri"] == "quilt+s3://registry#package=my/pkg@abc123def456"
+    assert "token" in response
+
 def test_list_principals_with_limit():
     """Test listing principals with a limit."""
     table = MagicMock()

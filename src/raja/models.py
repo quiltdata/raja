@@ -117,7 +117,7 @@ class Token(BaseModel):
 class PackageToken(BaseModel):
     subject: str
     quilt_uri: str
-    mode: Literal["read", "readwrite"]
+    mode: Literal["read"]
     issued_at: int
     expires_at: int
 
@@ -132,7 +132,7 @@ class PackageToken(BaseModel):
 class PackageMapToken(BaseModel):
     subject: str
     quilt_uri: str
-    mode: Literal["read", "readwrite"]
+    mode: Literal["read"]
     logical_bucket: str
     logical_key: str
     issued_at: int

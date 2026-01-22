@@ -1,11 +1,13 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import jwt
 import pytest
 
 from raja.enforcer import (
     check_scopes,
     enforce,
+    enforce_with_routing,
     enforce_package_grant,
     enforce_translation_grant,
     is_prefix_match,
@@ -13,7 +15,12 @@ from raja.enforcer import (
 from raja.exceptions import ScopeValidationError
 from raja.models import AuthRequest, PackageAccessRequest, S3Location
 from raja.package_map import PackageMap
-from raja.token import create_token, create_token_with_package_grant, create_token_with_package_map
+from raja.token import (
+    create_token,
+    create_token_with_package_grant,
+    create_token_with_package_map,
+    decode_token,
+)
 
 
 def test_enforce_allows_matching_scope():
@@ -265,6 +272,22 @@ def test_enforce_package_grant_denies_write_with_read_mode() -> None:
     assert decision.reason == "action not permitted by token mode"
 
 
+def test_enforce_package_grant_denies_on_checker_error() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:GetObject")
+
+    def checker(uri: str, bucket: str, key: str) -> bool:
+        raise RuntimeError("boom")
+
+    decision = enforce_package_grant(token_str, request, secret, checker)
+    assert decision.allowed is False
+    assert decision.reason == "package membership check failed"
+
+
 def test_enforce_translation_grant_allows_and_returns_targets() -> None:
     secret = "secret"
     quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
@@ -343,6 +366,127 @@ def test_enforce_translation_grant_denies_unmapped_key() -> None:
     decision = enforce_translation_grant(token_str, request, secret, resolver)
     assert decision.allowed is False
     assert decision.reason == "logical key not mapped in package"
+
+
+def test_enforce_translation_grant_denies_on_resolver_error() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret=secret,
+    )
+    request = PackageAccessRequest(
+        bucket="logical-bucket", key="logical/file.csv", action="s3:GetObject"
+    )
+
+    def resolver(uri: str) -> PackageMap:
+        raise RuntimeError("boom")
+
+    decision = enforce_translation_grant(token_str, request, secret, resolver)
+    assert decision.allowed is False
+    assert decision.reason == "package map translation failed"
+
+
+def test_enforce_with_routing_uses_scopes_token() -> None:
+    secret = "secret"
+    token_str = create_token("alice", ["Document:doc1:read"], ttl=60, secret=secret)
+    request = AuthRequest(resource_type="Document", resource_id="doc1", action="read")
+    decision = enforce_with_routing(token_str, request, secret)
+    assert decision.allowed is True
+
+
+def test_enforce_with_routing_uses_package_grant() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:GetObject")
+
+    def checker(uri: str, bucket: str, key: str) -> bool:
+        return uri == quilt_uri and bucket == "bucket" and key == "data/file.csv"
+
+    decision = enforce_with_routing(
+        token_str, request, secret, membership_checker=checker
+    )
+    assert decision.allowed is True
+
+
+def test_enforce_with_routing_uses_translation_grant() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_map(
+        "alice",
+        quilt_uri=quilt_uri,
+        mode="read",
+        logical_bucket="logical-bucket",
+        logical_key="logical/file.csv",
+        ttl=60,
+        secret=secret,
+    )
+    request = PackageAccessRequest(
+        bucket="logical-bucket", key="logical/file.csv", action="s3:GetObject"
+    )
+
+    def resolver(uri: str) -> PackageMap:
+        return PackageMap(
+            entries={
+                "logical/file.csv": [S3Location(bucket="physical-bucket", key="data/file.csv")]
+            }
+        )
+
+    decision = enforce_with_routing(
+        token_str, request, secret, manifest_resolver=resolver
+    )
+    assert decision.allowed is True
+
+
+def test_enforce_with_routing_rejects_mixed_token() -> None:
+    token_str = create_token_with_package_grant(
+        "alice",
+        quilt_uri="quilt+s3://registry#package=my/pkg@abc123def456",
+        mode="read",
+        ttl=60,
+        secret="secret",
+    )
+    mixed_payload = {
+        **decode_token(token_str),
+        "scopes": ["Document:doc1:read"],
+    }
+    mixed_token = jwt.encode(mixed_payload, "secret", algorithm="HS256")
+    request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:GetObject")
+    decision = enforce_with_routing(mixed_token, request, "secret")
+    assert decision.allowed is False
+    assert decision.reason == "mixed token types are not supported"
+
+
+def test_enforce_with_routing_requires_handlers() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = PackageAccessRequest(bucket="bucket", key="data/file.csv", action="s3:GetObject")
+    decision = enforce_with_routing(token_str, request, secret)
+    assert decision.allowed is False
+    assert decision.reason == "membership checker is required"
+
+
+def test_enforce_with_routing_rejects_invalid_request() -> None:
+    secret = "secret"
+    quilt_uri = "quilt+s3://registry#package=my/pkg@abc123def456"
+    token_str = create_token_with_package_grant(
+        "alice", quilt_uri=quilt_uri, mode="read", ttl=60, secret=secret
+    )
+    request = AuthRequest(resource_type="Document", resource_id="doc1", action="read")
+    decision = enforce_with_routing(token_str, request, secret)
+    assert decision.allowed is False
+    assert decision.reason == "invalid request for package token"
 
 
 def test_check_scopes_rejects_missing_action() -> None:

@@ -1,5 +1,10 @@
 from .compiler import compile_policies, compile_policy
-from .enforcer import enforce, enforce_package_grant, enforce_translation_grant
+from .enforcer import (
+    enforce,
+    enforce_package_grant,
+    enforce_translation_grant,
+    enforce_with_routing,
+)
 from .exceptions import (
     AuthorizationError,
     InsufficientScopesError,
@@ -59,6 +64,7 @@ __all__ = [
     "enforce",
     "enforce_package_grant",
     "enforce_translation_grant",
+    "enforce_with_routing",
     "format_scope",
     "is_subset",
     "parse_scope",

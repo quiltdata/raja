@@ -11,6 +11,7 @@ from .package_map import PackageMap
 from .scope import format_scope, parse_scope
 from .token import (
     TokenValidationError,
+    decode_token,
     validate_package_map_token,
     validate_package_token,
     validate_token,
@@ -65,11 +66,9 @@ def is_prefix_match(granted_scope: str, requested_scope: str) -> bool:
 
 
 def _package_action_allowed(mode: str, action: str) -> bool:
-    if action in {"s3:GetObject", "s3:HeadObject"}:
-        return mode in {"read", "readwrite"}
-    if action == "s3:PutObject" or action in _MULTIPART_ACTIONS:
-        return mode == "readwrite"
-    return False
+    if mode != "read":
+        return False
+    return action in {"s3:GetObject", "s3:HeadObject"}
 
 
 logger = structlog.get_logger(__name__)
@@ -182,6 +181,51 @@ def enforce(token_str: str, request: AuthRequest, secret: str) -> Decision:
         granted_scopes_count=len(token.scopes),
     )
     return Decision(allowed=False, reason="scope not granted")
+
+
+def enforce_with_routing(
+    token_str: str,
+    request: AuthRequest | PackageAccessRequest,
+    secret: str,
+    membership_checker: Callable[[str, str, str], bool] | None = None,
+    manifest_resolver: Callable[[str], PackageMap] | None = None,
+) -> Decision:
+    """Route enforcement based on token claim structure."""
+    try:
+        payload = decode_token(token_str)
+    except TokenInvalidError as exc:
+        logger.warning("token_decode_failed_in_enforce", error=str(exc))
+        return Decision(allowed=False, reason="invalid token")
+    except Exception as exc:
+        logger.error("unexpected_token_decode_error", error=str(exc), exc_info=True)
+        return Decision(allowed=False, reason="internal error during token routing")
+
+    has_scopes = "scopes" in payload
+    has_quilt = "quilt_uri" in payload
+    has_logical = any(
+        key in payload for key in ("logical_bucket", "logical_key", "logical_s3_path")
+    )
+
+    if has_scopes and (has_quilt or has_logical):
+        return Decision(allowed=False, reason="mixed token types are not supported")
+
+    if has_scopes:
+        if not isinstance(request, AuthRequest):
+            return Decision(allowed=False, reason="invalid request for scope token")
+        return enforce(token_str, request, secret)
+
+    if has_quilt:
+        if not isinstance(request, PackageAccessRequest):
+            return Decision(allowed=False, reason="invalid request for package token")
+        if has_logical:
+            if manifest_resolver is None:
+                return Decision(allowed=False, reason="manifest resolver is required")
+            return enforce_translation_grant(token_str, request, secret, manifest_resolver)
+        if membership_checker is None:
+            return Decision(allowed=False, reason="membership checker is required")
+        return enforce_package_grant(token_str, request, secret, membership_checker)
+
+    return Decision(allowed=False, reason="unsupported token type")
 
 
 def enforce_package_grant(

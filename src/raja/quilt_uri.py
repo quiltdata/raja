@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import fnmatch
 from urllib.parse import parse_qs, urlsplit
 
 
@@ -85,3 +86,10 @@ def normalize_quilt_uri(uri: str) -> str:
 def validate_quilt_uri(uri: str) -> str:
     """Validate and normalize a Quilt+ URI for authorization use."""
     return normalize_quilt_uri(uri)
+
+
+def package_name_matches(pattern: str, package_name: str) -> bool:
+    """Return True if the package name matches a wildcard pattern."""
+    if not pattern or not package_name:
+        return False
+    return fnmatch.fnmatchcase(package_name, pattern)

@@ -1,6 +1,6 @@
 import pytest
 
-from raja.quilt_uri import normalize_quilt_uri, parse_quilt_uri
+from raja.quilt_uri import normalize_quilt_uri, package_name_matches, parse_quilt_uri
 
 
 def test_parse_quilt_uri_basic() -> None:
@@ -39,3 +39,17 @@ def test_normalize_quilt_uri() -> None:
 def test_parse_quilt_uri_invalid(uri: str) -> None:
     with pytest.raises(ValueError):
         parse_quilt_uri(uri)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "name", "expected"),
+    [
+        ("exp*", "experiment-01", True),
+        ("experiment/*", "experiment/run1", True),
+        ("experiment/*", "experiment", False),
+        ("data/*/v2", "data/project/v2", True),
+        ("data/*/v2", "data/project/v1", False),
+    ],
+)
+def test_package_name_matches(pattern: str, name: str, expected: bool) -> None:
+    assert package_name_matches(pattern, name) is expected
