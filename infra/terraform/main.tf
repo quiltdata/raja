@@ -17,10 +17,13 @@ locals {
   control_plane_build_dir = "${local.build_dir}/control_plane"
   layer_build_dir         = "${local.build_dir}/raja_layer"
 
-  policy_files = fileset("${local.repo_root}/policies/policies", "*.cedar")
+  policy_files = [
+    for policy_file in fileset("${local.repo_root}/policies", "*.cedar") : policy_file
+    if policy_file != "schema.cedar"
+  ]
   policy_statements = flatten([
     for policy_file in local.policy_files : [
-      for statement in split(";", file("${local.repo_root}/policies/policies/${policy_file}")) :
+      for statement in split(";", file("${local.repo_root}/policies/${policy_file}")) :
       "${replace(replace(replace(trimspace(statement), "{{account}}", data.aws_caller_identity.current.account_id), "{{region}}", var.aws_region), "{{env}}", var.environment)};"
       if trimspace(statement) != ""
     ]
@@ -35,6 +38,7 @@ locals {
     [filesha256(local.control_plane_requirements)],
     [for source_file in fileset(local.control_plane_source_dir, "**") : filesha256("${local.control_plane_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
   )))
+  lambda_pip_platform = var.lambda_architecture == "arm64" ? "manylinux2014_aarch64" : "manylinux2014_x86_64"
 
   envoy_source_dir = "${local.repo_root}/infra/raja_poc/assets/envoy"
   envoy_source_hash = sha256(join("", [
@@ -71,7 +75,9 @@ locals {
 
 resource "null_resource" "build_raja_layer" {
   triggers = {
-    source_hash = local.layer_source_hash
+    source_hash     = local.layer_source_hash
+    lambda_platform = local.lambda_pip_platform
+    lambda_arch     = var.lambda_architecture
   }
 
   provisioner "local-exec" {
@@ -79,7 +85,9 @@ resource "null_resource" "build_raja_layer" {
       set -euo pipefail
       rm -rf "${local.layer_build_dir}"
       mkdir -p "${local.layer_build_dir}/python"
-      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 -r "${local.layer_requirements}" -t "${local.layer_build_dir}/python"
+      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
+        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
+        -r "${local.layer_requirements}" -t "${local.layer_build_dir}/python"
       cp -R "${local.raja_source_dir}" "${local.layer_build_dir}/python/raja"
     EOT
   }
@@ -87,7 +95,9 @@ resource "null_resource" "build_raja_layer" {
 
 resource "null_resource" "build_control_plane" {
   triggers = {
-    source_hash = local.control_plane_source_hash
+    source_hash     = local.control_plane_source_hash
+    lambda_platform = local.lambda_pip_platform
+    lambda_arch     = var.lambda_architecture
   }
 
   provisioner "local-exec" {
@@ -95,7 +105,9 @@ resource "null_resource" "build_control_plane" {
       set -euo pipefail
       rm -rf "${local.control_plane_build_dir}"
       mkdir -p "${local.control_plane_build_dir}"
-      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 -r "${local.control_plane_requirements}" -t "${local.control_plane_build_dir}"
+      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
+        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
+        -r "${local.control_plane_requirements}" -t "${local.control_plane_build_dir}"
       cp -R "${local.control_plane_source_dir}/." "${local.control_plane_build_dir}/"
     EOT
   }
