@@ -72,19 +72,44 @@ if [ "$PRINT_TAG" = true ]; then
     exit 0
 fi
 
-# Get ECR repository URI from CDK outputs
-echo "Getting ECR repository URI from CloudFormation..."
-REPO_URI=$(aws cloudformation describe-stacks \
-    --stack-name RajeeEnvoyStack \
-    --query 'Stacks[0].Outputs[?OutputKey==`EnvoyRepositoryUri`].OutputValue' \
-    --output text 2>/dev/null)
+# Get ECR repository URI from Terraform outputs (fallback: CloudFormation)
+echo "Getting ECR repository URI..."
+REPO_URI=""
+
+if [ -f "infra/cdk-outputs.json" ]; then
+    REPO_URI=$(python - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("infra/cdk-outputs.json")
+try:
+    payload = json.loads(path.read_text())
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+value = (
+    payload.get("RajeeEnvoyStack", {}).get("EnvoyRepositoryUri")
+    or payload.get("envoy_repository_uri")
+)
+print(value or "")
+PY
+)
+fi
 
 if [ -z "$REPO_URI" ]; then
-    echo "Error: Could not get ECR repository URI from CloudFormation."
-    echo "Make sure RajeeEnvoyStack is deployed first with the ECR repository."
+    REPO_URI=$(aws cloudformation describe-stacks \
+        --stack-name RajeeEnvoyStack \
+        --query 'Stacks[0].Outputs[?OutputKey==`EnvoyRepositoryUri`].OutputValue' \
+        --output text 2>/dev/null || true)
+fi
+
+if [ -z "$REPO_URI" ]; then
+    echo "Error: Could not resolve Envoy ECR repository URI."
+    echo "Run Terraform deploy first so infra/cdk-outputs.json contains RajeeEnvoyStack.EnvoyRepositoryUri."
     echo ""
     echo "To deploy the stack:"
-    echo "  cd infra && npx cdk deploy RajeeEnvoyStack"
+    echo "  ./poe deploy"
     exit 1
 fi
 
@@ -138,8 +163,8 @@ if [ "$PUSH" = true ]; then
     echo "✓ Image pushed successfully!"
     echo ""
     echo "To deploy with this image, run:"
-    echo "  export IMAGE_TAG=${IMAGE_TAG}"
-    echo "  cd infra && npx cdk deploy RajeeEnvoyStack"
+    echo "  export TF_VAR_envoy_image_tag=${IMAGE_TAG}"
+    echo "  ./poe deploy"
 else
     echo ""
     echo "✓ Image built successfully!"

@@ -1,0 +1,14 @@
+aws_region           = "us-east-1"
+stack_name           = "raja-standalone"
+environment          = "dev"
+python_bin           = "python3"
+token_ttl            = 3600
+lambda_architecture  = "arm64"
+envoy_image_tag      = ""
+build_envoy_image    = true
+auth_disabled        = false
+use_public_grants    = false
+certificate_arn      = ""
+ecs_cpu_architecture = "ARM64"
+rajee_task_cpu       = 256
+rajee_task_memory    = 512
