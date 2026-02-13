@@ -6,6 +6,8 @@ This directory contains one Terraform root module that replaces all three CDK st
 - `RajaServicesStack`
 - `RajeeEnvoyStack`
 
+This is a full-stack deployment, not a control-plane-only module.
+
 It provisions:
 
 - Amazon Verified Permissions policy store, Cedar schema, and Cedar policies
