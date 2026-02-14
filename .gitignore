@@ -45,3 +45,4 @@ infra/terraform/build/
 # Editor
 .cursorignore
 .cursorindexingignore
+infra/terraform/terraform.tfvars
