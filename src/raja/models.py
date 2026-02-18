@@ -146,6 +146,23 @@ class PackageMapToken(BaseModel):
         return value
 
 
+class TajToken(BaseModel):
+    subject: str
+    grants: list[str]
+    manifest_hash: str
+    package_name: str
+    registry: str
+    issued_at: int
+    expires_at: int
+
+    @field_validator("subject", "manifest_hash", "package_name", "registry")
+    @classmethod
+    def _taj_required_fields_non_empty(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("value must be non-empty")
+        return value
+
+
 class CedarPolicy(BaseModel):
     id: str
     effect: Literal["permit", "forbid"]

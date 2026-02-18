@@ -26,11 +26,13 @@ from .models import (
     PackageToken,
     S3Location,
     Scope,
+    TajToken,
     Token,
 )
 from .package_map import PackageMap
 from .scope import format_scope, is_subset, parse_scope
 from .token import (
+    create_taj_token,
     create_token,
     create_token_with_grants,
     create_token_with_package_grant,
@@ -38,6 +40,7 @@ from .token import (
     decode_token,
     validate_package_map_token,
     validate_package_token,
+    validate_taj_token,
     validate_token,
 )
 
@@ -51,6 +54,7 @@ __all__ = [
     "PackageToken",
     "S3Location",
     "Scope",
+    "TajToken",
     "Token",
     "PackageMap",
     # Functions
@@ -60,6 +64,7 @@ __all__ = [
     "create_token_with_grants",
     "create_token_with_package_grant",
     "create_token_with_package_map",
+    "create_taj_token",
     "decode_token",
     "enforce",
     "enforce_package_grant",
@@ -70,6 +75,7 @@ __all__ = [
     "parse_scope",
     "validate_package_map_token",
     "validate_package_token",
+    "validate_taj_token",
     "validate_token",
     # Exceptions
     "AuthorizationError",

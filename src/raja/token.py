@@ -7,7 +7,7 @@ import jwt
 import structlog
 
 from .exceptions import TokenExpiredError, TokenInvalidError, TokenValidationError
-from .models import PackageMapToken, PackageToken, Token
+from .models import PackageMapToken, PackageToken, TajToken, Token
 from .package_map import parse_s3_path
 from .quilt_uri import validate_quilt_uri
 
@@ -127,6 +127,36 @@ def create_token_with_package_map(
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
+def create_taj_token(
+    subject: str,
+    grants: list[str],
+    manifest_hash: str,
+    package_name: str,
+    registry: str,
+    ttl: int,
+    secret: str,
+    issuer: str | None = None,
+    audience: str | list[str] | None = None,
+) -> str:
+    """Create a signed JWT containing RALE TAJ claims."""
+    issued_at = int(time.time())
+    expires_at = issued_at + ttl
+    payload = {
+        "sub": subject,
+        "grants": grants,
+        "manifest_hash": manifest_hash,
+        "package_name": package_name,
+        "registry": registry,
+        "iat": issued_at,
+        "exp": expires_at,
+    }
+    if issuer:
+        payload["iss"] = issuer
+    if audience:
+        payload["aud"] = audience
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
 def validate_package_token(token_str: str, secret: str) -> PackageToken:
     """Validate a JWT signature and return a decoded PackageToken model."""
     try:
@@ -234,6 +264,57 @@ def validate_package_map_token(token_str: str, secret: str) -> PackageMapToken:
         )
     except Exception as exc:
         logger.error("package_map_token_model_creation_failed", error=str(exc), exc_info=True)
+        raise TokenValidationError(f"failed to create token model: {exc}") from exc
+
+
+def validate_taj_token(token_str: str, secret: str) -> TajToken:
+    """Validate a JWT signature and return a decoded TajToken model."""
+    try:
+        payload = jwt.decode(token_str, secret, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError as exc:
+        logger.warning("taj_token_expired", error=str(exc))
+        raise TokenExpiredError("token expired") from exc
+    except jwt.InvalidTokenError as exc:
+        logger.warning("taj_token_invalid", error=str(exc))
+        raise TokenInvalidError("invalid token") from exc
+    except Exception as exc:
+        logger.error("unexpected_taj_token_validation_error", error=str(exc), exc_info=True)
+        raise TokenValidationError(f"unexpected token validation error: {exc}") from exc
+
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.strip():
+        raise TokenValidationError("token subject is required")
+
+    grants = payload.get("grants")
+    if grants is None:
+        raise TokenValidationError("token grants are required")
+    if not isinstance(grants, list):
+        raise TokenValidationError("token grants must be a list")
+
+    manifest_hash = payload.get("manifest_hash")
+    if not isinstance(manifest_hash, str) or not manifest_hash.strip():
+        raise TokenValidationError("token manifest_hash is required")
+
+    package_name = payload.get("package_name")
+    if not isinstance(package_name, str) or not package_name.strip():
+        raise TokenValidationError("token package_name is required")
+
+    registry = payload.get("registry")
+    if not isinstance(registry, str) or not registry.strip():
+        raise TokenValidationError("token registry is required")
+
+    try:
+        return TajToken(
+            subject=subject,
+            grants=grants,
+            manifest_hash=manifest_hash,
+            package_name=package_name,
+            registry=registry,
+            issued_at=int(payload.get("iat", 0)),
+            expires_at=int(payload.get("exp", 0)),
+        )
+    except Exception as exc:
+        logger.error("taj_token_model_creation_failed", error=str(exc), exc_info=True)
         raise TokenValidationError(f"failed to create token model: {exc}") from exc
 
 
