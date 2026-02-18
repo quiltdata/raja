@@ -6,16 +6,22 @@ data "aws_availability_zones" "available" {
 data "aws_region" "current" {}
 
 locals {
-  repo_root                  = abspath("${path.module}/../..")
-  control_plane_source_dir   = "${local.repo_root}/lambda_handlers/control_plane"
-  control_plane_requirements = "${local.control_plane_source_dir}/requirements.txt"
-  raja_source_dir            = "${local.repo_root}/src/raja"
-  layer_requirements         = "${local.repo_root}/infra/raja_poc/layers/raja/requirements.txt"
-  cedar_schema_path          = "${local.repo_root}/policies/schema.cedar"
+  repo_root                    = abspath("${path.module}/../..")
+  control_plane_source_dir     = "${local.repo_root}/lambda_handlers/control_plane"
+  control_plane_requirements   = "${local.control_plane_source_dir}/requirements.txt"
+  rale_authorizer_source_dir   = "${local.repo_root}/lambda_handlers/rale_authorizer"
+  rale_authorizer_requirements = "${local.rale_authorizer_source_dir}/requirements.txt"
+  rale_router_source_dir       = "${local.repo_root}/lambda_handlers/rale_router"
+  rale_router_requirements     = "${local.rale_router_source_dir}/requirements.txt"
+  raja_source_dir              = "${local.repo_root}/src/raja"
+  layer_requirements           = "${local.repo_root}/infra/raja_poc/layers/raja/requirements.txt"
+  cedar_schema_path            = "${local.repo_root}/policies/schema.cedar"
 
-  build_dir               = "${path.module}/build"
-  control_plane_build_dir = "${local.build_dir}/control_plane"
-  layer_build_dir         = "${local.build_dir}/raja_layer"
+  build_dir                 = "${path.module}/build"
+  control_plane_build_dir   = "${local.build_dir}/control_plane"
+  rale_authorizer_build_dir = "${local.build_dir}/rale_authorizer"
+  rale_router_build_dir     = "${local.build_dir}/rale_router"
+  layer_build_dir           = "${local.build_dir}/raja_layer"
 
   policy_files = [
     for policy_file in fileset("${local.repo_root}/policies", "*.cedar") : policy_file
@@ -37,6 +43,14 @@ locals {
   control_plane_source_hash = sha256(join("", concat(
     [filesha256(local.control_plane_requirements)],
     [for source_file in fileset(local.control_plane_source_dir, "**") : filesha256("${local.control_plane_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
+  )))
+  rale_authorizer_source_hash = sha256(join("", concat(
+    [filesha256(local.rale_authorizer_requirements)],
+    [for source_file in fileset(local.rale_authorizer_source_dir, "**") : filesha256("${local.rale_authorizer_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
+  )))
+  rale_router_source_hash = sha256(join("", concat(
+    [filesha256(local.rale_router_requirements)],
+    [for source_file in fileset(local.rale_router_source_dir, "**") : filesha256("${local.rale_router_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
   )))
   lambda_pip_platform = var.lambda_architecture == "arm64" ? "manylinux2014_aarch64" : "manylinux2014_x86_64"
 
@@ -113,6 +127,46 @@ resource "null_resource" "build_control_plane" {
   }
 }
 
+resource "null_resource" "build_rale_authorizer" {
+  triggers = {
+    source_hash     = local.rale_authorizer_source_hash
+    lambda_platform = local.lambda_pip_platform
+    lambda_arch     = var.lambda_architecture
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      rm -rf "${local.rale_authorizer_build_dir}"
+      mkdir -p "${local.rale_authorizer_build_dir}"
+      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
+        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
+        -r "${local.rale_authorizer_requirements}" -t "${local.rale_authorizer_build_dir}"
+      cp -R "${local.rale_authorizer_source_dir}/." "${local.rale_authorizer_build_dir}/"
+    EOT
+  }
+}
+
+resource "null_resource" "build_rale_router" {
+  triggers = {
+    source_hash     = local.rale_router_source_hash
+    lambda_platform = local.lambda_pip_platform
+    lambda_arch     = var.lambda_architecture
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      rm -rf "${local.rale_router_build_dir}"
+      mkdir -p "${local.rale_router_build_dir}"
+      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
+        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
+        -r "${local.rale_router_requirements}" -t "${local.rale_router_build_dir}"
+      cp -R "${local.rale_router_source_dir}/." "${local.rale_router_build_dir}/"
+    EOT
+  }
+}
+
 data "archive_file" "raja_layer_zip" {
   type        = "zip"
   source_dir  = local.layer_build_dir
@@ -127,6 +181,22 @@ data "archive_file" "control_plane_zip" {
   output_path = "${local.build_dir}/control_plane.zip"
 
   depends_on = [null_resource.build_control_plane]
+}
+
+data "archive_file" "rale_authorizer_zip" {
+  type        = "zip"
+  source_dir  = local.rale_authorizer_build_dir
+  output_path = "${local.build_dir}/rale_authorizer.zip"
+
+  depends_on = [null_resource.build_rale_authorizer]
+}
+
+data "archive_file" "rale_router_zip" {
+  type        = "zip"
+  source_dir  = local.rale_router_build_dir
+  output_path = "${local.build_dir}/rale_router.zip"
+
+  depends_on = [null_resource.build_rale_router]
 }
 
 resource "aws_verifiedpermissions_policy_store" "raja" {
@@ -205,6 +275,33 @@ resource "aws_dynamodb_table" "audit_log" {
 
   attribute {
     name = "event_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+}
+
+resource "aws_dynamodb_table" "manifest_cache" {
+  name         = "${var.stack_name}-manifest-cache"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "manifest_hash"
+
+  attribute {
+    name = "manifest_hash"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_table" "taj_cache" {
+  name         = "${var.stack_name}-taj-cache"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "cache_key"
+
+  attribute {
+    name = "cache_key"
     type = "S"
   }
 
@@ -360,6 +457,206 @@ resource "aws_lambda_function" "control_plane" {
     aws_secretsmanager_secret_version.jwt_value,
     aws_secretsmanager_secret_version.harness_value
   ]
+}
+
+resource "aws_iam_role" "rale_authorizer_lambda" {
+  name = "${var.stack_name}-rale-authorizer-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "rale_authorizer_basic_execution" {
+  role       = aws_iam_role.rale_authorizer_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "rale_authorizer_permissions" {
+  name = "${var.stack_name}-rale-authorizer-policy"
+  role = aws_iam_role.rale_authorizer_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "verifiedpermissions:IsAuthorized"
+        ]
+        Resource = [
+          aws_verifiedpermissions_policy_store.raja.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.taj_cache.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.jwt.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "rale_authorizer" {
+  function_name = "${var.stack_name}-rale-authorizer"
+  role          = aws_iam_role.rale_authorizer_lambda.arn
+  runtime       = "python3.12"
+  architectures = [var.lambda_architecture]
+  handler       = "handler.handler"
+  timeout       = 20
+  memory_size   = 512
+
+  filename         = data.archive_file.rale_authorizer_zip.output_path
+  source_code_hash = data.archive_file.rale_authorizer_zip.output_base64sha256
+  layers           = [aws_lambda_layer_version.raja.arn]
+
+  environment {
+    variables = {
+      POLICY_STORE_ID       = aws_verifiedpermissions_policy_store.raja.policy_store_id
+      TAJ_CACHE_TABLE       = aws_dynamodb_table.taj_cache.name
+      JWT_SECRET_ARN        = aws_secretsmanager_secret.jwt.arn
+      TOKEN_TTL             = tostring(var.token_ttl)
+      TAJ_CACHE_TTL_SECONDS = tostring(var.taj_cache_ttl_seconds)
+      RALE_STORAGE          = var.rale_storage
+      RALE_ACTION           = "quilt:ReadPackage"
+      RALE_ISSUER           = local.issuer
+      RALE_AUDIENCE         = "raja-rale"
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.rale_authorizer_basic_execution,
+    aws_iam_role_policy.rale_authorizer_permissions,
+    aws_verifiedpermissions_policy.cedar,
+    aws_secretsmanager_secret_version.jwt_value
+  ]
+}
+
+resource "aws_lambda_function_url" "rale_authorizer" {
+  function_name      = aws_lambda_function.rale_authorizer.function_name
+  authorization_type = "NONE"
+}
+
+resource "aws_iam_role" "rale_router_lambda" {
+  name = "${var.stack_name}-rale-router-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "rale_router_basic_execution" {
+  role       = aws_iam_role.rale_router_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "rale_router_permissions" {
+  name = "${var.stack_name}-rale-router-policy"
+  role = aws_iam_role.rale_router_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.manifest_cache.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.jwt.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.rajee_test.arn,
+          "${aws_s3_bucket.rajee_test.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "rale_router" {
+  function_name = "${var.stack_name}-rale-router"
+  role          = aws_iam_role.rale_router_lambda.arn
+  runtime       = "python3.12"
+  architectures = [var.lambda_architecture]
+  handler       = "handler.handler"
+  timeout       = 30
+  memory_size   = 1024
+
+  filename         = data.archive_file.rale_router_zip.output_path
+  source_code_hash = data.archive_file.rale_router_zip.output_base64sha256
+  layers           = [aws_lambda_layer_version.raja.arn]
+
+  environment {
+    variables = {
+      MANIFEST_CACHE_TABLE = aws_dynamodb_table.manifest_cache.name
+      JWT_SECRET_ARN       = aws_secretsmanager_secret.jwt.arn
+      RALE_STORAGE         = var.rale_storage
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.rale_router_basic_execution,
+    aws_iam_role_policy.rale_router_permissions,
+    aws_secretsmanager_secret_version.jwt_value
+  ]
+}
+
+resource "aws_lambda_function_url" "rale_router" {
+  function_name      = aws_lambda_function.rale_router.function_name
+  authorization_type = "NONE"
 }
 
 resource "aws_api_gateway_rest_api" "raja" {
@@ -793,6 +1090,14 @@ resource "aws_ecs_task_definition" "rajee" {
         {
           name  = "RAJEE_PUBLIC_GRANTS"
           value = join(",", local.rajee_public_grants)
+        },
+        {
+          name  = "RALE_AUTHORIZER_URL"
+          value = aws_lambda_function_url.rale_authorizer.function_url
+        },
+        {
+          name  = "RALE_ROUTER_URL"
+          value = aws_lambda_function_url.rale_router.function_url
         }
       ]
       healthCheck = {

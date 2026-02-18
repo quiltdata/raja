@@ -27,6 +27,18 @@ variable "token_ttl" {
   default     = 3600
 }
 
+variable "taj_cache_ttl_seconds" {
+  description = "TTL (seconds) for cached TAJ decisions in the RALE authorizer table."
+  type        = number
+  default     = 300
+}
+
+variable "rale_storage" {
+  description = "Storage scheme used when constructing quilt URIs for RALE package manifests."
+  type        = string
+  default     = "s3"
+}
+
 variable "lambda_architecture" {
   description = "Lambda architecture for control plane and layer."
   type        = string

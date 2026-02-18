@@ -33,6 +33,16 @@ output "audit_table_name" {
   value       = aws_dynamodb_table.audit_log.name
 }
 
+output "manifest_cache_table_name" {
+  description = "Manifest cache table for RALE router."
+  value       = aws_dynamodb_table.manifest_cache.name
+}
+
+output "taj_cache_table_name" {
+  description = "TAJ decision cache table for RALE authorizer."
+  value       = aws_dynamodb_table.taj_cache.name
+}
+
 output "jwt_secret_arn" {
   description = "JWT signing secret ARN."
   value       = aws_secretsmanager_secret.jwt.arn
@@ -63,6 +73,26 @@ output "envoy_image_tag" {
   value       = local.envoy_image_tag_effective
 }
 
+output "rale_authorizer_arn" {
+  description = "RALE authorizer Lambda ARN."
+  value       = aws_lambda_function.rale_authorizer.arn
+}
+
+output "rale_authorizer_url" {
+  description = "RALE authorizer Lambda Function URL."
+  value       = aws_lambda_function_url.rale_authorizer.function_url
+}
+
+output "rale_router_arn" {
+  description = "RALE router Lambda ARN."
+  value       = aws_lambda_function.rale_router.arn
+}
+
+output "rale_router_url" {
+  description = "RALE router Lambda Function URL."
+  value       = aws_lambda_function_url.rale_router.function_url
+}
+
 output "legacy_cdk_outputs" {
   description = "CDK-compatible output shape for existing scripts/tests."
   value = {
@@ -80,6 +110,12 @@ output "legacy_cdk_outputs" {
       AuditTableName        = aws_dynamodb_table.audit_log.name
       JWTSecretArn          = aws_secretsmanager_secret.jwt.arn
       HarnessSecretArn      = aws_secretsmanager_secret.harness.arn
+      RaleAuthorizerArn     = aws_lambda_function.rale_authorizer.arn
+      RaleRouterArn         = aws_lambda_function.rale_router.arn
+      RaleAuthorizerUrl     = aws_lambda_function_url.rale_authorizer.function_url
+      RaleRouterUrl         = aws_lambda_function_url.rale_router.function_url
+      ManifestCacheTable    = aws_dynamodb_table.manifest_cache.name
+      TajCacheTable         = aws_dynamodb_table.taj_cache.name
     }
     RajeeEnvoyStack = {
       DeploymentPlatform                  = lookup(local.platform_labels, var.ecs_cpu_architecture, var.ecs_cpu_architecture)
