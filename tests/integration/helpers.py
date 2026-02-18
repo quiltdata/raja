@@ -238,6 +238,18 @@ def require_manifest_cache_table() -> str:
     return table_name
 
 
+def is_rale_routing_enabled() -> bool:
+    authorizer = os.environ.get("RALE_AUTHORIZER_URL")
+    router = os.environ.get("RALE_ROUTER_URL")
+    if authorizer and router:
+        return True
+
+    repo_root = Path(__file__).resolve().parents[2]
+    authorizer = _load_rale_authorizer_url_from_outputs(repo_root)
+    router = _load_rale_router_url_from_outputs(repo_root)
+    return bool(authorizer and router)
+
+
 def request_json(
     method: str, path: str, body: dict[str, Any] | None = None, query: dict[str, str] | None = None
 ) -> tuple[int, dict[str, Any]]:

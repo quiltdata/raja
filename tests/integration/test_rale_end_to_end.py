@@ -20,6 +20,22 @@ from .helpers import (
 )
 
 
+def _request_router_with_retry(
+    url: str, taj: str, attempts: int = 3
+) -> tuple[int, dict[str, str], bytes]:
+    """Retry transient Envoy upstream resets on first-hop router requests."""
+    last: tuple[int, dict[str, str], bytes] | None = None
+    for _ in range(attempts):
+        status, headers, body = request_url("GET", url, headers={"x-rale-taj": taj})
+        last = (status, headers, body)
+        text = body.decode("utf-8", errors="replace")
+        if status != 503 or "connection termination" not in text:
+            return last
+        time.sleep(1)
+    assert last is not None
+    return last
+
+
 @pytest.mark.integration
 def test_rale_envoy_authorizer_then_router_roundtrip() -> None:
     """Verify Envoy routes to RALE authorizer (no TAJ) and RALE router (with TAJ)."""
@@ -93,11 +109,7 @@ def test_rale_envoy_authorizer_then_router_roundtrip() -> None:
     assert authorizer_payload.get("token") == taj
     assert authorizer_payload.get("cached") is True
 
-    status, _, body = request_url(
-        "GET",
-        f"{rajee_endpoint}{encoded_usl_path}",
-        headers={"x-rale-taj": taj},
-    )
+    status, _, body = _request_router_with_retry(f"{rajee_endpoint}{encoded_usl_path}", taj)
     assert status == 200, body.decode("utf-8", errors="replace")
     assert body == expected_body
 

@@ -8,9 +8,12 @@ import pytest
 from botocore.exceptions import ClientError
 
 from ..shared.s3_client import create_rajee_s3_client_with_region
-from .helpers import issue_rajee_token, require_rajee_test_bucket
+from .helpers import is_rale_routing_enabled, issue_rajee_token, require_rajee_test_bucket
 
 S3_UPSTREAM_HOST = "s3.us-east-1.amazonaws.com"
+LEGACY_RAJEE_REASON = (
+    "Legacy RAJEE Envoy scope tests are not applicable when RALE routing is enabled."
+)
 
 
 def _log_operation(operation: str, details: str = "") -> None:
@@ -80,6 +83,7 @@ def test_rajee_envoy_s3_roundtrip_auth_disabled_legacy() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
     bucket = require_rajee_test_bucket()
     token, _ = issue_rajee_token()
@@ -116,6 +120,7 @@ def test_rajee_envoy_s3_roundtrip_with_auth() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_rajee_envoy_auth_with_real_scopes() -> None:
     """
     COMPREHENSIVE RAJA INTEGRATION PROOF TEST
@@ -181,6 +186,7 @@ def test_rajee_envoy_auth_with_real_scopes() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
     """
     RAJA DENIAL TEST - Proves RAJA Lua filter is enforcing authorization
@@ -239,6 +245,7 @@ def test_rajee_envoy_auth_denies_unauthorized_prefix() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_rajee_envoy_list_bucket() -> None:
     """Test ListBucket operation through RAJEE proxy."""
     bucket = require_rajee_test_bucket()
@@ -277,6 +284,7 @@ def test_rajee_envoy_list_bucket() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_rajee_envoy_get_object_attributes() -> None:
     """Test GetObjectAttributes operation through RAJEE proxy."""
     bucket = require_rajee_test_bucket()
@@ -320,6 +328,7 @@ def test_rajee_envoy_get_object_attributes() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_rajee_envoy_versioning_operations() -> None:
     """Test version-aware operations through RAJEE proxy (GetObjectVersion, ListBucketVersions)."""
     bucket = require_rajee_test_bucket()

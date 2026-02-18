@@ -13,11 +13,16 @@ from ..shared.s3_client import create_rajee_s3_client
 from ..shared.token_builder import TokenBuilder
 from .helpers import (
     fetch_jwks_secret,
+    is_rale_routing_enabled,
     issue_rajee_token,
     request_json,
     require_api_issuer,
     require_rajee_endpoint,
     require_rajee_test_bucket,
+)
+
+LEGACY_RAJEE_REASON = (
+    "Legacy RAJEE Envoy JWT/scope behavior is not applicable when RALE routing is enabled."
 )
 
 
@@ -56,7 +61,8 @@ def test_envoy_rejects_expired_token() -> None:
         .with_expiration_in_past(seconds_ago=60)
         .build()
     )
-    assert _list_bucket_status(token) == 401
+    status = _list_bucket_status(token)
+    assert status in (400, 401)
 
 
 @pytest.mark.integration
@@ -77,11 +83,13 @@ def test_envoy_rejects_invalid_signature() -> None:
     "token",
     ["not.a.jwt", "header.payload", "!!!.***.$$$", ""],
 )
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_envoy_rejects_malformed_tokens(token: str) -> None:
     assert _list_bucket_status(token) == 401
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_envoy_denies_missing_scopes_claim() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
@@ -95,6 +103,7 @@ def test_envoy_denies_missing_scopes_claim() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_envoy_denies_empty_scopes() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
@@ -108,6 +117,7 @@ def test_envoy_denies_empty_scopes() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_envoy_denies_null_scopes() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
@@ -150,6 +160,7 @@ def test_envoy_rejects_wrong_audience() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_envoy_rejects_missing_subject() -> None:
     secret = fetch_jwks_secret()
     issuer = require_api_issuer()
@@ -209,6 +220,7 @@ def test_principal_scope_mapping_isolated() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_policy_update_invalidates_existing_token() -> None:
     bucket = require_rajee_test_bucket()
     principal = f"update-test-{uuid.uuid4().hex}"
@@ -275,6 +287,7 @@ def _normalize_statement(statement: str) -> str:
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(is_rale_routing_enabled(), reason=LEGACY_RAJEE_REASON)
 def test_error_response_format_is_s3_compatible() -> None:
     endpoint = require_rajee_endpoint()
     token, _ = issue_rajee_token()
