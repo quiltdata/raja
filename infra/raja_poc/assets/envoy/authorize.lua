@@ -91,6 +91,71 @@ local function extract_bearer_token(headers)
   return token or header_value
 end
 
+local function has_rale_routing()
+  local authorizer = os.getenv("RALE_AUTHORIZER_URL")
+  local router = os.getenv("RALE_ROUTER_URL")
+  return authorizer ~= nil and authorizer ~= "" and router ~= nil and router ~= ""
+end
+
+local function extract_taj_token(headers)
+  local taj = headers:get("x-rale-taj")
+  if taj and taj ~= "" then
+    return taj
+  end
+  return nil
+end
+
+local function proxy_rale_lambda(request_handle, cluster, authority, extra_headers)
+  local method = request_handle:headers():get(":method") or "GET"
+  local path = request_handle:headers():get(":path") or "/"
+  local headers = {
+    [":method"] = method,
+    [":path"] = path,
+    [":authority"] = authority,
+  }
+
+  for key, value in pairs(extra_headers or {}) do
+    if value and value ~= "" then
+      headers[key] = value
+    end
+  end
+
+  local ok, response_headers, response_body = pcall(function()
+    return request_handle:httpCall(cluster, headers, nil, 30000)
+  end)
+  if not ok then
+    request_handle:logErr("RALE upstream call failed: " .. tostring(response_headers))
+    request_handle:respond(
+      {[":status"] = "503", ["content-type"] = "application/json"},
+      '{"error":"RALE upstream unavailable"}'
+    )
+    return false
+  end
+
+  local status = response_headers[":status"] or "503"
+  local content_type = response_headers["content-type"] or "application/json"
+  local out_headers = {
+    [":status"] = status,
+    ["content-type"] = content_type,
+  }
+
+  local passthrough_headers = {
+    "x-rale-source-bucket",
+    "x-rale-source-key",
+    "content-length",
+    "cache-control",
+  }
+  for _, header_name in ipairs(passthrough_headers) do
+    local header_value = response_headers[header_name]
+    if header_value and header_value ~= "" then
+      out_headers[header_name] = header_value
+    end
+  end
+
+  request_handle:respond(out_headers, response_body or "")
+  return true
+end
+
 local function decode_jwt_payload(token)
   if not token then
     return nil
@@ -136,6 +201,27 @@ function envoy_on_request(request_handle)
 
   local clean_path = path_parts[1] or path
   local query_string = path_parts[2] or ""
+
+  if has_rale_routing() then
+    local taj = extract_taj_token(request_handle:headers())
+    if taj and taj ~= "" then
+      local authority = os.getenv("RALE_ROUTER_AUTHORITY") or ""
+      proxy_rale_lambda(request_handle, "rale_router_cluster", authority, { ["x-rale-taj"] = taj })
+      return
+    end
+
+    local principal = request_handle:headers():get("x-raja-principal")
+    local jwt_payload_header = request_handle:headers():get("x-raja-jwt-payload")
+    local authority = os.getenv("RALE_AUTHORIZER_AUTHORITY") or ""
+    proxy_rale_lambda(
+      request_handle,
+      "rale_authorizer_cluster",
+      authority,
+      { ["x-raja-principal"] = principal, ["x-raja-jwt-payload"] = jwt_payload_header }
+    )
+    return
+  end
+
   local query_params = auth_lib.parse_query_string(query_string)
   local request_scope, parse_error = auth_lib.parse_s3_request(method, clean_path, query_params)
   if not request_scope then
