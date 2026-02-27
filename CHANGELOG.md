@@ -8,6 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-27
+
+### Added
+
+- **RALE (Resource Access Logical Endpoint)**: New routing mode for logical S3 access via TAJ tokens
+  - `TAJToken` model for Translation Access JWT with logical bucket/key and quilt URI claims
+  - `create_taj_token()` and `validate_taj_token()` functions for TAJ lifecycle management
+  - RALE Authorizer Lambda (`lambda_handlers/rale_authorizer/`) — issues TAJ tokens given a principal and quilt URI
+  - RALE Router Lambda (`lambda_handlers/rale_router/`) — validates TAJ, resolves logical key via manifest cache, and fetches physical S3 object
+- **Terraform infrastructure**: Full RAJA stack deployable via Terraform (replaces CDK for primary deployment)
+  - `infra/terraform/main.tf` — unified stack: API Gateway, Lambda functions, DynamoDB tables, AVP policy store, IAM, ECS/Envoy cluster
+  - `infra/terraform/variables.tf` — parameterized configuration for VPC, region, bucket prefixes, and RALE URLs
+  - `infra/terraform/outputs.tf` — exports for RALE Lambda ARNs/URLs, DynamoDB table names, Envoy endpoint
+  - `infra/terraform/versions.tf` — provider version pinning
+  - `infra/terraform/scripts/apply_avp_schema.py` — applies Cedar schema to AVP policy store post-deploy
+  - `infra/terraform/.terraform.lock.hcl` — provider lockfile committed for reproducible builds
+- **Envoy RALE routing mode**: Lua filter extended with RALE-aware request routing
+  - Detects `x-rale-taj` header to route to RALE Router Lambda
+  - Detects `x-raja-principal` (no TAJ) to route to RALE Authorizer Lambda for token bootstrap
+  - Falls back to existing RAJEE JWT+scope path when RALE environment variables are absent
+  - `RALE_AUTHORIZER_URL` and `RALE_ROUTER_URL` environment variables gate RALE mode
+- **Integration tests**: End-to-end RALE test suite (`tests/integration/test_rale_end_to_end.py`)
+  - Bootstrap flow: principal → TAJ issuance via RALE Authorizer
+  - Data request flow: TAJ → manifest validation → physical S3 fetch via RALE Router
+  - Shared test helpers (`tests/integration/helpers.py`) for token construction and endpoint resolution
+- **Documentation**:
+  - `docs/rale-internal-ops.md` — operator guide covering request flow, runtime routing conditions, and DynamoDB table usage
+  - `specs/5-rale/01-diwan-stories.md` — user stories for the Diwan client runtime and logical S3 namespace
+  - `specs/5-rale/02-rale-terraform-impl.md` — detailed Terraform implementation specification
+- **`quilt3` dependency**: Added to Lambda layer (`infra/raja_poc/layers/raja/requirements.txt`) for manifest resolution
+
+### Changed
+
+- **Infrastructure**: Terraform is now the primary deployment path; CDK remains for legacy use
+- **Specs**: Reorganized `specs/` directory; MVP specs moved to `.github/1-mvp/`
+- **README**: Updated references from CDK to Terraform deployment workflow
+- **.gitignore**: Added `terraform.tfvars` (user-specific secrets) and Terraform state files
+
+### Fixed
+
+- **Terraform policy loader**: Corrected policy loading script to properly seed AVP from Cedar files
+- **Lambda wheel builds**: Lambda packages now built for `linux/amd64` regardless of host architecture
+
 ## [0.5.0] - 2026-01-22
 
 ### Added
