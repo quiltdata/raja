@@ -102,3 +102,9 @@ variable "rajee_task_memory" {
   type        = number
   default     = 512
 }
+
+variable "admin_allowed_cidrs" {
+  description = "CIDRs allowed to access the Envoy admin UI on port 9901. Empty list disables public admin exposure."
+  type        = list(string)
+  default     = []
+}

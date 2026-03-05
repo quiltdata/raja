@@ -73,6 +73,11 @@ output "envoy_image_tag" {
   value       = local.envoy_image_tag_effective
 }
 
+output "rajee_admin_url" {
+  description = "Envoy admin UI URL (only set when admin_allowed_cidrs is non-empty)."
+  value       = length(var.admin_allowed_cidrs) > 0 ? "http://${aws_lb.rajee.dns_name}:9901/" : ""
+}
+
 output "rale_authorizer_arn" {
   description = "RALE authorizer Lambda ARN."
   value       = aws_lambda_function.rale_authorizer.arn

@@ -1137,6 +1137,16 @@ resource "aws_security_group" "rajee_alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  dynamic "ingress" {
+    for_each = length(var.admin_allowed_cidrs) > 0 ? [1] : []
+    content {
+      from_port   = 9901
+      to_port     = 9901
+      protocol    = "tcp"
+      cidr_blocks = var.admin_allowed_cidrs
+    }
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -1228,6 +1238,33 @@ resource "aws_lb_listener" "rajee_https" {
   }
 }
 
+resource "aws_lb_target_group" "rajee_admin" {
+  count       = length(var.admin_allowed_cidrs) > 0 ? 1 : 0
+  name        = substr("${replace(var.stack_name, "_", "-")}-rajee-admin", 0, 32)
+  port        = 9901
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.rajee.id
+
+  health_check {
+    path     = "/ready"
+    port     = "9901"
+    protocol = "HTTP"
+  }
+}
+
+resource "aws_lb_listener" "rajee_admin" {
+  count             = length(var.admin_allowed_cidrs) > 0 ? 1 : 0
+  load_balancer_arn = aws_lb.rajee.arn
+  port              = 9901
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.rajee_admin[0].arn
+  }
+}
+
 resource "aws_ecs_service" "rajee" {
   name                               = "${var.stack_name}-rajee-service"
   cluster                            = aws_ecs_cluster.rajee.id
@@ -1250,9 +1287,19 @@ resource "aws_ecs_service" "rajee" {
     container_port   = 10000
   }
 
+  dynamic "load_balancer" {
+    for_each = length(var.admin_allowed_cidrs) > 0 ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.rajee_admin[0].arn
+      container_name   = "EnvoyProxy"
+      container_port   = 9901
+    }
+  }
+
   depends_on = [
     aws_lb_listener.rajee_http,
     aws_lb_listener.rajee_https,
+    aws_lb_listener.rajee_admin,
   ]
 }
 
