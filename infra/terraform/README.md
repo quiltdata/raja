@@ -28,7 +28,7 @@ cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform apply
-terraform output -json legacy_cdk_outputs > ../cdk-outputs.json
+terraform output -json | python3 -c "import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))" > ../tf-outputs.json
 ```
 
 Set `aws_region` in `terraform.tfvars` or via `TF_VAR_aws_region`.
@@ -54,5 +54,5 @@ If you want HTTPS on RAJEE, set `certificate_arn` in `terraform.tfvars`.
 ## Notes
 
 - Lambda artifacts are built locally during apply using `python3` (override with `python_bin`).
-- `legacy_cdk_outputs` preserves compatibility with scripts/tests that read `infra/cdk-outputs.json`.
+- `./poe deploy` writes a flat `infra/tf-outputs.json` with all Terraform output values for use by scripts and tests.
 - The AWS Terraform provider does not currently expose policy store schema config, so apply runs a local post-create step that calls AVP APIs (`PutSchema`, `UpdatePolicyStore`) to set Cedar schema and enable `STRICT` validation before policy resources are created.
