@@ -343,14 +343,16 @@ def test_rale_complete_flow_end_to_end() -> None:
     auth_payload = _json.loads(body.decode("utf-8"))
     returned_taj = auth_payload.get("token")
     assert returned_taj == taj, "Authorizer returned unexpected TAJ"
-    print(f"  TAJ returned (cached={auth_payload.get('cached')}, decision={auth_payload.get('decision')})")
+    cached = auth_payload.get("cached")
+    decision = auth_payload.get("decision")
+    print(f"  TAJ returned (cached={cached}, decision={decision})")
 
     # ------------------------------------------------------------------
     # 5. Verify TAJ validates against the JWKS key
     # ------------------------------------------------------------------
     decoded = jwt.decode(returned_taj, jwt_secret, algorithms=["HS256"])
     assert decoded["sub"] == principal
-    print(f"  TAJ validates against control plane JWKS key ✓")
+    print("  TAJ validates against control plane JWKS key ✓")
 
     # ------------------------------------------------------------------
     # 6. RALE router

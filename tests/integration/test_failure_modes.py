@@ -126,9 +126,9 @@ def test_envoy_rejects_wrong_audience() -> None:
 @pytest.mark.integration
 def test_rale_router_rejects_expired_taj() -> None:
     """RALE router returns 401 for a TAJ that has expired."""
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(
-        SecretId=require_jwt_secret_arn()
-    )["SecretString"]
+    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
+        "SecretString"
+    ]
     now = int(time.time())
     expired_taj = _make_taj(jwt_secret, iat=now - 7200, exp=now - 60)
 
@@ -169,9 +169,9 @@ def test_rale_router_rejects_tampered_taj() -> None:
 @pytest.mark.integration
 def test_rale_router_denies_mismatched_package() -> None:
     """RALE router returns 403 when the TAJ is for a different package than requested."""
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(
-        SecretId=require_jwt_secret_arn()
-    )["SecretString"]
+    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
+        "SecretString"
+    ]
     taj = _make_taj(
         jwt_secret,
         manifest_hash="hash-a",
@@ -190,9 +190,9 @@ def test_rale_router_denies_mismatched_package() -> None:
 @pytest.mark.integration
 def test_rale_router_denies_file_not_in_manifest() -> None:
     """RALE router returns 403 when the requested logical key is not in the manifest."""
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(
-        SecretId=require_jwt_secret_arn()
-    )["SecretString"]
+    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
+        "SecretString"
+    ]
     manifest_hash = uuid.uuid4().hex
     taj = _make_taj(
         jwt_secret,
