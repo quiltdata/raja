@@ -59,7 +59,7 @@ The infrastructure is **optional** — the core `raja` library can be used stand
 infra/
 ├── terraform/           # ✅ PRIMARY — use this
 │   ├── main.tf          # All AWS resources
-│   ├── outputs.tf       # Stack outputs (+ legacy_cdk_outputs shim)
+│   ├── outputs.tf       # Stack outputs
 │   ├── variables.tf     # Input variables
 │   └── versions.tf      # Provider version constraints
 │
@@ -191,10 +191,6 @@ The Envoy image is built and pushed to ECR separately:
 # Build locally only
 ./poe build-envoy
 ```
-
-## Backward Compatibility
-
-`outputs.tf` exports a `legacy_cdk_outputs` value that mirrors the old CDK stack output shape (`RajaAvpStack`, `RajaServicesStack`, `RajeeEnvoyStack`). This is written to `infra/cdk-outputs.json` during `./poe deploy` and consumed by integration test helpers.
 
 ---
 

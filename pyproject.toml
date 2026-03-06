@@ -130,8 +130,8 @@ test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integrati
 _format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
 _lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
 _typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
-_terraform-apply = { shell = "cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json legacy_cdk_outputs > ../cdk-outputs.json", help = "Internal: deploy Terraform stack and persist compatibility outputs" }
-_terraform-destroy = { shell = "cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../cdk-outputs.json", help = "Internal: destroy Terraform stack" }
+_terraform-apply = { shell = "cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json | python3 -c \"import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))\" > ../tf-outputs.json", help = "Internal: deploy Terraform stack and persist outputs" }
+_terraform-destroy = { shell = "cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../tf-outputs.json", help = "Internal: destroy Terraform stack" }
 
 [tool.mypy]
 python_version = "3.12"

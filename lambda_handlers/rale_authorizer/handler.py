@@ -98,9 +98,7 @@ def _resolve_manifest_hash(table: Any, registry: str, package_name: str) -> str:
     pointer_key = f"pkg:{registry}/{package_name}"
     item = table.get_item(Key={"manifest_hash": pointer_key}).get("Item")
     if not item or not isinstance(item.get("latest_hash"), str):
-        raise ValueError(
-            f"no latest manifest hash registered for {registry}/{package_name}"
-        )
+        raise ValueError(f"no latest manifest hash registered for {registry}/{package_name}")
     return str(item["latest_hash"])
 
 

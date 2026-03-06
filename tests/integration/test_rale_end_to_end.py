@@ -307,9 +307,7 @@ def test_rale_complete_flow_end_to_end() -> None:
     )
     # Seed the "latest" pointer so the authorizer can pin the un-pinned USL.
     pointer_key = f"pkg:{registry}/{package_name}"
-    manifest_cache.put_item(
-        Item={"manifest_hash": pointer_key, "latest_hash": manifest_hash}
-    )
+    manifest_cache.put_item(Item={"manifest_hash": pointer_key, "latest_hash": manifest_hash})
     print(f"  Manifest pin:   {logical_key}")
     print(f"    → s3://{bucket}/{source_key}")
     print(f"  Latest pointer: {pointer_key} → {manifest_hash}")

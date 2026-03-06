@@ -10,9 +10,8 @@ from urllib.parse import urlsplit
 import pytest
 
 OUTPUT_FILES = (
-    Path("infra") / "cdk-outputs.json",
-    Path("cdk-outputs.json"),
-    Path("infra") / "cdk.out" / "outputs.json",
+    Path("infra") / "tf-outputs.json",
+    Path("tf-outputs.json"),
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ def _load_api_url_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        api_url = _extract_output_value(payload, "ApiUrl")
+        api_url = _extract_output_value(payload, "api_url")
         if api_url:
             return api_url
     return None
@@ -54,7 +53,7 @@ def _load_rajee_bucket_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        bucket = _extract_output_value(payload, "TestBucketName")
+        bucket = _extract_output_value(payload, "rajee_test_bucket_name")
         if bucket:
             return bucket
     return None
@@ -69,7 +68,7 @@ def _load_rajee_endpoint_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        endpoint = _extract_output_value(payload, "RajeeEndpoint")
+        endpoint = _extract_output_value(payload, "rajee_endpoint")
         if endpoint:
             return endpoint
     return None
@@ -84,7 +83,7 @@ def _load_rale_authorizer_url_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        endpoint = _extract_output_value(payload, "RaleAuthorizerUrl")
+        endpoint = _extract_output_value(payload, "rale_authorizer_url")
         if endpoint:
             return endpoint
     return None
@@ -99,7 +98,7 @@ def _load_rale_router_url_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        endpoint = _extract_output_value(payload, "RaleRouterUrl")
+        endpoint = _extract_output_value(payload, "rale_router_url")
         if endpoint:
             return endpoint
     return None
@@ -114,9 +113,7 @@ def _load_jwt_secret_arn_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        secret_arn = _extract_output_value(payload, "JWTSecretArn") or _extract_output_value(
-            payload, "JwtSecretArn"
-        )
+        secret_arn = _extract_output_value(payload, "jwt_secret_arn")
         if secret_arn:
             return secret_arn
     return None
@@ -131,7 +128,7 @@ def _load_taj_cache_table_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        name = _extract_output_value(payload, "TajCacheTable")
+        name = _extract_output_value(payload, "taj_cache_table_name")
         if name:
             return name
     return None
@@ -146,7 +143,7 @@ def _load_manifest_cache_table_from_outputs(repo_root: Path) -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        name = _extract_output_value(payload, "ManifestCacheTable")
+        name = _extract_output_value(payload, "manifest_cache_table_name")
         if name:
             return name
     return None
