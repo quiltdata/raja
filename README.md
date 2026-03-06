@@ -27,7 +27,7 @@ uv sync
 ### Deploy to AWS (Control Plane)
 
 ```bash
-# Deploy infrastructure
+# Deploy infrastructure (Terraform)
 ./poe deploy
 
 # Load Cedar policies
@@ -171,7 +171,7 @@ Examples:
 raja/
 ├── src/raja/           # Core Python library
 ├── lambda_handlers/    # AWS Lambda handlers
-├── infra/             # CDK infrastructure
+├── infra/             # Terraform infrastructure
 ├── policies/          # Sample Cedar policies
 └── tests/             # Test suite
 ```

@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+import base64
+import json
+import os
+from typing import Any
+
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
+from raja.manifest import resolve_package_map
+from raja.models import S3Location
+from raja.token import (
+    TokenExpiredError,
+    TokenInvalidError,
+    TokenValidationError,
+    validate_taj_token,
+)
+
+
+def _response(
+    status_code: int,
+    body: str | dict[str, Any],
+    *,
+    headers: dict[str, str] | None = None,
+    is_base64: bool = False,
+) -> dict[str, Any]:
+    payload = body if isinstance(body, str) else json.dumps(body)
+    return {
+        "statusCode": status_code,
+        "headers": headers or {"content-type": "application/json"},
+        "body": payload,
+        "isBase64Encoded": is_base64,
+    }
+
+
+def _extract_taj(event: dict[str, Any]) -> str:
+    headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+
+    taj = headers.get("x-rale-taj")
+    if isinstance(taj, str) and taj.strip():
+        return taj.strip()
+
+    auth = headers.get("authorization")
+    if isinstance(auth, str) and auth.strip():
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return auth.strip()
+
+    raise ValueError("missing TAJ token")
+
+
+def _parse_usl(raw_path: str) -> tuple[str, str, str, str]:
+    path = raw_path.strip("/")
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 3:
+        raise ValueError("USL path must be /<registry>/<package@hash>/<logical-key>")
+
+    registry = parts[0]
+    hash_index = -1
+    for idx in range(1, len(parts)):
+        if "@" in parts[idx]:
+            hash_index = idx
+            break
+    if hash_index == -1:
+        raise ValueError("USL path missing package@hash")
+
+    package_ref = "/".join(parts[1 : hash_index + 1])
+    package_name, manifest_hash = package_ref.rsplit("@", 1)
+    logical_key = "/".join(parts[hash_index + 1 :])
+    if not logical_key:
+        raise ValueError("USL path missing logical key")
+
+    if not package_name or not manifest_hash:
+        raise ValueError("USL package reference must be package@hash")
+
+    return registry, package_name, manifest_hash, logical_key
+
+
+def _build_quilt_uri(storage: str, registry: str, package_name: str, manifest_hash: str) -> str:
+    return f"quilt+{storage}://{registry}#package={package_name}@{manifest_hash}"
+
+
+def _load_cached_manifest(table: Any, manifest_hash: str) -> dict[str, list[dict[str, str]]] | None:
+    item = table.get_item(Key={"manifest_hash": manifest_hash}).get("Item")
+    if not item:
+        return None
+    entries = item.get("entries")
+    if isinstance(entries, dict):
+        return entries
+    return None
+
+
+def _store_manifest(
+    table: Any,
+    manifest_hash: str,
+    entries: dict[str, list[dict[str, str]]],
+) -> None:
+    table.put_item(
+        Item={
+            "manifest_hash": manifest_hash,
+            "entries": entries,
+        }
+    )
+
+
+def _get_targets(entries: dict[str, list[dict[str, str]]], logical_key: str) -> list[S3Location]:
+    raw = entries.get(logical_key, [])
+    targets: list[S3Location] = []
+    for location in raw:
+        bucket = location.get("bucket")
+        key = location.get("key")
+        if isinstance(bucket, str) and isinstance(key, str) and bucket and key:
+            targets.append(S3Location(bucket=bucket, key=key))
+    return targets
+
+
+def _proxy_get_or_head(
+    method: str,
+    s3_client: Any,
+    bucket: str,
+    key: str,
+) -> dict[str, Any]:
+    try:
+        if method == "HEAD":
+            head = s3_client.head_object(Bucket=bucket, Key=key)
+            headers = {
+                "content-type": str(head.get("ContentType") or "application/octet-stream"),
+                "content-length": str(head.get("ContentLength") or "0"),
+                "x-rale-source-bucket": bucket,
+                "x-rale-source-key": key,
+            }
+            return _response(200, "", headers=headers)
+
+        obj = s3_client.get_object(Bucket=bucket, Key=key)
+        body_bytes = obj["Body"].read()
+        headers = {
+            "content-type": str(obj.get("ContentType") or "application/octet-stream"),
+            "content-length": str(obj.get("ContentLength") or len(body_bytes)),
+            "x-rale-source-bucket": bucket,
+            "x-rale-source-key": key,
+        }
+        return _response(
+            200, base64.b64encode(body_bytes).decode("utf-8"), headers=headers, is_base64=True
+        )
+    except s3_client.exceptions.NoSuchKey:
+        return _response(404, {"error": "object not found"})
+    except (ClientError, BotoCoreError):
+        return _response(502, {"error": "failed to fetch object from S3"})
+
+
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
+    manifest_cache_table = os.environ.get("MANIFEST_CACHE_TABLE")
+    jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if not manifest_cache_table or not jwt_secret_arn or not region:
+        return _response(500, {"error": "missing required environment variables"})
+
+    try:
+        taj = _extract_taj(event)
+        raw_path = str(event.get("rawPath") or event.get("path") or "")
+        registry, package_name, manifest_hash, logical_key = _parse_usl(raw_path)
+    except ValueError as exc:
+        return _response(400, {"error": str(exc)})
+
+    try:
+        secrets = boto3.client("secretsmanager", region_name=region)
+        jwt_secret = secrets.get_secret_value(SecretId=jwt_secret_arn)["SecretString"]
+    except (ClientError, BotoCoreError, KeyError):
+        return _response(503, {"error": "failed to load jwt secret"})
+
+    try:
+        claims = validate_taj_token(taj, jwt_secret)
+    except TokenExpiredError:
+        return _response(401, {"error": "expired TAJ"})
+    except (TokenInvalidError, TokenValidationError):
+        return _response(401, {"error": "invalid TAJ"})
+
+    if claims.manifest_hash != manifest_hash:
+        return _response(403, {"error": "manifest hash mismatch"})
+    if claims.package_name != package_name:
+        return _response(403, {"error": "package mismatch"})
+    if claims.registry != registry:
+        return _response(403, {"error": "registry mismatch"})
+
+    ddb = boto3.resource("dynamodb", region_name=region)
+    table = ddb.Table(manifest_cache_table)
+
+    try:
+        cached_entries = _load_cached_manifest(table, manifest_hash)
+    except (ClientError, BotoCoreError):
+        return _response(503, {"error": "failed to read manifest cache"})
+
+    entries = cached_entries
+    if entries is None:
+        storage = os.environ.get("RALE_STORAGE", "s3")
+        quilt_uri = _build_quilt_uri(storage, registry, package_name, manifest_hash)
+        try:
+            package_map = resolve_package_map(quilt_uri)
+        except RuntimeError as exc:
+            return _response(502, {"error": f"manifest resolution unavailable: {exc}"})
+        except Exception:
+            return _response(502, {"error": "manifest resolution failed"})
+
+        entries = {
+            logical: [location.model_dump(mode="json") for location in locations]
+            for logical, locations in package_map.entries.items()
+        }
+        try:
+            _store_manifest(table, manifest_hash, entries)
+        except (ClientError, BotoCoreError):
+            return _response(503, {"error": "failed to write manifest cache"})
+
+    targets = _get_targets(entries, logical_key)
+    if not targets:
+        return _response(403, {"error": "logical key is not part of manifest"})
+
+    target = targets[0]
+    method = str(event.get("requestContext", {}).get("http", {}).get("method") or "GET").upper()
+    if method not in {"GET", "HEAD"}:
+        return _response(405, {"error": "only GET and HEAD are supported"})
+
+    s3_client = boto3.client("s3", region_name=region)
+    return _proxy_get_or_head(method, s3_client, target.bucket, target.key)

@@ -1,3 +1,4 @@
 pydantic>=2.7.0
 PyJWT>=2.8.0
 structlog>=24.1.0
+quilt3>=5.0.0

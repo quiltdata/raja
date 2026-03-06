@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.5.0"
+version = "0.6.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -86,7 +86,7 @@ markers = [
 
 [tool.poe.tasks]
 # Clean build artifacts and caches
-clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage dist build *.egg-info infra/cdk.out* && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true'", help = "Remove build artifacts, caches, and CDK output" }
+clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage dist build *.egg-info infra/cdk.out* infra/terraform/.terraform infra/terraform/terraform.tfstate* infra/terraform/build && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true'", help = "Remove build artifacts, caches, and infra outputs" }
 
 # Quality checks - combine format + lint + typecheck
 check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lint, and typecheck" }
@@ -105,9 +105,9 @@ demo-package = { cmd = "pytest tests/integration/test_rajee_package_grant.py -v 
 demo-translation = { cmd = "pytest tests/integration/test_rajee_translation_grant.py -v -s", help = "Run translation grant (TAJ-package) demonstrations" }
 
 # AWS deployment
-deploy = { sequence = ["_npx-verify", "_cdk-deploy", "load-policies"], help = "Deploy CDK stack to AWS and load policies to AVP" }
-deploy-fast = { shell = "IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag) && bash scripts/build-envoy-image.sh --tag \"$IMAGE_TAG\" --push && IMAGE_TAG=\"$IMAGE_TAG\" ./poe deploy", help = "Build/push Envoy image by content hash, then deploy with the pre-built image" }
-destroy = { sequence = ["_npx-verify", "_cdk-destroy"], help = "Destroy CDK stack" }
+deploy = { sequence = ["_terraform-apply"], help = "Deploy standalone RAJA stack with Terraform" }
+deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
+destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
 
@@ -127,12 +127,11 @@ tag = { script = "scripts.version:create_tag", help = "Create and push release t
 test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integration tests (requires deployed AWS resources)" }
 
 # Internal tasks (prefixed with _)
-_npx-verify = { cmd = "bash -lc 'command -v npx >/dev/null 2>&1 || { echo \"npx not found; install Node.js to use CDK tasks\"; exit 1; }'", help = "Internal: verify npx is available" }
 _format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
 _lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
 _typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
-_cdk-deploy = { shell = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajeeEnvoyStack --require-approval never --progress bar --parameters RajeeEnvoyStack:AUTHDISABLED=false --outputs-file cdk-outputs-rajee.json --output cdk.out.deploy && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk deploy RajaAvpStack RajaServicesStack --require-approval never --progress bar --outputs-file cdk-outputs-services.json --output cdk.out.deploy && python ../scripts/merge_cdk_outputs.py cdk-outputs-rajee.json cdk-outputs-services.json cdk-outputs.json", help = "Internal: deploy CDK stacks in correct order" }
-_cdk-destroy = { cmd = "cd infra && JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 npx cdk destroy --all --force", help = "Internal: destroy CDK" }
+_terraform-apply = { shell = "cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json legacy_cdk_outputs > ../cdk-outputs.json", help = "Internal: deploy Terraform stack and persist compatibility outputs" }
+_terraform-destroy = { shell = "cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../cdk-outputs.json", help = "Internal: destroy Terraform stack" }
 
 [tool.mypy]
 python_version = "3.12"

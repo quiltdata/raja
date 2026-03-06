@@ -75,6 +75,36 @@ def _load_rajee_endpoint_from_outputs(repo_root: Path) -> str | None:
     return None
 
 
+def _load_rale_authorizer_url_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        endpoint = _extract_output_value(payload, "RaleAuthorizerUrl")
+        if endpoint:
+            return endpoint
+    return None
+
+
+def _load_rale_router_url_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        endpoint = _extract_output_value(payload, "RaleRouterUrl")
+        if endpoint:
+            return endpoint
+    return None
+
+
 def _load_jwt_secret_arn_from_outputs(repo_root: Path) -> str | None:
     for relative in OUTPUT_FILES:
         path = repo_root / relative
@@ -92,6 +122,36 @@ def _load_jwt_secret_arn_from_outputs(repo_root: Path) -> str | None:
     return None
 
 
+def _load_taj_cache_table_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        name = _extract_output_value(payload, "TajCacheTable")
+        if name:
+            return name
+    return None
+
+
+def _load_manifest_cache_table_from_outputs(repo_root: Path) -> str | None:
+    for relative in OUTPUT_FILES:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        name = _extract_output_value(payload, "ManifestCacheTable")
+        if name:
+            return name
+    return None
+
+
 def require_api_url() -> str:
     api_url = os.environ.get("RAJA_API_URL")
     if not api_url:
@@ -100,6 +160,16 @@ def require_api_url() -> str:
     if not api_url:
         pytest.skip("RAJA_API_URL not set")
     return api_url.rstrip("/")
+
+
+def require_jwt_secret_arn() -> str:
+    secret_arn = os.environ.get("JWT_SECRET_ARN")
+    if not secret_arn:
+        repo_root = Path(__file__).resolve().parents[2]
+        secret_arn = _load_jwt_secret_arn_from_outputs(repo_root)
+    if not secret_arn:
+        pytest.skip("JWT_SECRET_ARN not set")
+    return secret_arn
 
 
 def require_api_issuer() -> str:
@@ -128,6 +198,58 @@ def require_rajee_endpoint() -> str:
     return endpoint.rstrip("/")
 
 
+def require_rale_authorizer_url() -> str:
+    endpoint = os.environ.get("RALE_AUTHORIZER_URL")
+    if not endpoint:
+        repo_root = Path(__file__).resolve().parents[2]
+        endpoint = _load_rale_authorizer_url_from_outputs(repo_root)
+    if not endpoint:
+        pytest.skip("RALE_AUTHORIZER_URL not set")
+    return endpoint.rstrip("/")
+
+
+def require_rale_router_url() -> str:
+    endpoint = os.environ.get("RALE_ROUTER_URL")
+    if not endpoint:
+        repo_root = Path(__file__).resolve().parents[2]
+        endpoint = _load_rale_router_url_from_outputs(repo_root)
+    if not endpoint:
+        pytest.skip("RALE_ROUTER_URL not set")
+    return endpoint.rstrip("/")
+
+
+def require_taj_cache_table() -> str:
+    table_name = os.environ.get("TAJ_CACHE_TABLE")
+    if not table_name:
+        repo_root = Path(__file__).resolve().parents[2]
+        table_name = _load_taj_cache_table_from_outputs(repo_root)
+    if not table_name:
+        pytest.skip("TAJ_CACHE_TABLE not set")
+    return table_name
+
+
+def require_manifest_cache_table() -> str:
+    table_name = os.environ.get("MANIFEST_CACHE_TABLE")
+    if not table_name:
+        repo_root = Path(__file__).resolve().parents[2]
+        table_name = _load_manifest_cache_table_from_outputs(repo_root)
+    if not table_name:
+        pytest.skip("MANIFEST_CACHE_TABLE not set")
+    return table_name
+
+
+def is_rale_routing_enabled() -> bool:
+    authorizer = os.environ.get("RALE_AUTHORIZER_URL")
+    router = os.environ.get("RALE_ROUTER_URL")
+    if authorizer and router:
+        return True
+
+    repo_root = Path(__file__).resolve().parents[2]
+    authorizer = _load_rale_authorizer_url_from_outputs(repo_root)
+    router = _load_rale_router_url_from_outputs(repo_root)
+    return bool(authorizer and router)
+
+
 def request_json(
     method: str, path: str, body: dict[str, Any] | None = None, query: dict[str, str] | None = None
 ) -> tuple[int, dict[str, Any]]:
@@ -154,6 +276,25 @@ def request_json(
         return status, {}
 
     return status, json.loads(payload.decode("utf-8"))
+
+
+def request_url(
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+) -> tuple[int, dict[str, str], bytes]:
+    req = request.Request(url, data=body, headers=headers or {}, method=method)
+    try:
+        with request.urlopen(req) as response:
+            payload = response.read()
+            status = response.status
+            response_headers = dict(response.headers.items())
+    except error.HTTPError as exc:
+        payload = exc.read()
+        status = exc.code
+        response_headers = dict(exc.headers.items())
+    return status, response_headers, payload
 
 
 def issue_token(principal: str) -> tuple[str, list[str]]:
