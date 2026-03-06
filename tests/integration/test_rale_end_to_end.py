@@ -375,7 +375,10 @@ def test_rale_complete_flow_end_to_end() -> None:
     # ------------------------------------------------------------------
     print("\n[RALE ROUTER]")
     print(f"  boto3 reconfiguration:  endpoint_url={rajee_endpoint!r}")
-    print(f"  Client sends un-pinned: s3.get_object(Bucket='{registry}', Key='{package_name}/{logical_key}')")
+    print(
+        f"  Client sends un-pinned: s3.get_object(Bucket='{registry}',"
+        f" Key='{package_name}/{logical_key}')"
+    )
     print(f"  Router pins via TAJ:    manifest_hash={manifest_hash}")
     status, _, retrieved_body = _request_router_with_retry(
         f"{rajee_endpoint}{encoded_usl_path}", returned_taj
