@@ -511,6 +511,15 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
       {
         Effect = "Allow"
         Action = [
+          "dynamodb:GetItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.manifest_cache.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "secretsmanager:GetSecretValue"
         ]
         Resource = [
@@ -538,6 +547,7 @@ resource "aws_lambda_function" "rale_authorizer" {
     variables = {
       POLICY_STORE_ID       = aws_verifiedpermissions_policy_store.raja.policy_store_id
       TAJ_CACHE_TABLE       = aws_dynamodb_table.taj_cache.name
+      MANIFEST_CACHE_TABLE  = aws_dynamodb_table.manifest_cache.name
       JWT_SECRET_ARN        = aws_secretsmanager_secret.jwt.arn
       TOKEN_TTL             = tostring(var.token_ttl)
       TAJ_CACHE_TTL_SECONDS = tostring(var.taj_cache_ttl_seconds)

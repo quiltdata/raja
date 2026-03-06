@@ -50,31 +50,42 @@ def _extract_taj(event: dict[str, Any]) -> str:
     raise ValueError("missing TAJ token")
 
 
-def _parse_usl(raw_path: str) -> tuple[str, str, str, str]:
+def _parse_usl(raw_path: str) -> tuple[str, str, str | None, str]:
+    """Parse a USL path, returning ``manifest_hash=None`` for un-pinned paths.
+
+    Pinned:    /<registry>/author/pkg@hash/key  → hash from URL
+    Un-pinned: /<registry>/author/pkg/key       → hash must come from TAJ
+    """
     path = raw_path.strip("/")
     parts = [p for p in path.split("/") if p]
-    if len(parts) < 3:
-        raise ValueError("USL path must be /<registry>/<package@hash>/<logical-key>")
 
-    registry = parts[0]
+    registry = parts[0] if parts else ""
     hash_index = -1
     for idx in range(1, len(parts)):
         if "@" in parts[idx]:
             hash_index = idx
             break
-    if hash_index == -1:
-        raise ValueError("USL path missing package@hash")
 
-    package_ref = "/".join(parts[1 : hash_index + 1])
-    package_name, manifest_hash = package_ref.rsplit("@", 1)
-    logical_key = "/".join(parts[hash_index + 1 :])
+    if hash_index != -1:
+        package_ref = "/".join(parts[1 : hash_index + 1])
+        package_name, manifest_hash = package_ref.rsplit("@", 1)
+        logical_key = "/".join(parts[hash_index + 1 :])
+        if not logical_key:
+            raise ValueError("USL path missing logical key")
+        if not package_name or not manifest_hash:
+            raise ValueError("USL package reference must be package@hash")
+        return registry, package_name, manifest_hash, logical_key
+
+    # Un-pinned: /<registry>/<author>/<name>/<logical_key...>
+    if len(parts) < 4:
+        raise ValueError(
+            "Un-pinned USL must have at least 4 segments: /<registry>/<author>/<name>/<key>"
+        )
+    package_name = f"{parts[1]}/{parts[2]}"
+    logical_key = "/".join(parts[3:])
     if not logical_key:
         raise ValueError("USL path missing logical key")
-
-    if not package_name or not manifest_hash:
-        raise ValueError("USL package reference must be package@hash")
-
-    return registry, package_name, manifest_hash, logical_key
+    return registry, package_name, None, logical_key
 
 
 def _build_quilt_uri(storage: str, registry: str, package_name: str, manifest_hash: str) -> str:
@@ -176,8 +187,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     except (TokenInvalidError, TokenValidationError):
         return _response(401, {"error": "invalid TAJ"})
 
-    if claims.manifest_hash != manifest_hash:
+    # For un-pinned USLs the hash comes from the TAJ; for pinned USLs validate
+    # the URL hash matches the TAJ.
+    if manifest_hash is None:
+        manifest_hash = claims.manifest_hash
+    elif claims.manifest_hash != manifest_hash:
         return _response(403, {"error": "manifest hash mismatch"})
+
     if claims.package_name != package_name:
         return _response(403, {"error": "package mismatch"})
     if claims.registry != registry:

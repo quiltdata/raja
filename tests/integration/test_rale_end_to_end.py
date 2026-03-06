@@ -251,12 +251,17 @@ def test_rale_complete_flow_end_to_end() -> None:
     manifest_hash = uuid.uuid4().hex
     logical_key = f"data/e2e-{uuid.uuid4().hex}.txt"
     expected_body = b"rale-complete-flow-system-test"
-    usl_path = f"/{registry}/{package_name}@{manifest_hash}/{logical_key}"
-    encoded_usl_path = quote(usl_path, safe="/@")
+
+    # Un-pinned USL — no @hash; the authorizer will resolve and pin it.
+    unpinned_usl_path = f"/{registry}/{package_name}/{logical_key}"
+    encoded_usl_path = quote(unpinned_usl_path, safe="/@")
 
     print("\n" + "=" * 72)
     print("RALE SYSTEM TEST: Control Plane → Authorizer → Router → S3")
     print("=" * 72)
+    print(f"\n  Logical USL (un-pinned): s3+rale:/{unpinned_usl_path}")
+    print(f"  Will pin to hash:        {manifest_hash}")
+    print(f"  logical_key:             {logical_key}")
 
     # ------------------------------------------------------------------
     # 1. Control plane
@@ -289,35 +294,41 @@ def test_rale_complete_flow_end_to_end() -> None:
     bucket = require_rajee_test_bucket()
     source_key = f"rale-e2e/{uuid.uuid4().hex}.txt"
     boto3.client("s3").put_object(Bucket=bucket, Key=source_key, Body=expected_body)
-    print(f"  Uploaded  s3://{bucket}/{source_key}")
+    print(f"  Physical S3:    s3://{bucket}/{source_key}")
+    print(f"  Object data:    {expected_body!r}")
 
     manifest_cache = boto3.resource("dynamodb").Table(require_manifest_cache_table())
+    # Seed the physical manifest entries (hash → entries).
     manifest_cache.put_item(
         Item={
             "manifest_hash": manifest_hash,
             "entries": {logical_key: [{"bucket": bucket, "key": source_key}]},
         }
     )
-    print(f"  Manifest  {logical_key} → s3://{bucket}/{source_key}")
+    # Seed the "latest" pointer so the authorizer can pin the un-pinned USL.
+    pointer_key = f"pkg:{registry}/{package_name}"
+    manifest_cache.put_item(
+        Item={"manifest_hash": pointer_key, "latest_hash": manifest_hash}
+    )
+    print(f"  Manifest pin:   {logical_key}")
+    print(f"    → s3://{bucket}/{source_key}")
+    print(f"  Latest pointer: {pointer_key} → {manifest_hash}")
 
     # ------------------------------------------------------------------
     # 3. Build TAJ and seed the authorizer cache
     # ------------------------------------------------------------------
     print("\n[TAJ]")
     now = int(time.time())
-    taj = jwt.encode(
-        {
-            "sub": principal,
-            "grants": [f"s3:GetObject/{registry}/{package_name}@{manifest_hash}/"],
-            "manifest_hash": manifest_hash,
-            "package_name": package_name,
-            "registry": registry,
-            "iat": now,
-            "exp": now + 3600,
-        },
-        jwt_secret,
-        algorithm="HS256",
-    )
+    taj_claims = {
+        "sub": principal,
+        "grants": [f"s3:GetObject/{registry}/{package_name}@{manifest_hash}/"],
+        "manifest_hash": manifest_hash,
+        "package_name": package_name,
+        "registry": registry,
+        "iat": now,
+        "exp": now + 3600,
+    }
+    taj = jwt.encode(taj_claims, jwt_secret, algorithm="HS256")
     taj_cache = boto3.resource("dynamodb").Table(require_taj_cache_table())
     taj_cache.put_item(
         Item={
@@ -327,7 +338,10 @@ def test_rale_complete_flow_end_to_end() -> None:
             "ttl": now + 300,
         }
     )
-    print(f"  Signed with JWKS key and cached for {principal}#{manifest_hash}")
+    print(f"  sub:       {taj_claims['sub']}")
+    print(f"  grants:    {taj_claims['grants']}")
+    print(f"  cache_key: {principal}#{manifest_hash}  ← pinned by authorizer")
+    print(f"  TAJ (JWT): {taj[:60]}…")
 
     # ------------------------------------------------------------------
     # 4. RALE authorizer
@@ -345,6 +359,8 @@ def test_rale_complete_flow_end_to_end() -> None:
     assert returned_taj == taj, "Authorizer returned unexpected TAJ"
     cached = auth_payload.get("cached")
     decision = auth_payload.get("decision")
+    pinned_hash = auth_payload.get("manifest_hash")
+    print(f"  Received un-pinned USL, resolved manifest_hash={pinned_hash}")
     print(f"  TAJ returned (cached={cached}, decision={decision})")
 
     # ------------------------------------------------------------------
@@ -358,12 +374,15 @@ def test_rale_complete_flow_end_to_end() -> None:
     # 6. RALE router
     # ------------------------------------------------------------------
     print("\n[RALE ROUTER]")
+    print(f"  boto3 reconfiguration:  endpoint_url={rajee_endpoint!r}")
+    print(f"  Client sends un-pinned: s3.get_object(Bucket='{registry}', Key='{package_name}/{logical_key}')")
+    print(f"  Router pins via TAJ:    manifest_hash={manifest_hash}")
     status, _, retrieved_body = _request_router_with_retry(
         f"{rajee_endpoint}{encoded_usl_path}", returned_taj
     )
     assert status == 200, retrieved_body.decode("utf-8", errors="replace")
     assert retrieved_body == expected_body
-    print(f"  {len(retrieved_body)} bytes retrieved from S3, content matches ✓")
+    print(f"  Retrieved ({len(retrieved_body)} bytes): {retrieved_body!r}")
 
     print("\n" + "=" * 72)
     print("SYSTEM TEST PASSED")

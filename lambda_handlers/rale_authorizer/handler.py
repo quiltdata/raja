@@ -46,13 +46,21 @@ def _extract_principal(event: dict[str, Any]) -> str:
     raise ValueError("principal is required via x-raja-principal or JWT claims")
 
 
-def _parse_usl(raw_path: str) -> tuple[str, str, str, str, str]:
+def _parse_usl(raw_path: str) -> tuple[str, str, str | None, str, str | None]:
+    """Parse a USL path.
+
+    Supports pinned paths (``/registry/author/pkg@hash/key``) and un-pinned
+    paths (``/registry/author/pkg/key``).  For un-pinned paths the
+    manifest_hash and prefix elements are returned as ``None``.
+
+    Quilt package names are always two-level (``author/name``), so an
+    un-pinned path is unambiguous: the first three segments are
+    ``registry/author/name`` and everything after is the logical key.
+    """
     path = raw_path.strip("/")
     parts = [p for p in path.split("/") if p]
-    if len(parts) < 3:
-        raise ValueError("USL path must be /<registry>/<package@hash>/<logical-key>")
 
-    registry = parts[0]
+    registry = parts[0] if parts else ""
 
     hash_index = -1
     for idx in range(1, len(parts)):
@@ -60,17 +68,40 @@ def _parse_usl(raw_path: str) -> tuple[str, str, str, str, str]:
             hash_index = idx
             break
 
-    if hash_index == -1:
-        raise ValueError("USL path missing package@hash")
+    if hash_index != -1:
+        # Pinned: /<registry>/.../<pkg>@<hash>/...
+        package_ref = "/".join(parts[1 : hash_index + 1])
+        package_name, manifest_hash = package_ref.rsplit("@", 1)
+        if not package_name or not manifest_hash:
+            raise ValueError("USL package reference must be package@hash")
+        logical_key = "/".join(parts[hash_index + 1 :])
+        prefix = f"{registry}/{package_name}@{manifest_hash}/"
+        return registry, package_name, manifest_hash, logical_key, prefix
 
-    package_ref = "/".join(parts[1 : hash_index + 1])
-    package_name, manifest_hash = package_ref.rsplit("@", 1)
-    if not package_name or not manifest_hash:
-        raise ValueError("USL package reference must be package@hash")
+    # Un-pinned: /<registry>/<author>/<name>/<logical_key...>
+    # Requires at least registry + 2-level package + 1 key segment.
+    if len(parts) < 4:
+        raise ValueError(
+            "Un-pinned USL must have at least 4 segments: /<registry>/<author>/<name>/<key>"
+        )
+    package_name = f"{parts[1]}/{parts[2]}"
+    logical_key = "/".join(parts[3:])
+    return registry, package_name, None, logical_key, None
 
-    logical_key = "/".join(parts[hash_index + 1 :])
-    prefix = f"{registry}/{package_name}@{manifest_hash}/"
-    return registry, package_name, manifest_hash, logical_key, prefix
+
+def _resolve_manifest_hash(table: Any, registry: str, package_name: str) -> str:
+    """Look up the latest pinned manifest hash for a package.
+
+    Expects an item in the manifest-cache table with the synthetic key
+    ``pkg:{registry}/{package_name}`` and a ``latest_hash`` attribute.
+    """
+    pointer_key = f"pkg:{registry}/{package_name}"
+    item = table.get_item(Key={"manifest_hash": pointer_key}).get("Item")
+    if not item or not isinstance(item.get("latest_hash"), str):
+        raise ValueError(
+            f"no latest manifest hash registered for {registry}/{package_name}"
+        )
+    return str(item["latest_hash"])
 
 
 def _build_entity_reference(entity: str) -> dict[str, str]:
@@ -104,10 +135,24 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     except ValueError as exc:
         return _response(400, {"error": str(exc)})
 
-    cache_key = f"{principal}#{manifest_hash}"
-
     ddb = boto3.resource("dynamodb", region_name=region)
     cache_table = ddb.Table(taj_cache_table)
+    manifest_cache_table_name = os.environ.get("MANIFEST_CACHE_TABLE")
+
+    if manifest_hash is None:
+        # Un-pinned USL: resolve the latest manifest hash from the package registry.
+        if not manifest_cache_table_name:
+            return _response(500, {"error": "MANIFEST_CACHE_TABLE required for un-pinned USLs"})
+        manifest_cache = ddb.Table(manifest_cache_table_name)
+        try:
+            manifest_hash = _resolve_manifest_hash(manifest_cache, registry, package_name)
+        except ValueError as exc:
+            return _response(404, {"error": str(exc)})
+        except (ClientError, BotoCoreError):
+            return _response(503, {"error": "failed to resolve manifest hash"})
+        prefix = f"{registry}/{package_name}@{manifest_hash}/"
+
+    cache_key = f"{principal}#{manifest_hash}"
 
     try:
         cached = cache_table.get_item(Key={"cache_key": cache_key}).get("Item")
@@ -180,6 +225,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     token_ttl = int(os.environ.get("TOKEN_TTL", "3600"))
     issuer = os.environ.get("RALE_ISSUER")
     audience = os.environ.get("RALE_AUDIENCE")
+    assert prefix is not None  # always set: either from URL or resolved above
     grants = [f"s3:GetObject/{prefix}"]
     taj = create_taj_token(
         subject=principal,
