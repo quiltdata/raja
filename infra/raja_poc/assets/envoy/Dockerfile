@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # check=skip=SecretsUsedInArgOrEnv
 
-FROM envoyproxy/envoy:v1.28-latest
+FROM envoyproxy/envoy:v1.37-latest
 
 # Install curl for health checks and Lua JSON support for auth filter
 RUN apt-get update \
