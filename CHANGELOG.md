@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Terraform outputs**: Removed `legacy_cdk_outputs` CDK compatibility shim; deploy now writes a flat `infra/tf-outputs.json` with native Terraform output names. All consumers (integration helpers, compiler, load_policies, build-envoy-image) updated to use snake_case keys directly.
+- **RALE authorizer**: Support un-pinned USLs — authorizer now resolves the latest manifest hash from DynamoDB when no hash is present in the quilt URI.
+
 ## [0.6.0] - 2026-02-27
 
 ### Added
