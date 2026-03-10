@@ -53,9 +53,8 @@ def _load_test_bucket_from_outputs() -> str | None:
     """Load test bucket name from CDK outputs."""
     repo_root = Path(__file__).resolve().parents[2]
     output_paths = (
-        repo_root / "infra" / "cdk-outputs.json",
-        repo_root / "cdk-outputs.json",
-        repo_root / "infra" / "cdk.out" / "outputs.json",
+        repo_root / "infra" / "tf-outputs.json",
+        repo_root / "tf-outputs.json",
     )
     for path in output_paths:
         if not path.is_file():
@@ -64,7 +63,7 @@ def _load_test_bucket_from_outputs() -> str | None:
             payload = json.loads(path.read_text())
         except json.JSONDecodeError:
             continue
-        bucket = _extract_output_value(payload, "TestBucketName")
+        bucket = _extract_output_value(payload, "rajee_test_bucket_name")
         if bucket:
             return bucket
     return None

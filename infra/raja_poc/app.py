@@ -1,3 +1,7 @@
+# DEPRECATED: This CDK app is superseded by infra/terraform/.
+# Use `./poe deploy` (Terraform) for all deployments.
+# This directory is retained for reference only and will be removed in a future release.
+
 from aws_cdk import App
 
 from .stacks.avp_stack import AvpStack

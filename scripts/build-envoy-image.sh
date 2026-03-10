@@ -76,37 +76,20 @@ fi
 echo "Getting ECR repository URI..."
 REPO_URI=""
 
-if [ -f "infra/cdk-outputs.json" ]; then
-    REPO_URI=$(python - <<'PY'
-import json
-from pathlib import Path
-
-path = Path("infra/cdk-outputs.json")
+if [ -f "infra/tf-outputs.json" ]; then
+    REPO_URI=$(python3 -c "
+import json, sys
 try:
-    payload = json.loads(path.read_text())
+    payload = json.loads(open('infra/tf-outputs.json').read())
+    print(payload.get('envoy_repository_uri') or '')
 except Exception:
-    print("")
-    raise SystemExit(0)
-
-value = (
-    payload.get("RajeeEnvoyStack", {}).get("EnvoyRepositoryUri")
-    or payload.get("envoy_repository_uri")
-)
-print(value or "")
-PY
-)
-fi
-
-if [ -z "$REPO_URI" ]; then
-    REPO_URI=$(aws cloudformation describe-stacks \
-        --stack-name RajeeEnvoyStack \
-        --query 'Stacks[0].Outputs[?OutputKey==`EnvoyRepositoryUri`].OutputValue' \
-        --output text 2>/dev/null || true)
+    print('')
+")
 fi
 
 if [ -z "$REPO_URI" ]; then
     echo "Error: Could not resolve Envoy ECR repository URI."
-    echo "Run Terraform deploy first so infra/cdk-outputs.json contains RajeeEnvoyStack.EnvoyRepositoryUri."
+    echo "Run Terraform deploy first so infra/tf-outputs.json contains envoy_repository_uri."
     echo ""
     echo "To deploy the stack:"
     echo "  ./poe deploy"

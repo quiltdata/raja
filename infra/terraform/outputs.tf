@@ -97,38 +97,3 @@ output "rale_router_url" {
   description = "RALE router Lambda Function URL."
   value       = aws_lambda_function_url.rale_router.function_url
 }
-
-output "legacy_cdk_outputs" {
-  description = "CDK-compatible output shape for existing scripts/tests."
-  value = {
-    RajaAvpStack = {
-      PolicyStoreId  = aws_verifiedpermissions_policy_store.raja.policy_store_id
-      PolicyStoreArn = aws_verifiedpermissions_policy_store.raja.arn
-    }
-    RajaServicesStack = {
-      ApiUrl                = "${aws_api_gateway_stage.prod.invoke_url}/"
-      PolicyStoreId         = aws_verifiedpermissions_policy_store.raja.policy_store_id
-      PolicyStoreArn        = aws_verifiedpermissions_policy_store.raja.arn
-      ControlPlaneLambdaArn = aws_lambda_function.control_plane.arn
-      MappingsTableName     = aws_dynamodb_table.policy_scope_mappings.name
-      PrincipalTableName    = aws_dynamodb_table.principal_scopes.name
-      AuditTableName        = aws_dynamodb_table.audit_log.name
-      JWTSecretArn          = aws_secretsmanager_secret.jwt.arn
-      HarnessSecretArn      = aws_secretsmanager_secret.harness.arn
-      RaleAuthorizerArn     = aws_lambda_function.rale_authorizer.arn
-      RaleRouterArn         = aws_lambda_function.rale_router.arn
-      RaleAuthorizerUrl     = aws_lambda_function_url.rale_authorizer.function_url
-      RaleRouterUrl         = aws_lambda_function_url.rale_router.function_url
-      ManifestCacheTable    = aws_dynamodb_table.manifest_cache.name
-      TajCacheTable         = aws_dynamodb_table.taj_cache.name
-    }
-    RajeeEnvoyStack = {
-      DeploymentPlatform                  = lookup(local.platform_labels, var.ecs_cpu_architecture, var.ecs_cpu_architecture)
-      TestBucketName                      = aws_s3_bucket.rajee_test.bucket
-      RajeeEndpoint                       = "${local.rajee_endpoint_protocol}://${aws_lb.rajee.dns_name}"
-      EnvoyRepositoryUri                  = aws_ecr_repository.envoy.repository_url
-      RajeeServiceLoadBalancerDNSC2103F5C = aws_lb.rajee.dns_name
-      RajeeServiceServiceURL78DE2D42      = "${local.rajee_endpoint_protocol}://${aws_lb.rajee.dns_name}"
-    }
-  }
-}

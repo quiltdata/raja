@@ -121,9 +121,10 @@ See child CLAUDE.md files for detailed documentation:
 
 ### AWS (Optional)
 
-- **AWS CDK** (>=2.100.0) - Infrastructure as Code
+- **Terraform** (>=1.5) - Infrastructure as Code (primary)
 - **boto3** (>=1.34.0) - AWS SDK
 - **Amazon Verified Permissions** - Cedar policy store
+- ~~AWS CDK~~ — deprecated, use Terraform
 
 ### Development Tools
 
@@ -156,48 +157,20 @@ uv pip install -e .
 
 ### AWS Deployment
 
-#### Fast Deployment (Recommended)
-
-For optimal deployment speed, build and push the Envoy Docker image separately:
+Deployment uses **Terraform** (`infra/terraform/`). CDK (`infra/raja_poc/`) is deprecated.
 
 ```bash
-# 1. Deploy infrastructure with ECR repository (first time only)
+# Deploy full RAJA stack (Terraform)
 ./poe deploy
 
-# 2. Build and push Envoy image to ECR (content-hash tag; skips if already exists)
-./poe build-envoy-push
+# Destroy stack
+./poe destroy
 
-# 3. Deploy with pre-built image (fast - skips Docker build)
-export IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag)
-./poe deploy
-
-# Subsequent deployments: Only rebuild image when Envoy code changes
-./poe build-envoy-push && export IMAGE_TAG=$(bash scripts/build-envoy-image.sh --print-tag) && ./poe deploy
-
-# One-command fast deployment (build/push if needed, then deploy with IMAGE_TAG)
-./poe deploy-fast
-```
-
-#### Standard Deployment (Legacy)
-
-The infrastructure can also build the Docker image during deployment (slower):
-
-```bash
-# Deploy infrastructure (builds Docker image inline)
-./poe deploy
-
-# Load Cedar policies to AVP
-./poe load-policies
-
-# Trigger policy compilation
-./poe compile-policies
-
-# Seed test data (optional, for integration tests)
-./poe seed-test-data
-
-# Run integration tests (requires deployed resources)
+# Run integration tests after deploy
 ./poe test-integration
 ```
+
+See [infra/CLAUDE.md](infra/CLAUDE.md) for detailed Terraform documentation.
 
 ## Key Concepts
 
@@ -352,10 +325,9 @@ Essential commands for development workflow:
 ./poe build-envoy         # Build Envoy container image locally
 ./poe build-envoy-push    # Build and push Envoy image to ECR
 
-# AWS deployment
-./poe deploy              # Deploy CDK stack to AWS
-./poe deploy-fast         # Build/push Envoy image by content hash, then deploy
-./poe destroy             # Destroy CDK stack
+# AWS deployment (Terraform)
+./poe deploy              # Deploy Terraform stack to AWS
+./poe destroy             # Destroy Terraform stack
 
 # Full workflow
 ./poe all                 # Check → test → deploy → integration test
@@ -371,7 +343,7 @@ Essential commands for development workflow:
 - `ruff format src/` - Format specific directory
 - `mypy --strict src/` - Stricter type checking
 - `pytest -k test_name` - Run specific tests
-- `cd infra && npx cdk diff` - Preview CDK changes
+- `cd infra/terraform && terraform plan` - Preview Terraform changes
 
 ## Release Process
 

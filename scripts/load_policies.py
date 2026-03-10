@@ -156,15 +156,13 @@ def main() -> None:
     policy_store_id = os.environ.get("POLICY_STORE_ID")
     if not policy_store_id:
         repo_root = Path(__file__).resolve().parents[1]
-        outputs_path = repo_root / "infra" / "cdk-outputs.json"
+        outputs_path = repo_root / "infra" / "tf-outputs.json"
         if outputs_path.is_file():
             try:
                 import json
 
                 outputs = json.loads(outputs_path.read_text())
-                policy_store_id = (
-                    outputs.get("RajaAvpStack", {}).get("PolicyStoreId") or policy_store_id
-                )
+                policy_store_id = outputs.get("policy_store_id") or policy_store_id
             except json.JSONDecodeError:
                 pass
     if not policy_store_id:
@@ -176,13 +174,13 @@ def main() -> None:
         region = boto3.session.Session().region_name
     if not region:
         repo_root = Path(__file__).resolve().parents[1]
-        outputs_path = repo_root / "infra" / "cdk-outputs.json"
+        outputs_path = repo_root / "infra" / "tf-outputs.json"
         if outputs_path.is_file():
             try:
                 import json
 
                 outputs = json.loads(outputs_path.read_text())
-                api_url = outputs.get("RajaServicesStack", {}).get("ApiUrl")
+                api_url = outputs.get("api_url")
                 if isinstance(api_url, str):
                     host = urlparse(api_url).hostname or ""
                     parts = host.split(".")
