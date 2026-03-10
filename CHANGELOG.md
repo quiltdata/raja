@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-03-09
+
 ### Changed
 
 - **Terraform outputs**: Removed `legacy_cdk_outputs` CDK compatibility shim; deploy now writes a flat `infra/tf-outputs.json` with native Terraform output names. All consumers (integration helpers, compiler, load_policies, build-envoy-image) updated to use snake_case keys directly.
