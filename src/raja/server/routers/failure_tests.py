@@ -802,7 +802,7 @@ def _runner_revocation(secret: str) -> FailureTestRun:
         expected="DENY – revoked token",
         actual="Token revocation feature not implemented",
         details={
-            "note": "Revocation requires additional infrastructure (Redis/DynamoDB blacklist)"
+            "note": "Per-token revocation is unsupported by design. Hard revocation is via secret rotation + Lambda cold start. See specs/5-rale/08-incident-response.md."
         },
         timestamp=time.time(),
     )

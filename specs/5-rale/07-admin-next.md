@@ -105,10 +105,15 @@ Checks whether the given RAJEE endpoint is reachable and returns a valid `/ready
 | Cedar policy authoring | `POST/PUT/DELETE /policies`, `GET /policies/{id}` | AVP write permissions on the Lambda role |
 | Live RAJEE probe | `POST /probe/rajee`, `GET /probe/rajee/health` | RAJEE endpoint reachable from Lambda; JWT secret for TAJ minting |
 
-## Note: No Token Revocation
+## Note: Token Revocation
 
-TAJ tokens are short-lived by design. Short TTLs *are* the revocation mechanism — tokens expire quickly and cannot be renewed without a new issuance decision. Adding a denylist would reintroduce stateful, per-request overhead that the architecture exists to eliminate: every enforcement call would require a DynamoDB read, coupling the data plane back to a shared mutable store.
+TAJ tokens are short-lived by design. Short TTLs bound the exposure window for any compromised token.
 
-For incident response, the correct action is **principal-level revocation**: `DELETE /principals/{principal}` immediately stops new token issuance for a compromised principal. Existing tokens expire on their own TTL. This is the zero-infrastructure path and should be the documented response procedure.
+There are two revocation mechanisms depending on the scenario:
 
-`POST /token/revoke` returns `{"status": "unsupported"}` and will remain that way.
+- **Soft revocation** — `DELETE /principals/{principal}` stops new token issuance. Existing tokens remain cryptographically valid and live to their TTL.
+- **Hard revocation** — Rotate the JWT signing secret in Secrets Manager and force a Lambda cold start. Existing tokens fail signature verification immediately.
+
+See [`08-incident-response.md`](08-incident-response.md) for the full incident response procedure.
+
+`POST /token/revoke` returns `{"status": "unsupported"}` and will remain that way. Per-token revocation would require a denylist, reintroducing per-request shared-state overhead the architecture is designed to eliminate.
