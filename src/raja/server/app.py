@@ -80,6 +80,7 @@ def audit_log(
     resource: str | None = None,
     start_time: int | None = Query(default=None, ge=0),
     end_time: int | None = Query(default=None, ge=0),
+    _: None = Depends(dependencies.require_admin_auth),
     table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Audit log endpoint."""

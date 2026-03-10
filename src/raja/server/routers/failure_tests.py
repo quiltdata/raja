@@ -802,7 +802,10 @@ def _runner_revocation(secret: str) -> FailureTestRun:
         expected="DENY – revoked token",
         actual="Token revocation feature not implemented",
         details={
-            "note": "Per-token revocation is unsupported by design. Hard revocation is via secret rotation + Lambda cold start. See specs/5-rale/08-incident-response.md."
+            "note": (
+                "Per-token revocation is unsupported by design. Hard revocation is via "
+                "secret rotation + Lambda cold start. See specs/5-rale/08-incident-response.md."
+            )
         },
         timestamp=time.time(),
     )
@@ -1874,7 +1877,7 @@ def _serialize_test_definition(test: FailureTestDefinition) -> dict[str, Any]:
 
 
 @router.get("/")
-def list_failure_tests(secret: str = Depends(dependencies.get_jwt_secret)) -> dict[str, Any]:
+def list_failure_tests(_: None = Depends(dependencies.require_admin_auth)) -> dict[str, Any]:
     tests = [_serialize_test_definition(test) for test in FAILURE_TEST_DEFINITIONS]
     categories = [
         {
@@ -1892,7 +1895,8 @@ def list_failure_tests(secret: str = Depends(dependencies.get_jwt_secret)) -> di
 
 @router.get("/{test_id}")
 def get_failure_test_definition(
-    test_id: str, secret: str = Depends(dependencies.get_jwt_secret)
+    test_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
 ) -> dict[str, Any]:
     definition = FAILURE_TEST_BY_ID.get(test_id)
     if definition is None:
@@ -1902,7 +1906,9 @@ def get_failure_test_definition(
 
 @router.post("/{test_id}/run")
 def run_failure_test(
-    test_id: str, secret: str = Depends(dependencies.get_jwt_secret)
+    test_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+    secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     if not TOKEN_BUILDER_AVAILABLE:
         raise HTTPException(
@@ -1914,7 +1920,9 @@ def run_failure_test(
 
 @router.post("/categories/{category}/run")
 def run_failure_category(
-    category: str, secret: str = Depends(dependencies.get_jwt_secret)
+    category: str,
+    _: None = Depends(dependencies.require_admin_auth),
+    secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     if not TOKEN_BUILDER_AVAILABLE:
         raise HTTPException(
@@ -1931,7 +1939,10 @@ def run_failure_category(
 
 
 @router.get("/runs/{run_id}")
-def get_failure_run(run_id: str) -> dict[str, Any]:
+def get_failure_run(
+    run_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
     run = RUN_HISTORY.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -1939,7 +1950,10 @@ def get_failure_run(run_id: str) -> dict[str, Any]:
 
 
 @router.delete("/runs/{run_id}")
-def delete_failure_run(run_id: str) -> dict[str, bool]:
+def delete_failure_run(
+    run_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, bool]:
     if run_id in RUN_HISTORY:
         del RUN_HISTORY[run_id]
         return {"deleted": True}

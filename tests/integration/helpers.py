@@ -15,6 +15,25 @@ OUTPUT_FILES = (
 )
 
 logger = logging.getLogger(__name__)
+_PUBLIC_CONTROL_PLANE_PATHS = {"/", "/health", "/.well-known/jwks.json"}
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_dotenv(path: Path) -> None:
+    if not path.is_file():
+        return
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_dotenv(_REPO_ROOT / ".env")
 
 
 def _extract_output_value(payload: Any, key: str) -> str | None:
@@ -152,8 +171,7 @@ def _load_manifest_cache_table_from_outputs(repo_root: Path) -> str | None:
 def require_api_url() -> str:
     api_url = os.environ.get("RAJA_API_URL")
     if not api_url:
-        repo_root = Path(__file__).resolve().parents[2]
-        api_url = _load_api_url_from_outputs(repo_root)
+        api_url = _load_api_url_from_outputs(_REPO_ROOT)
     if not api_url:
         pytest.skip("RAJA_API_URL not set")
     return api_url.rstrip("/")
@@ -162,8 +180,7 @@ def require_api_url() -> str:
 def require_jwt_secret_arn() -> str:
     secret_arn = os.environ.get("JWT_SECRET_ARN")
     if not secret_arn:
-        repo_root = Path(__file__).resolve().parents[2]
-        secret_arn = _load_jwt_secret_arn_from_outputs(repo_root)
+        secret_arn = _load_jwt_secret_arn_from_outputs(_REPO_ROOT)
     if not secret_arn:
         pytest.skip("JWT_SECRET_ARN not set")
     return secret_arn
@@ -178,8 +195,7 @@ def require_api_issuer() -> str:
 def require_rajee_test_bucket() -> str:
     bucket = os.environ.get("RAJEE_TEST_BUCKET")
     if not bucket:
-        repo_root = Path(__file__).resolve().parents[2]
-        bucket = _load_rajee_bucket_from_outputs(repo_root)
+        bucket = _load_rajee_bucket_from_outputs(_REPO_ROOT)
     if not bucket:
         pytest.skip("RAJEE_TEST_BUCKET not set")
     return bucket
@@ -188,8 +204,7 @@ def require_rajee_test_bucket() -> str:
 def require_rajee_endpoint() -> str:
     endpoint = os.environ.get("RAJEE_ENDPOINT")
     if not endpoint:
-        repo_root = Path(__file__).resolve().parents[2]
-        endpoint = _load_rajee_endpoint_from_outputs(repo_root)
+        endpoint = _load_rajee_endpoint_from_outputs(_REPO_ROOT)
     if not endpoint:
         pytest.skip("RAJEE_ENDPOINT not set")
     return endpoint.rstrip("/")
@@ -198,8 +213,7 @@ def require_rajee_endpoint() -> str:
 def require_rale_authorizer_url() -> str:
     endpoint = os.environ.get("RALE_AUTHORIZER_URL")
     if not endpoint:
-        repo_root = Path(__file__).resolve().parents[2]
-        endpoint = _load_rale_authorizer_url_from_outputs(repo_root)
+        endpoint = _load_rale_authorizer_url_from_outputs(_REPO_ROOT)
     if not endpoint:
         pytest.skip("RALE_AUTHORIZER_URL not set")
     return endpoint.rstrip("/")
@@ -208,8 +222,7 @@ def require_rale_authorizer_url() -> str:
 def require_rale_router_url() -> str:
     endpoint = os.environ.get("RALE_ROUTER_URL")
     if not endpoint:
-        repo_root = Path(__file__).resolve().parents[2]
-        endpoint = _load_rale_router_url_from_outputs(repo_root)
+        endpoint = _load_rale_router_url_from_outputs(_REPO_ROOT)
     if not endpoint:
         pytest.skip("RALE_ROUTER_URL not set")
     return endpoint.rstrip("/")
@@ -218,8 +231,7 @@ def require_rale_router_url() -> str:
 def require_taj_cache_table() -> str:
     table_name = os.environ.get("TAJ_CACHE_TABLE")
     if not table_name:
-        repo_root = Path(__file__).resolve().parents[2]
-        table_name = _load_taj_cache_table_from_outputs(repo_root)
+        table_name = _load_taj_cache_table_from_outputs(_REPO_ROOT)
     if not table_name:
         pytest.skip("TAJ_CACHE_TABLE not set")
     return table_name
@@ -228,8 +240,7 @@ def require_taj_cache_table() -> str:
 def require_manifest_cache_table() -> str:
     table_name = os.environ.get("MANIFEST_CACHE_TABLE")
     if not table_name:
-        repo_root = Path(__file__).resolve().parents[2]
-        table_name = _load_manifest_cache_table_from_outputs(repo_root)
+        table_name = _load_manifest_cache_table_from_outputs(_REPO_ROOT)
     if not table_name:
         pytest.skip("MANIFEST_CACHE_TABLE not set")
     return table_name
@@ -241,9 +252,8 @@ def is_rale_routing_enabled() -> bool:
     if authorizer and router:
         return True
 
-    repo_root = Path(__file__).resolve().parents[2]
-    authorizer = _load_rale_authorizer_url_from_outputs(repo_root)
-    router = _load_rale_router_url_from_outputs(repo_root)
+    authorizer = _load_rale_authorizer_url_from_outputs(_REPO_ROOT)
+    router = _load_rale_router_url_from_outputs(_REPO_ROOT)
     return bool(authorizer and router)
 
 
@@ -257,6 +267,12 @@ def request_json(
 
     data = None
     headers = {"Content-Type": "application/json"}
+    normalized_path = f"/{path.lstrip('/')}"
+    if normalized_path not in _PUBLIC_CONTROL_PLANE_PATHS:
+        admin_key = os.environ.get("RAJA_ADMIN_KEY")
+        if not admin_key:
+            pytest.skip("RAJA_ADMIN_KEY not set for protected control-plane endpoint tests")
+        headers["Authorization"] = f"Bearer {admin_key}"
     if body is not None:
         data = json.dumps(body).encode("utf-8")
 

@@ -1,12 +1,20 @@
 import importlib
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 server_app = importlib.import_module("raja.server.app")
 dependencies = importlib.import_module("raja.server.dependencies")
 
 app = server_app.app
+
+
+@pytest.fixture(autouse=True)
+def bypass_admin_auth() -> None:
+    app.dependency_overrides[dependencies.require_admin_auth] = lambda: None
+    yield
+    app.dependency_overrides.clear()
 
 
 def test_admin_home_returns_html():

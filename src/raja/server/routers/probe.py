@@ -31,6 +31,7 @@ class RajeeProbeRequest(BaseModel):
 @router.post("/rajee")
 def probe_rajee(
     payload: RajeeProbeRequest,
+    _: None = Depends(dependencies.require_admin_auth),
     secret: str = Depends(dependencies.get_jwt_secret),
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
@@ -92,6 +93,7 @@ def probe_rajee(
 @router.get("/rajee/health")
 def probe_rajee_health(
     endpoint: str = Query(..., description="RAJEE endpoint URL to check"),
+    _: None = Depends(dependencies.require_admin_auth),
 ) -> dict[str, Any]:
     """Check whether a RAJEE endpoint is reachable and returns a valid /ready response."""
     target_url = endpoint.rstrip("/") + "/ready"

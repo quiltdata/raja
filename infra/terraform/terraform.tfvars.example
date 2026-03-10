@@ -3,6 +3,7 @@ stack_name           = "raja-standalone"
 environment          = "dev"
 python_bin           = "python3"
 token_ttl            = 3600
+raja_admin_key       = "change-me-admin-key"
 taj_cache_ttl_seconds = 300
 rale_storage         = "s3"
 lambda_architecture  = "arm64"

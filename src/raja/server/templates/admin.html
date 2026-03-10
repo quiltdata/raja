@@ -11,6 +11,15 @@
       <p>Issue tokens, inspect claims, and probe RAJEE — using the real authorization pipeline.</p>
     </header>
     <main>
+      <section class="card admin-auth" style="--delay: 0s;">
+        <h2>Admin Auth</h2>
+        <p>Enter the admin key used for protected control-plane API requests in this tab.</p>
+        <div>
+          <label for="admin-key">Admin Key</label>
+          <input id="admin-key" type="password" autocomplete="off" placeholder="Enter RAJA_ADMIN_KEY" />
+        </div>
+        <p class="admin-auth-error" id="admin-auth-error" hidden>Invalid or missing admin key.</p>
+      </section>
       <section class="card" style="--delay: 0s;">
         <h2>JWKS</h2>
         <p>Live public key set used to verify all tokens issued by this instance.</p>

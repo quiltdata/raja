@@ -1,4 +1,26 @@
 const select = (id) => document.getElementById(id);
+const ADMIN_KEY_STORAGE_KEY = "raja_admin_key";
+
+function getAdminKey() {
+  return sessionStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+}
+
+function setAdminKey(key) {
+  sessionStorage.setItem(ADMIN_KEY_STORAGE_KEY, key);
+}
+
+function setAdminAuthError(message) {
+  const el = select("admin-auth-error");
+  if (!el) {
+    return;
+  }
+  if (!message) {
+    el.hidden = true;
+    return;
+  }
+  el.textContent = message;
+  el.hidden = false;
+}
 
 function buildUrl(endpoint) {
   const basePath = window.location.pathname.endsWith("/")
@@ -11,28 +33,63 @@ function writeJson(id, data) {
   select(id).textContent = JSON.stringify(data, null, 2);
 }
 
+async function parseResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return await response.json();
+  }
+  const text = await response.text();
+  return text ? { detail: text } : {};
+}
+
+async function apiFetch(endpoint, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const key = getAdminKey();
+  if (key) {
+    headers.set("Authorization", `Bearer ${key}`);
+  }
+  const response = await fetch(buildUrl(endpoint), { ...options, headers });
+  if (response.status === 401) {
+    setAdminAuthError("Invalid or missing admin key.");
+  } else if (response.ok) {
+    setAdminAuthError("");
+  }
+  const data = await parseResponse(response);
+  return { ok: response.ok, status: response.status, data };
+}
+
 async function postJson(endpoint, payload) {
-  const response = await fetch(buildUrl(endpoint), {
+  return apiFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await response.json();
-  return { ok: response.ok, data };
+}
+
+async function getJson(endpoint) {
+  return apiFetch(endpoint, { method: "GET" });
 }
 
 // JWKS
 async function refreshJwks() {
   try {
-    const response = await fetch(buildUrl(".well-known/jwks.json"));
-    const data = await response.json();
-    writeJson("jwks", data);
+    const result = await getJson(".well-known/jwks.json");
+    writeJson("jwks", result.data);
   } catch (err) {
     select("jwks").textContent = String(err);
   }
 }
 
 select("refresh-jwks").addEventListener("click", refreshJwks);
+
+const adminKeyInput = select("admin-key");
+if (adminKeyInput) {
+  adminKeyInput.value = getAdminKey();
+  adminKeyInput.addEventListener("input", () => {
+    setAdminKey(adminKeyInput.value.trim());
+    setAdminAuthError("");
+  });
+}
 
 // Issue Token
 select("token-form").addEventListener("submit", async (event) => {
@@ -88,10 +145,8 @@ select("probe-form").addEventListener("submit", async (event) => {
 select("probe-health").addEventListener("click", async () => {
   const endpoint = select("probe-endpoint").value.trim() || "http://localhost:10000";
   try {
-    const url = buildUrl(`probe/rajee/health?endpoint=${encodeURIComponent(endpoint)}`);
-    const response = await fetch(url);
-    const data = await response.json();
-    writeJson("probe-output", data);
+    const result = await getJson(`probe/rajee/health?endpoint=${encodeURIComponent(endpoint)}`);
+    writeJson("probe-output", result.data);
   } catch (err) {
     writeJson("probe-output", { error: String(err) });
   }
@@ -106,9 +161,8 @@ select("load-control-plane").addEventListener("click", async () => {
   ];
   for (const target of targets) {
     try {
-      const response = await fetch(buildUrl(target.endpoint));
-      const data = await response.json();
-      writeJson(target.id, data);
+      const result = await getJson(target.endpoint);
+      writeJson(target.id, result.data);
     } catch (err) {
       select(target.id).textContent = String(err);
     }
@@ -134,11 +188,11 @@ const failureExportButton = select("failure-export-results");
 
 async function loadFailureTests() {
   try {
-    const response = await fetch(buildUrl("api/failure-tests"));
-    if (!response.ok) {
-      throw new Error(`Failed to load failure tests (${response.status})`);
+    const result = await getJson("api/failure-tests");
+    if (!result.ok) {
+      throw new Error(`Failed to load failure tests (${result.status})`);
     }
-    const data = await response.json();
+    const data = result.data;
     failureState.tests = data.tests || [];
     failureState.testsById = failureState.tests.reduce((acc, test) => {
       acc[test.id] = test;
