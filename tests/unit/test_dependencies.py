@@ -170,3 +170,27 @@ def test_get_jwt_secret_caches_result() -> None:
         secret2 = dependencies.get_jwt_secret()
         assert secret2 == "test-jwt-secret"
         assert mock_client.get_secret_value.call_count == 1
+
+
+def test_get_jwt_secret_uses_version_when_configured() -> None:
+    """Test that JWT secret retrieval pins to JWT_SECRET_VERSION when provided."""
+    mock_client = MagicMock()
+    mock_client.get_secret_value.return_value = {"SecretString": "test-jwt-secret-v2"}
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "JWT_SECRET_ARN": "arn:aws:secretsmanager:...",
+                "JWT_SECRET_VERSION": "version-2",
+                "AWS_REGION": "us-east-1",
+            },
+        ),
+        patch("boto3.client", return_value=mock_client),
+    ):
+        secret = dependencies.get_jwt_secret()
+        assert secret == "test-jwt-secret-v2"
+        mock_client.get_secret_value.assert_called_once_with(
+            SecretId="arn:aws:secretsmanager:...",
+            VersionId="version-2",
+        )

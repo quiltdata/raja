@@ -19,7 +19,6 @@ from .helpers import (
     request_json,
     request_url,
     require_api_issuer,
-    require_jwt_secret_arn,
     require_manifest_cache_table,
     require_rajee_test_bucket,
     require_rale_router_url,
@@ -126,9 +125,7 @@ def test_envoy_rejects_wrong_audience() -> None:
 @pytest.mark.integration
 def test_rale_router_rejects_expired_taj() -> None:
     """RALE router returns 401 for a TAJ that has expired."""
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
     now = int(time.time())
     expired_taj = _make_taj(jwt_secret, iat=now - 7200, exp=now - 60)
 
@@ -169,9 +166,7 @@ def test_rale_router_rejects_tampered_taj() -> None:
 @pytest.mark.integration
 def test_rale_router_denies_mismatched_package() -> None:
     """RALE router returns 403 when the TAJ is for a different package than requested."""
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
     taj = _make_taj(
         jwt_secret,
         manifest_hash="hash-a",
@@ -190,9 +185,7 @@ def test_rale_router_denies_mismatched_package() -> None:
 @pytest.mark.integration
 def test_rale_router_denies_file_not_in_manifest() -> None:
     """RALE router returns 403 when the requested logical key is not in the manifest."""
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
     manifest_hash = uuid.uuid4().hex
     taj = _make_taj(
         jwt_secret,
@@ -225,6 +218,51 @@ def test_rale_router_denies_file_not_in_manifest() -> None:
 def test_token_revocation_endpoint_available() -> None:
     status, _ = request_json("POST", "/token/revoke", {"token": "placeholder"})
     assert status == 200
+
+
+@pytest.mark.integration
+def test_admin_rotate_secret_invalidates_old_tokens() -> None:
+    """Hard revocation rotates signing key epoch and invalidates existing tokens."""
+    old_token, _ = issue_rajee_token()
+
+    status, body = request_json("POST", "/admin/rotate-secret")
+    assert status == 202, body
+    operation_id = body.get("operation_id")
+    assert isinstance(operation_id, str) and operation_id
+
+    final_status: str | None = None
+    final_body: dict[str, Any] = {}
+    for _ in range(30):
+        op_status, op_body = request_json("GET", f"/admin/rotate-secret/{operation_id}")
+        assert op_status == 200, op_body
+        state = op_body.get("status")
+        if isinstance(state, str):
+            final_status = state
+            final_body = op_body
+        if state in {"SUCCEEDED", "FAILED"}:
+            break
+        time.sleep(1)
+
+    assert final_status == "SUCCEEDED", final_body
+
+    # Old signatures must fail after cutover; newly issued tokens must pass.
+    current_secret = fetch_jwks_secret()
+    with pytest.raises(pyjwt.InvalidTokenError):
+        pyjwt.decode(
+            old_token,
+            current_secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+
+    new_token, _ = issue_rajee_token()
+    assert new_token != old_token
+    pyjwt.decode(
+        new_token,
+        current_secret,
+        algorithms=["HS256"],
+        options={"verify_aud": False},
+    )
 
 
 @pytest.mark.integration

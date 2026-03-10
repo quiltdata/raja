@@ -8,9 +8,11 @@ reused across invocations.
 from __future__ import annotations
 
 import os
+import secrets
 from typing import Any
 
 import boto3
+from fastapi import HTTPException, Request
 
 # Module-level caches (initialized once per Lambda container)
 _avp_client: Any | None = None
@@ -18,7 +20,7 @@ _dynamodb_resource: Any | None = None
 _principal_table: Any | None = None
 _mappings_table: Any | None = None
 _audit_table: Any | None = None
-_jwt_secret_cache: str | None = None
+_jwt_secret_cache: dict[str, str] | None = None
 
 
 def _get_region() -> str:
@@ -145,11 +147,38 @@ def get_jwt_secret() -> str:
         RuntimeError: If JWT_SECRET_ARN environment variable is not set
     """
     global _jwt_secret_cache
-    if _jwt_secret_cache is not None:
-        return _jwt_secret_cache
 
     secret_arn = _require_env(os.environ.get("JWT_SECRET_ARN"), "JWT_SECRET_ARN")
+    secret_version = os.environ.get("JWT_SECRET_VERSION")
+    cache_key = f"{secret_arn}:{secret_version or ''}"
+    if _jwt_secret_cache is not None and cache_key in _jwt_secret_cache:
+        return _jwt_secret_cache[cache_key]
+
     client = boto3.client("secretsmanager", region_name=_get_region())
-    response = client.get_secret_value(SecretId=secret_arn)
-    _jwt_secret_cache = response["SecretString"]
-    return _jwt_secret_cache
+    get_secret_kwargs: dict[str, str] = {"SecretId": secret_arn}
+    if secret_version:
+        get_secret_kwargs["VersionId"] = secret_version
+    response = client.get_secret_value(**get_secret_kwargs)
+    secret = response["SecretString"]
+    if _jwt_secret_cache is None:
+        _jwt_secret_cache = {}
+    _jwt_secret_cache[cache_key] = secret
+    return secret
+
+
+def require_admin_auth(request: Request) -> None:
+    """Require a valid admin bearer token in the Authorization header."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing or malformed authorization header")
+
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Missing or malformed authorization header")
+
+    admin_key = os.environ.get("RAJA_ADMIN_KEY")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="RAJA_ADMIN_KEY is not configured")
+
+    if not secrets.compare_digest(token, admin_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing admin key")

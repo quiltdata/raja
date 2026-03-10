@@ -10,8 +10,8 @@ import jwt
 import pytest
 
 from .helpers import (
+    fetch_jwks_secret,
     request_url,
-    require_jwt_secret_arn,
     require_manifest_cache_table,
     require_rajee_endpoint,
     require_rajee_test_bucket,
@@ -48,10 +48,7 @@ def test_rale_envoy_authorizer_then_router_roundtrip() -> None:
     usl_path = f"/{registry}/{package_name}@{manifest_hash}/{logical_key}"
     encoded_usl_path = quote(usl_path, safe="/@")
 
-    secret_arn = require_jwt_secret_arn()
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=secret_arn)[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
 
     taj = jwt.encode(
         {
@@ -125,10 +122,7 @@ def test_rale_router_direct_invocation_with_manifest_membership() -> None:
     usl_path = f"/{registry}/{package_name}@{manifest_hash}/{logical_key}"
     encoded_usl_path = quote(usl_path, safe="/@")
 
-    secret_arn = require_jwt_secret_arn()
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=secret_arn)[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
 
     taj = jwt.encode(
         {
@@ -185,10 +179,7 @@ def test_rale_router_cache_miss_exercises_manifest_resolution_path() -> None:
     usl_path = f"/{registry}/{package_name}@{manifest_hash}/{logical_key}"
     encoded_usl_path = quote(usl_path, safe="/@")
 
-    secret_arn = require_jwt_secret_arn()
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=secret_arn)[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
 
     taj = jwt.encode(
         {

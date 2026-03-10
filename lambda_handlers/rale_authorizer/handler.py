@@ -122,6 +122,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     policy_store_id = os.environ.get("POLICY_STORE_ID")
     taj_cache_table = os.environ.get("TAJ_CACHE_TABLE")
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
+    jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
     if not policy_store_id or not taj_cache_table or not jwt_secret_arn or not region:
         return _response(500, {"error": "missing required environment variables"})
@@ -216,7 +217,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
 
     secrets = boto3.client("secretsmanager", region_name=region)
     try:
-        jwt_secret = secrets.get_secret_value(SecretId=jwt_secret_arn)["SecretString"]
+        secret_kwargs: dict[str, str] = {"SecretId": jwt_secret_arn}
+        if jwt_secret_version:
+            secret_kwargs["VersionId"] = jwt_secret_version
+        jwt_secret = secrets.get_secret_value(**secret_kwargs)["SecretString"]
     except (ClientError, BotoCoreError, KeyError):
         return _response(503, {"error": "failed to load jwt secret"})
 

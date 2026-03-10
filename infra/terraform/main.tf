@@ -85,6 +85,13 @@ locals {
     ARM64  = "ARM64 (linux/arm64)"
     X86_64 = "X86_64 (linux/amd64)"
   }
+  lambda_arn_prefix              = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
+  control_plane_lambda_name      = "${var.stack_name}-control-plane"
+  rale_authorizer_lambda_name    = "${var.stack_name}-rale-authorizer"
+  rale_router_lambda_name        = "${var.stack_name}-rale-router"
+  control_plane_lambda_arn       = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
+  rale_authorizer_lambda_arn     = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
+  rale_router_lambda_arn         = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
 }
 
 resource "null_resource" "build_raja_layer" {
@@ -380,10 +387,27 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "secretsmanager:GetSecretValue"
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue"
         ]
         Resource = [
           aws_secretsmanager_secret.jwt.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
+          "lambda:UpdateFunctionConfiguration",
+          "lambda:GetFunctionConcurrency",
+          "lambda:PutFunctionConcurrency",
+          "lambda:DeleteFunctionConcurrency"
+        ]
+        Resource = [
+          local.control_plane_lambda_arn,
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
         ]
       },
       {
@@ -430,7 +454,11 @@ resource "aws_lambda_function" "control_plane" {
       PRINCIPAL_TABLE    = aws_dynamodb_table.principal_scopes.name
       AUDIT_TABLE        = aws_dynamodb_table.audit_log.name
       JWT_SECRET_ARN     = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION = aws_secretsmanager_secret_version.jwt_value.version_id
       TOKEN_TTL          = tostring(var.token_ttl)
+      RAJA_ADMIN_KEY     = var.raja_admin_key
+      RALE_AUTHORIZER_FUNCTION_NAME = local.rale_authorizer_lambda_name
+      RALE_ROUTER_FUNCTION_NAME     = local.rale_router_lambda_name
       AWS_ACCOUNT_ID     = data.aws_caller_identity.current.account_id
     }
   }
@@ -533,6 +561,7 @@ resource "aws_lambda_function" "rale_authorizer" {
       TAJ_CACHE_TABLE       = aws_dynamodb_table.taj_cache.name
       MANIFEST_CACHE_TABLE  = aws_dynamodb_table.manifest_cache.name
       JWT_SECRET_ARN        = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION    = aws_secretsmanager_secret_version.jwt_value.version_id
       TOKEN_TTL             = tostring(var.token_ttl)
       TAJ_CACHE_TTL_SECONDS = tostring(var.taj_cache_ttl_seconds)
       RALE_STORAGE          = var.rale_storage
@@ -637,6 +666,7 @@ resource "aws_lambda_function" "rale_router" {
     variables = {
       MANIFEST_CACHE_TABLE = aws_dynamodb_table.manifest_cache.name
       JWT_SECRET_ARN       = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION   = aws_secretsmanager_secret_version.jwt_value.version_id
       RALE_STORAGE         = var.rale_storage
     }
   }
