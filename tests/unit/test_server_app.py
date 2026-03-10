@@ -1,10 +1,7 @@
 import importlib
-import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 server_app = importlib.import_module("raja.server.app")
 dependencies = importlib.import_module("raja.server.dependencies")
@@ -58,80 +55,117 @@ def test_audit_endpoint_returns_entries() -> None:
         app.dependency_overrides.clear()
 
 
-def test_s3_harness_flow_allows_and_denies() -> None:
-    os.environ["RAJ_HARNESS_SECRET"] = "test-secret"
-    os.environ["RAJ_HARNESS_ISSUER"] = "https://issuer.test"
-    os.environ["RAJ_HARNESS_AUDIENCE"] = "s3-aud"
-    server_app._harness_secret_cache = None
+# --- Policy CRUD tests ---
 
-    client = TestClient(app)
-    mint_response = client.post(
-        "/s3-harness/mint",
-        json={
-            "subject": "User::alice",
-            "audience": "s3-aud",
-            "action": "s3:GetObject",
-            "bucket": "demo-bucket",
-            "key": "photos/2024/cat.jpg",
-            "ttl": 300,
-        },
-    )
-    assert mint_response.status_code == 200
-    token = mint_response.json()["token"]
+_VALID_STATEMENT = (
+    'permit(principal == Raja::User::"alice", action == Raja::Action::"read",'
+    ' resource == Raja::S3Object::"quilt+s3://b/p@h");'
+)
 
-    verify_response = client.post(
-        "/s3-harness/verify",
-        json={"token": token, "audience": "s3-aud"},
-    )
-    assert verify_response.status_code == 200
-    assert verify_response.json()["valid"] is True
-
-    allow_response = client.post(
-        "/s3-harness/enforce",
-        json={
-            "token": token,
-            "audience": "s3-aud",
-            "bucket": "demo-bucket",
-            "key": "photos/2024/cat.jpg",
-            "action": "s3:GetObject",
-        },
-    )
-    assert allow_response.status_code == 200
-    allow_payload = allow_response.json()
-    assert allow_payload["allowed"] is True
-
-    deny_response = client.post(
-        "/s3-harness/enforce",
-        json={
-            "token": token,
-            "audience": "s3-aud",
-            "bucket": "demo-bucket",
-            "key": "photos/2024/cat.jpg",
-            "action": "s3:PutObject",
-        },
-    )
-    assert deny_response.status_code == 200
-    deny_payload = deny_response.json()
-    assert deny_payload["allowed"] is False
-    assert deny_payload["failed_check"] == "action"
+_VALIDATE_PATH = "raja.server.routers.control_plane.validate_policy_against_schema"
 
 
-def test_s3_resource_requires_exactly_one_selector():
-    """Test that S3Resource validator requires exactly one of key or prefix."""
-    # Valid: with key
-    resource_with_key = server_app.S3Resource(bucket="my-bucket", key="file.txt")
-    assert resource_with_key.bucket == "my-bucket"
-    assert resource_with_key.key == "file.txt"
+def test_create_policy_success() -> None:
+    mock_avp = MagicMock()
+    mock_avp.create_policy.return_value = {"policyId": "p-123"}
+    mock_audit = MagicMock()
 
-    # Valid: with prefix
-    resource_with_prefix = server_app.S3Resource(bucket="my-bucket", prefix="folder/")
-    assert resource_with_prefix.bucket == "my-bucket"
-    assert resource_with_prefix.prefix == "folder/"
+    app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
+    app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
+    try:
+        with patch(_VALIDATE_PATH):
+            client = TestClient(app)
+            response = client.post("/policies", json={"statement": _VALID_STATEMENT})
+        assert response.status_code == 200
+        assert response.json()["policyId"] == "p-123"
+        mock_audit.put_item.assert_called_once()
+        assert mock_audit.put_item.call_args[1]["Item"]["action"] == "policy.create"
+    finally:
+        app.dependency_overrides.clear()
 
-    # Invalid: neither key nor prefix
-    with pytest.raises(ValidationError, match="exactly one"):
-        server_app.S3Resource(bucket="my-bucket")
 
-    # Invalid: both key and prefix
-    with pytest.raises(ValidationError, match="exactly one"):
-        server_app.S3Resource(bucket="my-bucket", key="file.txt", prefix="folder/")
+def test_create_policy_invalid_cedar() -> None:
+    mock_avp = MagicMock()
+    mock_audit = MagicMock()
+
+    app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
+    app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
+    try:
+        with patch(_VALIDATE_PATH, side_effect=ValueError("unknown resource type: Bad")):
+            client = TestClient(app)
+            response = client.post("/policies", json={"statement": "bad cedar"})
+        assert response.status_code == 422
+        mock_avp.create_policy.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_policy_by_id() -> None:
+    mock_avp = MagicMock()
+    mock_avp.get_policy.return_value = {"definition": {"static": {"statement": _VALID_STATEMENT}}}
+
+    app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
+    try:
+        client = TestClient(app)
+        response = client.get("/policies/p-123")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["policyId"] == "p-123"
+        assert "definition" in payload
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_policy_success() -> None:
+    mock_avp = MagicMock()
+    mock_audit = MagicMock()
+
+    app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
+    app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
+    try:
+        with patch(_VALIDATE_PATH):
+            client = TestClient(app)
+            response = client.put("/policies/p-123", json={"statement": _VALID_STATEMENT})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["policyId"] == "p-123"
+        assert payload["updated"] is True
+        mock_avp.update_policy.assert_called_once()
+        assert mock_audit.put_item.call_args[1]["Item"]["action"] == "policy.update"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_policy_invalid_cedar() -> None:
+    mock_avp = MagicMock()
+    mock_audit = MagicMock()
+
+    app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
+    app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
+    try:
+        with patch(_VALIDATE_PATH, side_effect=ValueError("unknown action: bad")):
+            client = TestClient(app)
+            response = client.put("/policies/p-123", json={"statement": "bad cedar"})
+        assert response.status_code == 422
+        mock_avp.update_policy.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_policy_success() -> None:
+    mock_avp = MagicMock()
+    mock_audit = MagicMock()
+
+    app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
+    app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
+    try:
+        client = TestClient(app)
+        response = client.delete("/policies/p-123")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["policyId"] == "p-123"
+        assert payload["deleted"] is True
+        mock_avp.delete_policy.assert_called_once()
+        assert mock_audit.put_item.call_args[1]["Item"]["action"] == "policy.delete"
+    finally:
+        app.dependency_overrides.clear()

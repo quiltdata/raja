@@ -7,154 +7,89 @@
   </head>
   <body>
     <header>
-      <div class="pill">S3 Validation Harness</div>
       <h1>RAJA Admin</h1>
-      <p>Mint, verify, and enforce Resource Authorization JWTs for S3 without policy
-      evaluation or AWS calls.</p>
+      <p>Issue tokens, inspect claims, and probe RAJEE — using the real authorization pipeline.</p>
     </header>
     <main>
       <section class="card" style="--delay: 0s;">
-        <h2>Issuer &amp; JWKS</h2>
-        <p>Live signing metadata for validation and key introspection.</p>
-        <div>
-          <label>Issuer</label>
-          <div class="status" id="issuer">Loading...</div>
-        </div>
-        <div>
-          <label>Audience</label>
-          <div class="status" id="audience">Loading...</div>
-        </div>
-        <div>
-          <label>JWKS</label>
-          <pre id="jwks">Loading...</pre>
-        </div>
+        <h2>JWKS</h2>
+        <p>Live public key set used to verify all tokens issued by this instance.</p>
+        <pre id="jwks">Loading...</pre>
         <div class="actions">
-          <button class="secondary" id="refresh-config">Refresh metadata</button>
+          <button class="secondary" id="refresh-jwks">Refresh JWKS</button>
         </div>
       </section>
       <section class="card" style="--delay: 0.05s;">
-        <h2>Mint RAJ</h2>
-        <p>Create a short-lived authorization for a single S3 action and resource.</p>
-        <form id="mint-form">
+        <h2>Issue Token</h2>
+        <p>Issue a real RAJ or RAJEE token via the control plane. Requires a principal that exists in DynamoDB.</p>
+        <form id="token-form">
           <div class="field-row">
             <div>
-              <label for="mint-subject">Subject (sub)</label>
-              <input id="mint-subject" name="subject" placeholder="User::alice" />
+              <label for="token-principal">Principal</label>
+              <input id="token-principal" name="principal" placeholder="User::alice" />
             </div>
             <div>
-              <label for="mint-audience">Audience (aud)</label>
-              <input id="mint-audience" name="audience" placeholder="raja-s3" />
-            </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="mint-bucket">Bucket</label>
-              <input id="mint-bucket" name="bucket" placeholder="my-bucket" />
-            </div>
-            <div>
-              <label for="mint-action">Action</label>
-              <select id="mint-action" name="action">
-                <option value="s3:GetObject">s3:GetObject</option>
-                <option value="s3:PutObject">s3:PutObject</option>
-                <option value="s3:ListBucket">s3:ListBucket</option>
-                <option value="s3:ListBucketMultipartUploads">s3:ListBucketMultipartUploads</option>
-                <option value="s3:ListMultipartUploadParts">s3:ListMultipartUploadParts</option>
+              <label for="token-type">Token type</label>
+              <select id="token-type" name="token_type">
+                <option value="raja">RAJ (generic scopes)</option>
+                <option value="rajee">RAJEE (S3 proxy audience)</option>
               </select>
             </div>
           </div>
-          <div class="field-row">
-            <div>
-              <label for="mint-key">Key (exact)</label>
-              <input id="mint-key" name="key" placeholder="reports/2024/summary.csv" />
-            </div>
-            <div>
-              <label for="mint-prefix">Prefix (starts with)</label>
-              <input id="mint-prefix" name="prefix" placeholder="reports/2024/" />
-            </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="mint-ttl">TTL (seconds)</label>
-              <input id="mint-ttl" name="ttl" type="number" min="60" placeholder="300" />
-            </div>
-          </div>
           <div class="actions">
-            <button type="submit">Mint RAJ</button>
+            <button type="submit">Issue token</button>
           </div>
         </form>
         <div>
           <label>Token</label>
-          <textarea id="mint-token" readonly placeholder="Your RAJ will appear here."></textarea>
+          <textarea id="token-output" readonly placeholder="Your token will appear here."></textarea>
         </div>
         <div>
-          <label>Claims</label>
-          <pre id="mint-claims">Waiting for mint.</pre>
+          <label>Response</label>
+          <pre id="token-claims">Waiting for issue request.</pre>
         </div>
       </section>
       <section class="card" style="--delay: 0.1s;">
-        <h2>Verify RAJ</h2>
-        <p>Confirm signature, issuer, audience, and expiration.</p>
-        <form id="verify-form">
+        <h2>Decode Token</h2>
+        <p>Decode any JWT payload client-side. Signature is not verified — this shows claims only.</p>
+        <form id="decode-form">
           <div>
-            <label for="verify-token">Token</label>
-            <textarea id="verify-token" name="token"
-              placeholder="Paste a RAJ to verify."></textarea>
-          </div>
-          <div>
-            <label for="verify-aud">Audience (aud)</label>
-            <input id="verify-aud" name="audience" placeholder="raja-s3" />
+            <label for="decode-token">Token</label>
+            <textarea id="decode-token" name="token" placeholder="Paste any JWT here."></textarea>
           </div>
           <div class="actions">
-            <button type="submit">Verify token</button>
+            <button type="submit">Decode</button>
           </div>
         </form>
         <div>
-          <label>Verification result</label>
-          <pre id="verify-output">Waiting for token.</pre>
+          <label>Claims</label>
+          <pre id="decode-output">Waiting for token.</pre>
         </div>
       </section>
       <section class="card" style="--delay: 0.15s;">
-        <h2>Simulate Enforcement</h2>
-        <p>Check Request ⊆ Authority and see why it fails.</p>
-        <form id="enforce-form">
+        <h2>RAJEE Probe</h2>
+        <p>Mint a real short-lived TAJ and send it to a live RAJEE endpoint. Proves the full path: RAJA mints → RAJEE validates → S3 is reached (or denied).</p>
+        <form id="probe-form">
           <div>
-            <label for="enforce-token">Token</label>
-            <textarea id="enforce-token" name="token"
-              placeholder="Paste or use the minted RAJ."></textarea>
+            <label for="probe-principal">Principal</label>
+            <input id="probe-principal" name="principal" placeholder="User::alice" />
           </div>
-          <div class="field-row">
-            <div>
-              <label for="enforce-aud">Audience (aud)</label>
-              <input id="enforce-aud" name="audience" placeholder="raja-s3" />
-            </div>
-            <div>
-              <label for="enforce-action">Action</label>
-              <select id="enforce-action" name="action">
-                <option value="s3:GetObject">s3:GetObject</option>
-                <option value="s3:PutObject">s3:PutObject</option>
-                <option value="s3:ListBucket">s3:ListBucket</option>
-                <option value="s3:ListBucketMultipartUploads">s3:ListBucketMultipartUploads</option>
-                <option value="s3:ListMultipartUploadParts">s3:ListMultipartUploadParts</option>
-              </select>
-            </div>
+          <div>
+            <label for="probe-usl">Package URI (USL)</label>
+            <input id="probe-usl" name="usl" placeholder="registry/author/pkg@hash" />
           </div>
-          <div class="field-row">
-            <div>
-              <label for="enforce-bucket">Bucket</label>
-              <input id="enforce-bucket" name="bucket" placeholder="my-bucket" />
-            </div>
-            <div>
-              <label for="enforce-key">Key</label>
-              <input id="enforce-key" name="key" placeholder="reports/2024/summary.csv" />
-            </div>
+          <div>
+            <label for="probe-endpoint">RAJEE endpoint</label>
+            <input id="probe-endpoint" name="rajee_endpoint" placeholder="http://localhost:10000" />
           </div>
           <div class="actions">
-            <button type="submit">Simulate decision</button>
+            <button type="submit">Probe RAJEE</button>
+            <button type="button" class="secondary" id="probe-health">Check health</button>
           </div>
         </form>
         <div>
-          <label>Decision</label>
-          <pre id="enforce-output">Waiting for request.</pre>
+          <label>Probe result</label>
+          <pre id="probe-output">Waiting for probe.</pre>
         </div>
       </section>
       <section class="card control-plane" style="--delay: 0.2s;">

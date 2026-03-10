@@ -11,30 +11,6 @@ function writeJson(id, data) {
   select(id).textContent = JSON.stringify(data, null, 2);
 }
 
-function setInputDefault(id, value) {
-  const el = select(id);
-  if (!el.value) {
-    el.value = value;
-  }
-}
-
-async function refreshConfig() {
-  try {
-    const response = await fetch(buildUrl("s3-harness/config"));
-    const data = await response.json();
-    select("issuer").textContent = data.issuer;
-    select("audience").textContent = data.audience;
-    writeJson("jwks", data.jwks);
-    setInputDefault("mint-audience", data.audience);
-    setInputDefault("verify-aud", data.audience);
-    setInputDefault("enforce-aud", data.audience);
-  } catch (err) {
-    select("issuer").textContent = "Unavailable";
-    select("audience").textContent = "Unavailable";
-    select("jwks").textContent = String(err);
-  }
-}
-
 async function postJson(endpoint, payload) {
   const response = await fetch(buildUrl(endpoint), {
     method: "POST",
@@ -45,69 +21,83 @@ async function postJson(endpoint, payload) {
   return { ok: response.ok, data };
 }
 
-select("refresh-config").addEventListener("click", refreshConfig);
+// JWKS
+async function refreshJwks() {
+  try {
+    const response = await fetch(buildUrl(".well-known/jwks.json"));
+    const data = await response.json();
+    writeJson("jwks", data);
+  } catch (err) {
+    select("jwks").textContent = String(err);
+  }
+}
 
-select("mint-form").addEventListener("submit", async (event) => {
+select("refresh-jwks").addEventListener("click", refreshJwks);
+
+// Issue Token
+select("token-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const payload = {
-    subject: select("mint-subject").value.trim() || "User::demo",
-    audience: select("mint-audience").value.trim() || "raja-s3",
-    action: select("mint-action").value,
-    bucket: select("mint-bucket").value.trim() || "demo-bucket",
+    principal: select("token-principal").value.trim() || "User::demo",
+    token_type: select("token-type").value,
   };
-  const key = select("mint-key").value.trim();
-  const prefix = select("mint-prefix").value.trim();
-  if (key && prefix) {
-    writeJson("mint-claims", { error: "Provide a key OR prefix, not both." });
-    return;
-  }
-  if (!key && !prefix) {
-    writeJson("mint-claims", { error: "Provide a key or prefix." });
-    return;
-  }
-  if (key) {
-    payload.key = key;
-  } else {
-    payload.prefix = prefix;
-  }
-  const ttl = Number(select("mint-ttl").value);
-  if (ttl) {
-    payload.ttl = ttl;
-  }
-  const result = await postJson("s3-harness/mint", payload);
+  const result = await postJson("token", payload);
   if (!result.ok) {
-    writeJson("mint-claims", result.data);
+    writeJson("token-claims", result.data);
     return;
   }
-  select("mint-token").value = result.data.token;
-  select("verify-token").value = result.data.token;
-  select("enforce-token").value = result.data.token;
-  writeJson("mint-claims", result.data);
+  select("token-output").value = result.data.token || "";
+  select("decode-token").value = result.data.token || "";
+  writeJson("token-claims", result.data);
 });
 
-select("verify-form").addEventListener("submit", async (event) => {
+// Decode Token (client-side — no server call, shows claims only)
+select("decode-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const token = select("decode-token").value.trim();
+  if (!token) {
+    writeJson("decode-output", { error: "Paste a token first." });
+    return;
+  }
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      throw new Error("Not a valid JWT (expected 3 parts)");
+    }
+    const pad = (s) => s + "=".repeat((4 - (s.length % 4)) % 4);
+    const header = JSON.parse(atob(pad(parts[0].replace(/-/g, "+").replace(/_/g, "/"))));
+    const payload = JSON.parse(atob(pad(parts[1].replace(/-/g, "+").replace(/_/g, "/"))));
+    writeJson("decode-output", { header, payload });
+  } catch (err) {
+    writeJson("decode-output", { error: String(err) });
+  }
+});
+
+// RAJEE Probe
+select("probe-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const payload = {
-    token: select("verify-token").value.trim(),
-    audience: select("verify-aud").value.trim() || undefined,
+    principal: select("probe-principal").value.trim(),
+    usl: select("probe-usl").value.trim(),
+    rajee_endpoint: select("probe-endpoint").value.trim() || "http://localhost:10000",
   };
-  const result = await postJson("s3-harness/verify", payload);
-  writeJson("verify-output", result.data);
+  const result = await postJson("probe/rajee", payload);
+  writeJson("probe-output", result.data);
 });
 
-select("enforce-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const payload = {
-    token: select("enforce-token").value.trim(),
-    audience: select("enforce-aud").value.trim() || undefined,
-    action: select("enforce-action").value,
-    bucket: select("enforce-bucket").value.trim(),
-    key: select("enforce-key").value.trim(),
-  };
-  const result = await postJson("s3-harness/enforce", payload);
-  writeJson("enforce-output", result.data);
+select("probe-health").addEventListener("click", async () => {
+  const endpoint = select("probe-endpoint").value.trim() || "http://localhost:10000";
+  try {
+    const url = buildUrl(`probe/rajee/health?endpoint=${encodeURIComponent(endpoint)}`);
+    const response = await fetch(url);
+    const data = await response.json();
+    writeJson("probe-output", data);
+  } catch (err) {
+    writeJson("probe-output", { error: String(err) });
+  }
 });
 
+// Control Plane
 select("load-control-plane").addEventListener("click", async () => {
   const targets = [
     { endpoint: "principals", id: "principals" },
@@ -413,5 +403,5 @@ failureExportButton.addEventListener("click", () => {
   anchor.remove();
 });
 
-refreshConfig();
+refreshJwks();
 loadFailureTests();

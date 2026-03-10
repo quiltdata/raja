@@ -3,81 +3,19 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, model_validator
 
 from raja.server import audit, dependencies
 from raja.server.logging_config import configure_logging, get_logger
-from raja.server.routers import control_plane_router, failure_tests_router, harness_router
+from raja.server.routers import control_plane_router, failure_tests_router, probe_router
 
 # Configure structured logging at module level
 configure_logging()
 logger = get_logger(__name__)
-
-
-class TokenRequest(BaseModel):
-    principal: str
-
-
-class S3Resource(BaseModel):
-    bucket: str = Field(min_length=1)
-    key: str | None = None
-    prefix: str | None = None
-
-    @model_validator(mode="after")
-    def _validate_selector(self) -> S3Resource:
-        has_key = bool(self.key)
-        has_prefix = bool(self.prefix)
-        if has_key == has_prefix:
-            raise ValueError("Provide exactly one of key or prefix")
-        return self
-
-
-class S3MintRequest(BaseModel):
-    subject: str = Field(min_length=1)
-    audience: str = Field(min_length=1)
-    action: Literal[
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:ListBucket",
-        "s3:ListBucketMultipartUploads",
-        "s3:ListMultipartUploadParts",
-    ]
-    bucket: str = Field(min_length=1)
-    key: str | None = None
-    prefix: str | None = None
-    ttl: int | None = Field(default=None, ge=60)
-
-    @model_validator(mode="after")
-    def _validate_resource(self) -> S3MintRequest:
-        has_key = bool(self.key)
-        has_prefix = bool(self.prefix)
-        if has_key == has_prefix:
-            raise ValueError("Provide exactly one of key or prefix")
-        return self
-
-
-class S3VerifyRequest(BaseModel):
-    token: str = Field(min_length=1)
-    audience: str | None = None
-
-
-class S3EnforceRequest(BaseModel):
-    token: str = Field(min_length=1)
-    audience: str | None = None
-    bucket: str = Field(min_length=1)
-    key: str = Field(min_length=1)
-    action: Literal[
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:ListBucket",
-        "s3:ListBucketMultipartUploads",
-        "s3:ListMultipartUploadParts",
-    ]
 
 
 @asynccontextmanager
@@ -99,7 +37,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # Include domain-specific routers
 app.include_router(control_plane_router)
 app.include_router(failure_tests_router)
-app.include_router(harness_router)
+app.include_router(probe_router)
 
 
 @app.get("/", response_class=HTMLResponse)

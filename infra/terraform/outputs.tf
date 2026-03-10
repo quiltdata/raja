@@ -48,11 +48,6 @@ output "jwt_secret_arn" {
   value       = aws_secretsmanager_secret.jwt.arn
 }
 
-output "harness_secret_arn" {
-  description = "Harness signing secret ARN."
-  value       = aws_secretsmanager_secret.harness.arn
-}
-
 output "rajee_endpoint" {
   description = "Base URL for the RAJEE Envoy S3 proxy."
   value       = "${local.rajee_endpoint_protocol}://${aws_lb.rajee.dns_name}"

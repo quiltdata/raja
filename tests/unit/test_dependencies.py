@@ -18,7 +18,6 @@ def reset_caches() -> None:
     dependencies._mappings_table = None
     dependencies._audit_table = None
     dependencies._jwt_secret_cache = None
-    dependencies._harness_secret_cache = None
 
 
 def test_get_avp_client_caches_result() -> None:
@@ -170,65 +169,4 @@ def test_get_jwt_secret_caches_result() -> None:
         # Second call should return cached secret
         secret2 = dependencies.get_jwt_secret()
         assert secret2 == "test-jwt-secret"
-        assert mock_client.get_secret_value.call_count == 1
-
-
-def test_get_harness_secret_prefers_env_var() -> None:
-    """Test that get_harness_secret prefers RAJ_HARNESS_SECRET env var."""
-    with patch.dict("os.environ", {"RAJ_HARNESS_SECRET": "local-secret"}):
-        secret = dependencies.get_harness_secret()
-        assert secret == "local-secret"
-
-
-def test_get_harness_secret_falls_back_to_secrets_manager() -> None:
-    """Test that get_harness_secret falls back to Secrets Manager."""
-    mock_client = MagicMock()
-    mock_client.get_secret_value.return_value = {"SecretString": "sm-secret"}
-
-    with (
-        patch.dict(
-            "os.environ",
-            {
-                "HARNESS_SECRET_ARN": "arn:aws:secretsmanager:...",
-                "AWS_REGION": "us-east-1",
-            },
-            clear=True,
-        ),
-        patch("boto3.client", return_value=mock_client),
-    ):
-        secret = dependencies.get_harness_secret()
-        assert secret == "sm-secret"
-
-
-def test_get_harness_secret_requires_either_env_var() -> None:
-    """Test that get_harness_secret fails without any secret source."""
-    with patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(RuntimeError, match="Either RAJ_HARNESS_SECRET or HARNESS_SECRET_ARN"):
-            dependencies.get_harness_secret()
-
-
-def test_get_harness_secret_caches_result() -> None:
-    """Test that harness secret is retrieved once and cached."""
-    mock_client = MagicMock()
-    mock_client.get_secret_value.return_value = {"SecretString": "harness-secret"}
-
-    with (
-        patch.dict(
-            "os.environ",
-            {
-                "HARNESS_SECRET_ARN": "arn:aws:secretsmanager:...",
-                "AWS_REGION": "us-east-1",
-            },
-            clear=True,
-        ),
-        patch("boto3.client", return_value=mock_client),
-    ):
-        # First call should retrieve secret
-        secret1 = dependencies.get_harness_secret()
-        assert secret1 == "harness-secret"
-        assert mock_client.get_secret_value.call_count == 1
-
-        # Second call should return cached secret
-        secret2 = dependencies.get_harness_secret()
-        assert secret2 == "harness-secret"
         assert mock_client.get_secret_value.call_count == 1

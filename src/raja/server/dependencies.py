@@ -19,7 +19,6 @@ _principal_table: Any | None = None
 _mappings_table: Any | None = None
 _audit_table: Any | None = None
 _jwt_secret_cache: str | None = None
-_harness_secret_cache: str | None = None
 
 
 def _get_region() -> str:
@@ -154,38 +153,3 @@ def get_jwt_secret() -> str:
     response = client.get_secret_value(SecretId=secret_arn)
     _jwt_secret_cache = response["SecretString"]
     return _jwt_secret_cache
-
-
-def get_harness_secret() -> str:
-    """Get S3 harness signing secret.
-
-    First checks RAJ_HARNESS_SECRET environment variable (for local dev).
-    If not set, loads from AWS Secrets Manager using HARNESS_SECRET_ARN.
-
-    Returns:
-        S3 harness signing secret string
-
-    Raises:
-        RuntimeError: If neither RAJ_HARNESS_SECRET nor HARNESS_SECRET_ARN is set
-    """
-    global _harness_secret_cache
-    if _harness_secret_cache is not None:
-        return _harness_secret_cache
-
-    # Try environment variable first (for local development)
-    secret = os.environ.get("RAJ_HARNESS_SECRET")
-    if secret:
-        _harness_secret_cache = secret
-        return _harness_secret_cache
-
-    # Fall back to Secrets Manager (production)
-    harness_secret_arn = os.environ.get("HARNESS_SECRET_ARN")
-    if not harness_secret_arn:
-        raise RuntimeError(
-            "Either RAJ_HARNESS_SECRET or HARNESS_SECRET_ARN environment variable is required"
-        )
-
-    client = boto3.client("secretsmanager", region_name=_get_region())
-    response = client.get_secret_value(SecretId=harness_secret_arn)
-    _harness_secret_cache = response["SecretString"]
-    return _harness_secret_cache

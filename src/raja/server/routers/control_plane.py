@@ -6,6 +6,7 @@ import base64
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -13,6 +14,7 @@ from pydantic import BaseModel, model_validator
 
 from raja import create_token
 from raja.cedar.entities import parse_entity
+from raja.cedar.schema import validate_policy_against_schema
 from raja.package_map import parse_s3_path
 from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
 from raja.server import dependencies
@@ -82,8 +84,24 @@ class TranslationTokenRequest(BaseModel):
         return self
 
 
+class PolicyCreateRequest(BaseModel):
+    """Request model for policy creation."""
+
+    statement: str
+    description: str = ""
+
+
+class PolicyUpdateRequest(BaseModel):
+    """Request model for policy update."""
+
+    statement: str
+
+
 POLICY_STORE_ID = os.environ.get("POLICY_STORE_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
+
+# Path to the Cedar schema file for policy validation
+_SCHEMA_PATH = Path(__file__).parents[5] / "policies" / "schema.cedar"
 
 
 def _require_env(value: str | None, name: str) -> str:
@@ -99,6 +117,14 @@ def _get_request_id(request: Request) -> str:
         or request.headers.get("x-amzn-requestid")
         or str(uuid.uuid4())
     )
+
+
+def _validate_cedar_statement(statement: str) -> None:
+    """Validate Cedar statement against schema; raises HTTPException(422) on failure."""
+    try:
+        validate_policy_against_schema(statement, str(_SCHEMA_PATH), use_cedar_cli=False)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 router = APIRouter(prefix="", tags=["control-plane"])
@@ -460,6 +486,101 @@ def list_policies(
 
     logger.info("policies_listed_with_statements", count=len(detailed))
     return {"policies": detailed}
+
+
+@router.post("/policies")
+def create_policy(
+    request: Request,
+    payload: PolicyCreateRequest,
+    avp: Any = Depends(dependencies.get_avp_client),
+    audit_table: Any = Depends(dependencies.get_audit_table),
+) -> dict[str, Any]:
+    """Create a new Cedar policy in the AVP policy store."""
+    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
+    _validate_cedar_statement(payload.statement)
+    response = avp.create_policy(
+        policyStoreId=policy_store_id,
+        definition={"static": {"statement": payload.statement, "description": payload.description}},
+    )
+    policy_id = response["policyId"]
+    logger.info("policy_created", policy_id=policy_id)
+    audit_table.put_item(
+        Item=build_audit_item(
+            principal="admin",
+            action="policy.create",
+            resource=payload.statement,
+            decision="SUCCESS",
+            policy_store_id=policy_store_id,
+            request_id=_get_request_id(request),
+        )
+    )
+    return {"policyId": policy_id}
+
+
+@router.get("/policies/{policy_id}")
+def get_policy(
+    policy_id: str,
+    avp: Any = Depends(dependencies.get_avp_client),
+) -> dict[str, Any]:
+    """Get a single Cedar policy with its full statement."""
+    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
+    response = avp.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
+    logger.debug("policy_fetched", policy_id=policy_id)
+    return {"policyId": policy_id, "definition": response.get("definition")}
+
+
+@router.put("/policies/{policy_id}")
+def update_policy(
+    policy_id: str,
+    request: Request,
+    payload: PolicyUpdateRequest,
+    avp: Any = Depends(dependencies.get_avp_client),
+    audit_table: Any = Depends(dependencies.get_audit_table),
+) -> dict[str, Any]:
+    """Replace the Cedar statement of an existing policy."""
+    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
+    _validate_cedar_statement(payload.statement)
+    avp.update_policy(
+        policyStoreId=policy_store_id,
+        policyId=policy_id,
+        definition={"static": {"statement": payload.statement}},
+    )
+    logger.info("policy_updated", policy_id=policy_id)
+    audit_table.put_item(
+        Item=build_audit_item(
+            principal="admin",
+            action="policy.update",
+            resource=payload.statement,
+            decision="SUCCESS",
+            policy_store_id=policy_store_id,
+            request_id=_get_request_id(request),
+        )
+    )
+    return {"policyId": policy_id, "updated": True}
+
+
+@router.delete("/policies/{policy_id}")
+def delete_policy(
+    policy_id: str,
+    request: Request,
+    avp: Any = Depends(dependencies.get_avp_client),
+    audit_table: Any = Depends(dependencies.get_audit_table),
+) -> dict[str, Any]:
+    """Delete a Cedar policy from the AVP policy store."""
+    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
+    avp.delete_policy(policyStoreId=policy_store_id, policyId=policy_id)
+    logger.info("policy_deleted", policy_id=policy_id)
+    audit_table.put_item(
+        Item=build_audit_item(
+            principal="admin",
+            action="policy.delete",
+            resource=policy_id,
+            decision="SUCCESS",
+            policy_store_id=policy_store_id,
+            request_id=_get_request_id(request),
+        )
+    )
+    return {"policyId": policy_id, "deleted": True}
 
 
 @router.get("/.well-known/jwks.json")

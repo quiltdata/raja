@@ -316,10 +316,6 @@ resource "random_password" "jwt_secret" {
   special = false
 }
 
-resource "random_password" "harness_secret" {
-  length  = 48
-  special = false
-}
 
 resource "aws_secretsmanager_secret" "jwt" {
   name                    = "${var.stack_name}-jwt-signing-key"
@@ -332,16 +328,7 @@ resource "aws_secretsmanager_secret_version" "jwt_value" {
   secret_string = random_password.jwt_secret.result
 }
 
-resource "aws_secretsmanager_secret" "harness" {
-  name                    = "${var.stack_name}-harness-signing-key"
-  description             = "S3 harness signing secret for RAJA authorization tokens"
-  recovery_window_in_days = 0
-}
 
-resource "aws_secretsmanager_secret_version" "harness_value" {
-  secret_id     = aws_secretsmanager_secret.harness.id
-  secret_string = random_password.harness_secret.result
-}
 
 resource "aws_iam_role" "control_plane_lambda" {
   name = "${var.stack_name}-control-plane-lambda-role"
@@ -396,8 +383,7 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = [
-          aws_secretsmanager_secret.jwt.arn,
-          aws_secretsmanager_secret.harness.arn
+          aws_secretsmanager_secret.jwt.arn
         ]
       },
       {
@@ -444,7 +430,6 @@ resource "aws_lambda_function" "control_plane" {
       PRINCIPAL_TABLE    = aws_dynamodb_table.principal_scopes.name
       AUDIT_TABLE        = aws_dynamodb_table.audit_log.name
       JWT_SECRET_ARN     = aws_secretsmanager_secret.jwt.arn
-      HARNESS_SECRET_ARN = aws_secretsmanager_secret.harness.arn
       TOKEN_TTL          = tostring(var.token_ttl)
       AWS_ACCOUNT_ID     = data.aws_caller_identity.current.account_id
     }
@@ -454,8 +439,7 @@ resource "aws_lambda_function" "control_plane" {
     aws_iam_role_policy_attachment.control_plane_basic_execution,
     aws_iam_role_policy.control_plane_permissions,
     aws_verifiedpermissions_policy.cedar,
-    aws_secretsmanager_secret_version.jwt_value,
-    aws_secretsmanager_secret_version.harness_value
+    aws_secretsmanager_secret_version.jwt_value
   ]
 }
 
