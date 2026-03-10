@@ -46,3 +46,4 @@ infra/terraform/build/
 .cursorignore
 .cursorindexingignore
 infra/terraform/terraform.tfvars
+infra/tf-outputs.json
