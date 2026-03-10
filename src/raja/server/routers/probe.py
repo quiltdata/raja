@@ -55,21 +55,30 @@ def probe_rajee(
             timeout=10.0,
             follow_redirects=False,
         )
+        all_headers = dict(response.headers.items())
         raja_headers = {
             k: v for k, v in response.headers.items() if k.lower().startswith("x-raja-")
         }
         result: dict[str, Any] = {
             "status_code": response.status_code,
-            "headers": raja_headers,
+            "headers": all_headers,
+            "diagnostic_headers": raja_headers,
             "rajee_reachable": True,
+            "principal": payload.principal,
+            "usl": payload.usl,
+            "endpoint": payload.rajee_endpoint,
         }
         decision = "SUCCESS"
     except httpx.RequestError as exc:
         result = {
             "status_code": None,
             "headers": {},
+            "diagnostic_headers": {},
             "rajee_reachable": False,
             "error": str(exc),
+            "principal": payload.principal,
+            "usl": payload.usl,
+            "endpoint": payload.rajee_endpoint,
         }
         decision = "ERROR"
 
