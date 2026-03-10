@@ -2,144 +2,280 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RAJA Admin</title>
     <link rel="stylesheet" href="/static/admin.css" />
   </head>
   <body>
-    <header>
-      <h1>RAJA Admin</h1>
-      <p>Issue tokens, inspect claims, and probe RAJEE — using the real authorization pipeline.</p>
+    <header class="app-header">
+      <div class="brand">RAJA Admin</div>
+      <label class="admin-key-wrap" for="admin-key">
+        <span>Admin Key</span>
+        <input id="admin-key" type="password" autocomplete="off" placeholder="Enter ADMIN_KEY" />
+      </label>
+      <div class="health-chip" id="header-health-chip">
+        <span class="dot" id="header-health-dot" aria-hidden="true"></span>
+        <span id="header-health-text">checking...</span>
+      </div>
     </header>
-    <main>
-      <section class="card admin-auth" style="--delay: 0s;">
-        <h2>Admin Auth</h2>
-        <p>Enter the admin key used for protected control-plane API requests in this tab.</p>
-        <div>
-          <label for="admin-key">Admin Key</label>
-          <input id="admin-key" type="password" autocomplete="off" placeholder="Enter RAJA_ADMIN_KEY" />
-        </div>
-        <p class="admin-auth-error" id="admin-auth-error" hidden>Invalid or missing admin key.</p>
-      </section>
-      <section class="card" style="--delay: 0s;">
-        <h2>JWKS</h2>
-        <p>Live public key set used to verify all tokens issued by this instance.</p>
-        <pre id="jwks">Loading...</pre>
-        <div class="actions">
-          <button class="secondary" id="refresh-jwks">Refresh JWKS</button>
-        </div>
-      </section>
-      <section class="card" style="--delay: 0.05s;">
-        <h2>Issue Token</h2>
-        <p>Issue a real RAJ or RAJEE token via the control plane. Requires a principal that exists in DynamoDB.</p>
-        <form id="token-form">
-          <div class="field-row">
-            <div>
-              <label for="token-principal">Principal</label>
-              <input id="token-principal" name="principal" placeholder="User::alice" />
+
+    <div class="admin-auth-error" id="admin-auth-error" hidden>Invalid or missing admin key.</div>
+
+    <div class="layout">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <nav id="side-nav">
+          <a href="#overview" data-view="overview">Overview</a>
+          <a href="#authority" data-view="authority">Authority</a>
+          <a href="#token" data-view="token">Token</a>
+          <a href="#enforce" data-view="enforce">Enforce</a>
+          <a href="#failures" data-view="failures">Failures</a>
+          <a href="#incident" data-view="incident">Incident</a>
+          <a href="#audit" data-view="audit">Audit</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <section id="view-overview" class="view">
+          <h1>Overview</h1>
+          <p class="concept">The system compiles authorization once in RAJA and enforces by subset checks in RAJEE.</p>
+
+          <pre class="architecture" aria-label="RAJA architecture diagram">
+ ┌──────────┐   Cedar policies    ┌─────────┐
+ │   RAJA   │ ──────────────────► │   AVP   │
+ │ Authority│ ◄── ALLOW/DENY ──── │ (Cedar) │
+ └────┬─────┘                     └─────────┘
+      │ issues RAJ / TAJ
+      ▼
+ ┌──────────┐   validates + routes  ┌──────────┐
+ │  RAJEE   │ ─────────────────────►│    S3    │
+ │ (Envoy)  │                       │ (actual) │
+ └──────────┘
+      ▲
+      │ attaches token, routes request
+ ┌──────────┐   logical path (USL)
+ │  Diwan   │ ◄── developer uses boto3 normally
+ └──────────┘
+          </pre>
+
+          <section class="panel">
+            <h2>System Status</h2>
+            <div class="pill-row" id="overview-status-pills"></div>
+          </section>
+        </section>
+
+        <section id="view-authority" class="view" hidden>
+          <h1>Authority</h1>
+          <p class="concept">RAJA is the only component that evaluates policy. It consults Cedar policies in AVP, and if it issues a token, that decision is final.</p>
+          <div class="actions">
+            <button type="button" id="authority-refresh">Refresh</button>
+          </div>
+
+          <section class="panel">
+            <h2>JWKS</h2>
+            <pre id="authority-jwks">Not loaded.</pre>
+          </section>
+
+          <section class="panel">
+            <h2>Active Principals</h2>
+            <table>
+              <thead>
+                <tr><th>Principal</th><th>Scope Count</th></tr>
+              </thead>
+              <tbody id="authority-principals-body"></tbody>
+            </table>
+          </section>
+
+          <section class="panel">
+            <h2>Active Policies</h2>
+            <table>
+              <thead>
+                <tr><th>Policy ID</th><th>Statement</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="authority-policies-body"></tbody>
+            </table>
+          </section>
+
+          <section class="panel">
+            <h2>Create Policy</h2>
+            <form id="policy-create-form">
+              <label for="policy-create-statement">Cedar statement</label>
+              <textarea id="policy-create-statement" placeholder="permit(...);"></textarea>
+              <label for="policy-create-description">Description (optional)</label>
+              <input id="policy-create-description" placeholder="Optional description" />
+              <div class="actions"><button type="submit">Create policy</button></div>
+            </form>
+            <pre id="policy-create-result">No policy created yet.</pre>
+          </section>
+
+          <section class="panel" id="policy-editor-panel" hidden>
+            <h2>Edit Policy</h2>
+            <div id="policy-editor-meta"></div>
+            <form id="policy-edit-form">
+              <label for="policy-edit-statement">Cedar statement</label>
+              <textarea id="policy-edit-statement"></textarea>
+              <div class="actions">
+                <button type="submit">Save changes</button>
+                <button type="button" class="secondary" id="policy-edit-cancel">Cancel</button>
+              </div>
+            </form>
+            <h3>Diff</h3>
+            <pre id="policy-edit-diff">No changes yet.</pre>
+          </section>
+        </section>
+
+        <section id="view-token" class="view" hidden>
+          <h1>Token</h1>
+          <p class="concept">A RAJ is compiled authority. RAJA evaluates policy once and encodes the result into a signed JWT.</p>
+
+          <section class="panel">
+            <h2>Mint</h2>
+            <form id="token-form">
+              <div class="field-grid">
+                <label>Principal
+                  <input id="token-principal" placeholder="User::alice" />
+                </label>
+                <label>Token Type
+                  <select id="token-type">
+                    <option value="raja">RAJ</option>
+                    <option value="rajee">RAJEE</option>
+                  </select>
+                </label>
+              </div>
+              <div class="actions"><button type="submit">Mint token</button></div>
+            </form>
+            <label for="token-output">Token</label>
+            <textarea id="token-output" readonly></textarea>
+            <div id="token-mint-status"></div>
+            <h3>Annotated Claims</h3>
+            <div id="token-claims-annotated" class="claims"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Verify</h2>
+            <form id="verify-form">
+              <label for="verify-token">Token</label>
+              <textarea id="verify-token" placeholder="Paste token"></textarea>
+              <label for="verify-audience">Expected audience</label>
+              <input id="verify-audience" value="raja-s3" />
+              <div class="actions"><button type="submit">Verify token</button></div>
+            </form>
+            <div id="verify-status" class="status-banner">No token verified yet.</div>
+            <h3>Decoded Claims</h3>
+            <div id="verify-claims-annotated" class="claims"></div>
+          </section>
+        </section>
+
+        <section id="view-enforce" class="view" hidden>
+          <h1>Enforce</h1>
+          <p class="concept">RAJEE does not evaluate policy. It checks whether the requested scope is a subset of token scopes and then allows or denies.</p>
+
+          <section class="panel">
+            <form id="probe-form">
+              <label for="probe-endpoint">RAJEE endpoint URL</label>
+              <input id="probe-endpoint" value="http://localhost:10000" />
+
+              <label for="probe-usl">Logical path (USL)</label>
+              <input id="probe-usl" placeholder="quilt+s3://registry#package=author/pkg@hash" />
+
+              <label for="probe-principal">Principal</label>
+              <input id="probe-principal" placeholder="User::alice" />
+
+              <div class="actions">
+                <button type="submit">Run live probe</button>
+                <button type="button" class="secondary" id="probe-health">RAJEE health check</button>
+              </div>
+            </form>
+            <div id="probe-status" class="status-banner">No probe run yet.</div>
+            <pre id="probe-output">Awaiting probe.</pre>
+          </section>
+        </section>
+
+        <section id="view-failures" class="view" hidden>
+          <h1>Failure Modes</h1>
+          <p class="concept">The system is fail-closed: anything ambiguous or unknown becomes a DENY.</p>
+
+          <section class="panel failure-tests">
+            <div class="failure-header">
+              <div class="failure-header-actions">
+                <button class="secondary" id="failure-run-category" disabled>Run category</button>
+                <button class="secondary" id="failure-export-results" disabled>Export results</button>
+              </div>
             </div>
-            <div>
-              <label for="token-type">Token type</label>
-              <select id="token-type" name="token_type">
-                <option value="raja">RAJ (generic scopes)</option>
-                <option value="rajee">RAJEE (S3 proxy audience)</option>
-              </select>
+            <div class="failure-category-selector" id="failure-category-selector">Loading failure test categories...</div>
+            <div class="failure-test-list" id="failure-test-list">Loading failure test definitions...</div>
+            <div class="failure-run-summary" id="failure-run-summary"></div>
+          </section>
+        </section>
+
+        <section id="view-incident" class="view" hidden>
+          <h1>Incident Response</h1>
+          <p class="concept">Soft revocation deletes a principal (new issuance blocked, existing TTL remains). Hard revocation rotates signing secret and invalidates all issued tokens.</p>
+
+          <section class="panel">
+            <h2>Soft Revocation</h2>
+            <div class="field-grid">
+              <label>Principal
+                <select id="incident-principal"></select>
+              </label>
             </div>
-          </div>
-          <div class="actions">
-            <button type="submit">Issue token</button>
-          </div>
-        </form>
-        <div>
-          <label>Token</label>
-          <textarea id="token-output" readonly placeholder="Your token will appear here."></textarea>
-        </div>
-        <div>
-          <label>Response</label>
-          <pre id="token-claims">Waiting for issue request.</pre>
-        </div>
-      </section>
-      <section class="card" style="--delay: 0.1s;">
-        <h2>Decode Token</h2>
-        <p>Decode any JWT payload client-side. Signature is not verified — this shows claims only.</p>
-        <form id="decode-form">
-          <div>
-            <label for="decode-token">Token</label>
-            <textarea id="decode-token" name="token" placeholder="Paste any JWT here."></textarea>
-          </div>
-          <div class="actions">
-            <button type="submit">Decode</button>
-          </div>
-        </form>
-        <div>
-          <label>Claims</label>
-          <pre id="decode-output">Waiting for token.</pre>
-        </div>
-      </section>
-      <section class="card" style="--delay: 0.15s;">
-        <h2>RAJEE Probe</h2>
-        <p>Mint a real short-lived TAJ and send it to a live RAJEE endpoint. Proves the full path: RAJA mints → RAJEE validates → S3 is reached (or denied).</p>
-        <form id="probe-form">
-          <div>
-            <label for="probe-principal">Principal</label>
-            <input id="probe-principal" name="principal" placeholder="User::alice" />
-          </div>
-          <div>
-            <label for="probe-usl">Package URI (USL)</label>
-            <input id="probe-usl" name="usl" placeholder="registry/author/pkg@hash" />
-          </div>
-          <div>
-            <label for="probe-endpoint">RAJEE endpoint</label>
-            <input id="probe-endpoint" name="rajee_endpoint" placeholder="http://localhost:10000" />
-          </div>
-          <div class="actions">
-            <button type="submit">Probe RAJEE</button>
-            <button type="button" class="secondary" id="probe-health">Check health</button>
-          </div>
-        </form>
-        <div>
-          <label>Probe result</label>
-          <pre id="probe-output">Waiting for probe.</pre>
-        </div>
-      </section>
-      <section class="card control-plane" style="--delay: 0.2s;">
-        <h2>Control Plane (Optional)</h2>
-        <p>Fetches live AWS control-plane data only when requested.</p>
-        <div class="actions">
-          <button class="secondary" id="load-control-plane">Load control-plane data</button>
-        </div>
-        <div>
-          <label>Principals</label>
-          <pre id="principals">Not loaded.</pre>
-        </div>
-        <div>
-          <label>Policies</label>
-          <pre id="policies">Not loaded.</pre>
-        </div>
-        <div>
-          <label>Audit Log</label>
-          <pre id="audit">Not loaded.</pre>
-        </div>
-      </section>
-      <section class="card failure-tests" style="--delay: 0.25s;">
-        <div class="failure-header">
-          <div>
-            <h2>Failure Mode Test Suite</h2>
-            <p>Execute documented failure modes and inspect why expected failures occur.</p>
-          </div>
-          <div class="failure-header-actions">
-            <button class="secondary" id="failure-run-category" disabled>Run category</button>
-            <button class="secondary" id="failure-export-results" disabled>Export results</button>
-          </div>
-        </div>
-        <div class="failure-category-selector" id="failure-category-selector">
-          Loading failure test categories…
-        </div>
-        <div class="failure-test-list" id="failure-test-list">
-          Loading failure test definitions…
-        </div>
-        <div class="failure-run-summary" id="failure-run-summary"></div>
-      </section>
-    </main>
+            <div class="actions">
+              <button type="button" class="secondary" id="incident-refresh-principals">Refresh principals</button>
+              <button type="button" id="incident-delete-principal">Delete principal</button>
+            </div>
+            <pre id="incident-soft-result">No action yet.</pre>
+          </section>
+
+          <section class="panel">
+            <h2>Hard Revocation</h2>
+            <div class="actions"><button type="button" id="incident-rotate-secret">Rotate Secret</button></div>
+            <ul id="rotate-timeline" class="timeline"></ul>
+            <pre id="incident-hard-result">No rotation started.</pre>
+          </section>
+
+          <section class="panel">
+            <h2>No per-token revocation</h2>
+            <p><code>POST /token/revoke</code> returns <code>{"status": "unsupported"}</code> by design. A denylist would force every enforcement call to hit mutable shared state; short TTLs bound exposure instead.</p>
+          </section>
+        </section>
+
+        <section id="view-audit" class="view" hidden>
+          <h1>Audit</h1>
+          <p class="concept">Every token issuance and enforcement decision is logged.</p>
+
+          <section class="panel">
+            <form id="audit-filter-form">
+              <div class="field-grid">
+                <label>Principal
+                  <input id="audit-principal" placeholder="User::alice" />
+                </label>
+                <label>Action
+                  <input id="audit-action" placeholder="token.issue" />
+                </label>
+                <label>Resource
+                  <input id="audit-resource" placeholder="quilt+s3://..." />
+                </label>
+                <label>Start Time (epoch)
+                  <input id="audit-start-time" type="number" min="0" />
+                </label>
+                <label>End Time (epoch)
+                  <input id="audit-end-time" type="number" min="0" />
+                </label>
+              </div>
+              <div class="actions"><button type="submit">Load audit</button></div>
+            </form>
+
+            <table>
+              <thead>
+                <tr><th>Time</th><th>Principal</th><th>Action</th><th>Resource</th><th>Decision</th></tr>
+              </thead>
+              <tbody id="audit-table-body"></tbody>
+            </table>
+            <pre id="audit-raw" hidden></pre>
+          </section>
+        </section>
+      </main>
+    </div>
+
     <script src="/static/admin.js"></script>
   </body>
 </html>

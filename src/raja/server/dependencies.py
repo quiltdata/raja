@@ -176,9 +176,9 @@ def require_admin_auth(request: Request) -> None:
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=401, detail="Missing or malformed authorization header")
 
-    admin_key = os.environ.get("RAJA_ADMIN_KEY")
+    admin_key = os.environ.get("ADMIN_KEY") or os.environ.get("RAJA_ADMIN_KEY")
     if not admin_key:
-        raise HTTPException(status_code=500, detail="RAJA_ADMIN_KEY is not configured")
+        raise HTTPException(status_code=500, detail="ADMIN_KEY is not configured")
 
     if not secrets.compare_digest(token, admin_key):
         raise HTTPException(status_code=401, detail="Invalid or missing admin key")

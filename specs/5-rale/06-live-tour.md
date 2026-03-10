@@ -22,24 +22,27 @@ The concept is explained in plain language at the top. The interaction is the pr
 
 ## Navigation Model
 
-Replace the single scrolling page with a **persistent left sidebar nav** and a **main content area** that switches views without page reload. The URL hash reflects the active view (`#authority`, `#token`, `#enforce`, `#failures`, `#audit`) so views are linkable.
+Replace the single scrolling page with a **persistent left sidebar nav** and a **main content area** that switches views without page reload. The URL hash reflects the active view (`#authority`, `#token`, `#enforce`, `#failures`, `#incident`, `#audit`) so views are linkable.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  RAJA Admin                             ● healthy   │
-├──────────────┬──────────────────────────────────────┤
-│              │                                      │
-│  ◉ Overview  │   [view content here]                │
-│  ○ Authority │                                      │
-│  ○ Token     │                                      │
-│  ○ Enforce   │                                      │
-│  ○ Failures  │                                      │
-│  ○ Audit     │                                      │
-│              │                                      │
-└──────────────┴──────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  RAJA Admin      Admin Key: [______________]     ● healthy   │
+├──────────────┬───────────────────────────────────────────────┤
+│              │                                               │
+│  ◉ Overview  │   [view content here]                         │
+│  ○ Authority │                                               │
+│  ○ Token     │                                               │
+│  ○ Enforce   │                                               │
+│  ○ Failures  │                                               │
+│  ○ Incident  │                                               │
+│  ○ Audit     │                                               │
+│              │                                               │
+└──────────────┴───────────────────────────────────────────────┘
 ```
 
-The header shows a live health dot (green/red) pulled from `/health` on load.
+The header shows a live health dot (green/red) pulled from `/health` on load. It also contains a persistent **Admin Key** password input. The entered key is stored in `sessionStorage` (cleared when the tab closes). Every `fetch` call to a protected endpoint includes `Authorization: Bearer <key>`. A `401` response surfaces as an inline error banner: "Invalid or missing admin key."
+
+The Overview and health dot load without auth (`GET /` and `GET /health` are public). All other view data requires a valid key.
 
 ---
 
@@ -86,12 +89,17 @@ No interactive tools on this view. Navigation only.
 **Live data shown:**
 
 - **JWKS** — the live public key set used to verify all tokens issued by this instance (`/.well-known/jwks.json`)
-- **Active principals** — from `principals` endpoint, shown as a table (principal → scope count)
-- **Active policies** — from `policies` endpoint, shown as a table
+- **Active principals** — from `GET /principals`, shown as a table (principal → scope count)
+- **Active policies** — from `GET /policies?include_statements=true`, shown as a table with full Cedar statements
 
-**Interaction:** "Refresh" button to reload config and principals.
+**Interactions:**
 
-**Why this teaches:** The user sees that RAJA has a specific issuer URL and key — making the trust model concrete.
+- **Refresh** button to reload config, principals, and policies.
+- **Create policy** — a text area for a Cedar statement, submitted to `POST /policies`. RAJA validates against the schema before sending to AVP. Returns the new `policyId`.
+- **Edit policy** — click any policy row to expand its Cedar statement in an editable text area. On save, sends `PUT /policies/{id}`. The UI shows a diff of what changed.
+- **Delete policy** — per-row delete button, calls `DELETE /policies/{id}`. A confirmation prompt makes clear this is permanent and that principals relying on this policy will receive DENY on next issuance.
+
+**Why this teaches:** The user sees the live Cedar statements that RAJA is enforcing, and can modify them without a Terraform redeploy.
 
 ---
 
@@ -127,27 +135,27 @@ The minted token auto-populates into the Verify input so the flow is: Mint → s
 
 ---
 
-### 4. Enforce (RAJEE simulation)
+### 4. Enforce (RAJEE live probe)
 
 **Concept header:**
 
 > RAJEE does not evaluate policy. It checks one thing: is the requested scope a subset of the scopes in the token? If yes, the request is forwarded. If no, it is denied. There is no third outcome.
+>
+> This view proves it against a running RAJEE instance — not a simulation.
 
 **Interaction:**
 
-The existing Simulate Enforcement form. After a decision, show the subset check visually:
+A form with three inputs: RAJEE endpoint URL (defaults to `http://localhost:10000`), a logical path (USL), and a principal. On submit, the server:
 
-```
-Requested:  S3Object:my-bucket/reports/2024.csv:s3:GetObject
-              ⊆ ?
-Granted:    S3Object:my-bucket/reports/:s3:GetObject    ✓ (prefix match)
+1. Mints a real short-lived TAJ (60s TTL) for the principal
+2. Sends a `HEAD` request to RAJEE with the TAJ in `Authorization`
+3. Returns RAJEE's HTTP status, response headers, and any `x-raja-*` diagnostic headers
 
-Decision:   ALLOW
-```
+The UI displays the full round-trip: token minted → request sent → response received, including all diagnostic headers so the enforcement decision is traceable.
 
-For a DENY, show which scope was checked against which granted scopes and why none matched.
+A **RAJEE health check** runs before the probe (via `GET /probe/rajee/health?endpoint=<url>`) and surfaces a reachability error before attempting the full probe if RAJEE is unreachable.
 
-The token auto-populates from the Mint view so the natural path is Mint → Verify → Enforce.
+The natural path is: Mint (Token view) → Enforce (live probe against that principal).
 
 ---
 
@@ -161,7 +169,51 @@ The token auto-populates from the Mint view so the natural path is Mint → Veri
 
 ---
 
-### 6. Audit
+### 6. Incident Response
+
+**Concept header:**
+
+> Two revocation levels with different blast radii. Soft revocation removes a principal so no new tokens can be minted — existing tokens remain valid until TTL expires. Hard revocation rotates the signing key globally, invalidating every previously issued token immediately after the cutover.
+
+#### Soft revocation — Delete principal
+
+A principal selector (populated from `GET /principals`) with a **Delete** button. On confirm, calls `DELETE /principals/{principal}`. The UI annotates the outcome:
+
+```text
+User::alice deleted.
+Existing tokens remain valid for up to 3600s.
+New issuance: BLOCKED.
+```
+
+#### Hard revocation — Rotate secret
+
+A **Rotate Secret** button with a red confirmation dialog:
+
+> This will invalidate all currently issued tokens across the entire system. Warm Lambda containers will be flushed — brief throttle errors are expected during the transition.
+
+On confirm, calls `POST /admin/rotate-secret` and receives a `202 Accepted` with `operation_id`. The UI immediately starts polling `GET /admin/rotate-secret/{operation_id}` (every 2s) and renders a live progress timeline:
+
+```text
+● Create new secret version      ✓
+● Update Lambda env vars         ✓
+● Flush warm containers          ✓  (brief throttle expected)
+● Run completion probes          ⟳  in progress…
+  └─ Old token: DENY             ✓
+  └─ New token: ALLOW            …
+● Status: SUCCEEDED
+```
+
+If the operation reaches `FAILED`, the timeline shows the failed phase and error detail inline.
+
+#### No per-token revocation
+
+A read-only note explains that `POST /token/revoke` returns `{"status": "unsupported"}` by design — a denylist would require every enforcement call to hit a shared mutable store, defeating the architecture. Short TTLs bound exposure instead.
+
+**Why this teaches:** The user sees both revocation levers, understands the tradeoff (blast radius vs immediacy), and can execute either response without CLI access.
+
+---
+
+### 7. Audit
 
 **Concept header:**
 
@@ -181,18 +233,31 @@ Filters: principal, action, resource, time range. Matches the existing query par
 
 ## What Does Not Change
 
-- **All backend routes** — no changes to `app.py`, routers, or any Python code
-- **All existing API endpoints** — the views consume the same endpoints already present
-- **The failure test suite logic** — fully reused as-is
+- **The failure test suite logic** — fully reused as-is in the Failures view
+- **All read endpoints already present** — views consume existing GET routes without modification
 
 ---
 
 ## Files to Modify
 
+### Frontend
+
 | File | Change |
 |---|---|
-| [src/raja/server/templates/admin.html](../../src/raja/server/templates/admin.html) | Full rewrite — sidebar nav, view containers |
-| [src/raja/server/static/admin.js](../../src/raja/server/static/admin.js) | Full rewrite — view router, per-view data loading, annotated claim renderer |
-| [src/raja/server/static/admin.css](../../src/raja/server/static/admin.css) | Extend — sidebar layout, status pills, annotated JSON, subset-check visualization |
+| [src/raja/server/templates/admin.html](../../src/raja/server/templates/admin.html) | Full rewrite — sidebar nav, Admin Key field, view containers |
+| [src/raja/server/static/admin.js](../../src/raja/server/static/admin.js) | Full rewrite — view router, per-view data loading, annotated claim renderer, auth header on all fetches |
+| [src/raja/server/static/admin.css](../../src/raja/server/static/admin.css) | Extend — sidebar layout, status pills, annotated JSON, policy diff view |
 
-No Python changes required.
+### Backend (Python)
+
+| File | Change |
+|---|---|
+| [src/raja/server/dependencies.py](../../src/raja/server/dependencies.py) | Add `require_admin_auth` — reads `ADMIN_KEY` env var, timing-safe comparison, returns `401`/`500` |
+| [src/raja/server/app.py](../../src/raja/server/app.py) | Add `require_admin_auth` to `GET /audit` |
+| [src/raja/server/routers/control_plane.py](../../src/raja/server/routers/control_plane.py) | Add `require_admin_auth` to all token, principal, and policy endpoints; add `POST/PUT/DELETE /policies`, `GET /policies/{id}` |
+| [src/raja/server/routers/probe.py](../../src/raja/server/routers/probe.py) | Add `require_admin_auth` to `POST /probe/rajee` and `GET /probe/rajee/health` |
+| [src/raja/server/routers/failure_tests.py](../../src/raja/server/routers/failure_tests.py) | Replace `get_jwt_secret` pattern with `require_admin_auth` on all handlers |
+
+### Infrastructure
+
+**`infra/terraform/`** — Add `admin_key` variable; pass `ADMIN_KEY` env var to control plane Lambda.
