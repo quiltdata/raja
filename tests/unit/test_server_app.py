@@ -63,6 +63,8 @@ _VALID_STATEMENT = (
 )
 
 _VALIDATE_PATH = "raja.server.routers.control_plane.validate_policy_against_schema"
+_STORE_PATH = "raja.server.routers.control_plane.POLICY_STORE_ID"
+_TEST_STORE = "test-store-id"
 
 
 def test_create_policy_success() -> None:
@@ -73,7 +75,7 @@ def test_create_policy_success() -> None:
     app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
     app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
     try:
-        with patch(_VALIDATE_PATH):
+        with patch(_STORE_PATH, _TEST_STORE), patch(_VALIDATE_PATH):
             client = TestClient(app)
             response = client.post("/policies", json={"statement": _VALID_STATEMENT})
         assert response.status_code == 200
@@ -91,7 +93,10 @@ def test_create_policy_invalid_cedar() -> None:
     app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
     app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
     try:
-        with patch(_VALIDATE_PATH, side_effect=ValueError("unknown resource type: Bad")):
+        with (
+            patch(_STORE_PATH, _TEST_STORE),
+            patch(_VALIDATE_PATH, side_effect=ValueError("unknown resource type: Bad")),
+        ):
             client = TestClient(app)
             response = client.post("/policies", json={"statement": "bad cedar"})
         assert response.status_code == 422
@@ -106,8 +111,9 @@ def test_get_policy_by_id() -> None:
 
     app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
     try:
-        client = TestClient(app)
-        response = client.get("/policies/p-123")
+        with patch(_STORE_PATH, _TEST_STORE):
+            client = TestClient(app)
+            response = client.get("/policies/p-123")
         assert response.status_code == 200
         payload = response.json()
         assert payload["policyId"] == "p-123"
@@ -123,7 +129,7 @@ def test_update_policy_success() -> None:
     app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
     app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
     try:
-        with patch(_VALIDATE_PATH):
+        with patch(_STORE_PATH, _TEST_STORE), patch(_VALIDATE_PATH):
             client = TestClient(app)
             response = client.put("/policies/p-123", json={"statement": _VALID_STATEMENT})
         assert response.status_code == 200
@@ -143,7 +149,10 @@ def test_update_policy_invalid_cedar() -> None:
     app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
     app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
     try:
-        with patch(_VALIDATE_PATH, side_effect=ValueError("unknown action: bad")):
+        with (
+            patch(_STORE_PATH, _TEST_STORE),
+            patch(_VALIDATE_PATH, side_effect=ValueError("unknown action: bad")),
+        ):
             client = TestClient(app)
             response = client.put("/policies/p-123", json={"statement": "bad cedar"})
         assert response.status_code == 422
@@ -159,8 +168,9 @@ def test_delete_policy_success() -> None:
     app.dependency_overrides[dependencies.get_avp_client] = lambda: mock_avp
     app.dependency_overrides[dependencies.get_audit_table] = lambda: mock_audit
     try:
-        client = TestClient(app)
-        response = client.delete("/policies/p-123")
+        with patch(_STORE_PATH, _TEST_STORE):
+            client = TestClient(app)
+            response = client.delete("/policies/p-123")
         assert response.status_code == 200
         payload = response.json()
         assert payload["policyId"] == "p-123"
