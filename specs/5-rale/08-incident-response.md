@@ -1,6 +1,6 @@
-# Incident Response: Token Invalidation via Secret Rotation
+# Incident Response: Token Invalidation
 
-RAJA has two levels of revocation with different blast radii and immediacy.
+RAJA has two revocation levels with different blast radii and immediacy.
 
 ---
 
@@ -10,44 +10,40 @@ RAJA has two levels of revocation with different blast radii and immediacy.
 DELETE /principals/{principal}
 ```
 
-Stops new token issuance for the named principal. Existing tokens remain cryptographically valid and will continue to work until they expire on their own TTL.
+Stops new token issuance for the named principal. Existing tokens remain valid until their TTL expires (default 3600s; TAJ 60s).
 
-**Use when:** A principal should lose access going forward but no token compromise is suspected. The TTL bounds the residual window (default 3600s, TAJ 60s).
+**Use when:** A principal should lose future access but no token compromise is suspected.
 
 ---
 
 ## Hard Revocation — Secret Rotation
 
-Rotate the JWT signing secret in AWS Secrets Manager, then force a Lambda cold start to flush the cached secret value.
-
-**Procedure:**
-
-1. Create a new secret value in Secrets Manager (update the existing secret version, or create a new secret and update `JWT_SECRET_ARN`)
-2. Update the `JWT_SECRET_ARN` environment variable on both the **Control Plane Lambda** and the **RALE Authorizer Lambda** — this forces a cold start and flushes the in-memory cache
-3. All existing tokens (signed with the old secret) now fail signature verification → enforcer returns DENY
-4. New tokens are issued and verified using the new secret
-
-**Use when:** A token has been compromised, a principal may have obtained tokens before deletion, or a system-wide reset is required.
+Rotates the signing key epoch globally, invalidating all previously issued tokens.
 
 ### POST /admin/rotate-secret
 
-Performs the full hard revocation in a single atomic call:
+Executes the following steps as an async operation:
 
-1. Generates a new secret value
-2. Writes it to Secrets Manager (same ARN, new version)
-3. Updates a `SECRET_VERSION` env var (current timestamp) on both the **Control Plane Lambda** and the **RALE Authorizer Lambda**, forcing a cold start and flushing the cached secret
+1. Create a new secret version in `JWT_SECRET_ARN`.
+2. Update `JWT_SECRET_VERSION` on the Control Plane, RALE Authorizer, and RALE Router Lambdas.
+3. Flush warm containers (set reserved concurrency to 0, then restore). Updating env vars alone is insufficient — warm containers retain the old config until recycled. Brief throttle errors during the flush are expected.
+4. Run completion probes: old token must be rejected (`DENY`); new token (minted internally) must be accepted (`ALLOW`).
+5. Mark `SUCCEEDED` after probes pass; mark `FAILED` with phase/error detail otherwise.
 
-**Authentication:** Requires out-of-band credentials (not JWT). If existing tokens are compromised, a JWT-authenticated revocation endpoint provides no protection.
+**Auth:** Admin key (`Authorization: Bearer <ADMIN_KEY>`). The endpoint must not rely on JWT auth, since the signing key may be the subject of the incident.
 
-**Response:** `{"rotated": true, "version": "<new-secret-version-id>"}`
+**Response:**
+
+- `202 Accepted` with `operation_id`
+- `GET /admin/rotate-secret/{operation_id}` → `PENDING | SUCCEEDED | FAILED`
+
+**Use when:** A token has been compromised, a principal may have obtained tokens before deletion, or a full system reset is required.
 
 ---
 
-## Why No Per-Token Denylist
+## No Per-Token Denylist
 
-`POST /token/revoke` returns `{"status": "unsupported"}` and will remain that way. A denylist would require every enforcement call to read from a shared mutable store, reintroducing exactly the per-request overhead the architecture is designed to eliminate.
-
-Secret rotation is the zero-denylist path to immediate, universal invalidation.
+`POST /token/revoke` returns `{"status": "unsupported"}` by design. A denylist would require every enforcement call to hit a shared mutable store — exactly the per-request overhead this architecture is built to avoid. Secret rotation provides global invalidation without it.
 
 ---
 
@@ -56,5 +52,5 @@ Secret rotation is the zero-denylist path to immediate, universal invalidation.
 | Scenario | Mechanism | Effect |
 | --- | --- | --- |
 | Remove future access for a principal | `DELETE /principals/{principal}` | Stops new issuance; existing tokens live to TTL |
-| Invalidate all existing tokens immediately | `POST /admin/rotate-secret` | Existing tokens fail signature check |
-| Per-token revocation | Not supported by design | Use short TTLs to bound exposure |
+| Invalidate all existing tokens globally | `POST /admin/rotate-secret` | Old-signature tokens rejected after cutover |
+| Per-token revocation | Not supported | Use short TTLs to bound exposure |
