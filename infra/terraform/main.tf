@@ -52,7 +52,7 @@ locals {
     [filesha256(local.rale_router_requirements)],
     [for source_file in fileset(local.rale_router_source_dir, "**") : filesha256("${local.rale_router_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
   )))
-  lambda_pip_platform = var.lambda_architecture == "arm64" ? "manylinux2014_aarch64" : "manylinux2014_x86_64"
+  lambda_pip_platform = var.lambda_architecture == "arm64" ? "aarch64-manylinux2014" : "x86_64-manylinux2014"
 
   envoy_source_dir = "${local.repo_root}/infra/raja_poc/assets/envoy"
   envoy_source_hash = sha256(join("", [
@@ -99,9 +99,9 @@ resource "null_resource" "build_raja_layer" {
       set -euo pipefail
       rm -rf "${local.layer_build_dir}"
       mkdir -p "${local.layer_build_dir}/python"
-      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
-        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
-        -r "${local.layer_requirements}" -t "${local.layer_build_dir}/python"
+      uv pip install --no-cache \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        -r "${local.layer_requirements}" --target "${local.layer_build_dir}/python"
       cp -R "${local.raja_source_dir}" "${local.layer_build_dir}/python/raja"
     EOT
   }
@@ -119,9 +119,9 @@ resource "null_resource" "build_control_plane" {
       set -euo pipefail
       rm -rf "${local.control_plane_build_dir}"
       mkdir -p "${local.control_plane_build_dir}"
-      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
-        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
-        -r "${local.control_plane_requirements}" -t "${local.control_plane_build_dir}"
+      uv pip install --no-cache \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        -r "${local.control_plane_requirements}" --target "${local.control_plane_build_dir}"
       cp -R "${local.control_plane_source_dir}/." "${local.control_plane_build_dir}/"
     EOT
   }
@@ -139,9 +139,9 @@ resource "null_resource" "build_rale_authorizer" {
       set -euo pipefail
       rm -rf "${local.rale_authorizer_build_dir}"
       mkdir -p "${local.rale_authorizer_build_dir}"
-      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
-        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
-        -r "${local.rale_authorizer_requirements}" -t "${local.rale_authorizer_build_dir}"
+      uv pip install --no-cache \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        -r "${local.rale_authorizer_requirements}" --target "${local.rale_authorizer_build_dir}"
       cp -R "${local.rale_authorizer_source_dir}/." "${local.rale_authorizer_build_dir}/"
     EOT
   }
@@ -159,9 +159,9 @@ resource "null_resource" "build_rale_router" {
       set -euo pipefail
       rm -rf "${local.rale_router_build_dir}"
       mkdir -p "${local.rale_router_build_dir}"
-      "${var.python_bin}" -m pip install --no-cache-dir --default-timeout=120 --retries=3 \
-        --platform "${local.lambda_pip_platform}" --implementation cp --python-version 3.12 --only-binary=:all: \
-        -r "${local.rale_router_requirements}" -t "${local.rale_router_build_dir}"
+      uv pip install --no-cache \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        -r "${local.rale_router_requirements}" --target "${local.rale_router_build_dir}"
       cp -R "${local.rale_router_source_dir}/." "${local.rale_router_build_dir}/"
     EOT
   }
