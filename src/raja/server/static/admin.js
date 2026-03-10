@@ -80,11 +80,19 @@ async function apiFetch(endpoint, options = {}) {
     headers.set("Authorization", `Bearer ${key}`);
   }
 
-  const response = await fetch(endpoint, {
-    ...options,
-    headers,
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      ...options,
+      headers,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (response.status === 401) {
     setAdminAuthError("Invalid or missing admin key.");
@@ -121,7 +129,16 @@ async function loadHealth() {
   const chipText = select("header-health-text");
   const statusPills = select("overview-status-pills");
 
-  const result = await apiFetch("/health", { method: "GET" });
+  let result;
+  try {
+    result = await apiFetch("/health", { method: "GET" });
+  } catch {
+    if (chipDot) chipDot.classList.add("bad");
+    if (chipText) chipText.textContent = "unreachable";
+    if (statusPills) statusPills.textContent = "Health check failed (network error or timeout).";
+    return;
+  }
+
   if (!result.ok) {
     if (chipDot) {
       chipDot.classList.add("bad");

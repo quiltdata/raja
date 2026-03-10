@@ -105,7 +105,7 @@ demo-package = { cmd = "pytest tests/integration/test_rajee_package_grant.py -v 
 demo-translation = { cmd = "pytest tests/integration/test_rajee_translation_grant.py -v -s", help = "Run translation grant (TAJ-package) demonstrations" }
 
 # AWS deployment
-deploy = { sequence = ["_terraform-apply"], help = "Deploy standalone RAJA stack with Terraform" }
+deploy = { sequence = ["_terraform-apply", "_show-outputs"], help = "Deploy standalone RAJA stack with Terraform" }
 deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
 destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
@@ -130,6 +130,7 @@ test-integration = { cmd = "pytest tests/integration/ -v", help = "Run integrati
 _format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
 _lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
 _typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
+_show-outputs = { cmd = "python scripts/show_outputs.py", help = "Internal: print deployment summary" }
 _terraform-apply = { shell = "set -a; [ -f .env ] && . ./.env; set +a; export TF_VAR_raja_admin_key=${TF_VAR_raja_admin_key:-$RAJA_ADMIN_KEY}; if [ -z \"${TF_VAR_raja_admin_key}\" ]; then echo \"Missing RAJA_ADMIN_KEY (or TF_VAR_raja_admin_key)\" >&2; exit 1; fi; cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json | python3 -c \"import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))\" > ../tf-outputs.json", help = "Internal: deploy Terraform stack and persist outputs" }
 _terraform-destroy = { shell = "set -a; [ -f .env ] && . ./.env; set +a; export TF_VAR_raja_admin_key=${TF_VAR_raja_admin_key:-$RAJA_ADMIN_KEY}; if [ -z \"${TF_VAR_raja_admin_key}\" ]; then echo \"Missing RAJA_ADMIN_KEY (or TF_VAR_raja_admin_key)\" >&2; exit 1; fi; cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../tf-outputs.json", help = "Internal: destroy Terraform stack" }
 
