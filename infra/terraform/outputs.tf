@@ -33,16 +33,6 @@ output "audit_table_name" {
   value       = aws_dynamodb_table.audit_log.name
 }
 
-output "manifest_cache_table_name" {
-  description = "Manifest cache table for RALE router."
-  value       = aws_dynamodb_table.manifest_cache.name
-}
-
-output "taj_cache_table_name" {
-  description = "TAJ decision cache table for RALE authorizer."
-  value       = aws_dynamodb_table.taj_cache.name
-}
-
 output "jwt_secret_arn" {
   description = "JWT signing secret ARN."
   value       = aws_secretsmanager_secret.jwt.arn

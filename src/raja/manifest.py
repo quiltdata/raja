@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from typing import Any
 
@@ -9,6 +10,9 @@ from .quilt_uri import parse_quilt_uri
 
 
 def _load_quilt3() -> Any:
+    os.environ.setdefault("HOME", "/tmp")
+    os.environ.setdefault("XDG_DATA_HOME", "/tmp")
+    os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
     try:
         import quilt3  # type: ignore[import-not-found]
     except Exception as exc:  # pragma: no cover - exercised via callers
@@ -21,6 +25,10 @@ def _iter_locations(entries: Iterable[tuple[str, object]]) -> list[tuple[str, S3
     for logical_path, entry in entries:
         bucket = getattr(entry, "bucket", None)
         key = getattr(entry, "key", None)
+        if not bucket or not key:
+            physical_key = getattr(entry, "physical_key", None)
+            bucket = getattr(physical_key, "bucket", None)
+            key = getattr(physical_key, "path", None)
         if not bucket or not key:
             continue
         locations.append((logical_path, S3Location(bucket=bucket, key=key)))

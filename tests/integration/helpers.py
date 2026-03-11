@@ -17,6 +17,7 @@ OUTPUT_FILES = (
 logger = logging.getLogger(__name__)
 _PUBLIC_CONTROL_PLANE_PATHS = {"/", "/health", "/.well-known/jwks.json"}
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_RALE_URI_FILE = _REPO_ROOT / ".rale-test-uri"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -138,36 +139,6 @@ def _load_jwt_secret_arn_from_outputs(repo_root: Path) -> str | None:
     return None
 
 
-def _load_taj_cache_table_from_outputs(repo_root: Path) -> str | None:
-    for relative in OUTPUT_FILES:
-        path = repo_root / relative
-        if not path.is_file():
-            continue
-        try:
-            payload = json.loads(path.read_text())
-        except json.JSONDecodeError:
-            continue
-        name = _extract_output_value(payload, "taj_cache_table_name")
-        if name:
-            return name
-    return None
-
-
-def _load_manifest_cache_table_from_outputs(repo_root: Path) -> str | None:
-    for relative in OUTPUT_FILES:
-        path = repo_root / relative
-        if not path.is_file():
-            continue
-        try:
-            payload = json.loads(path.read_text())
-        except json.JSONDecodeError:
-            continue
-        name = _extract_output_value(payload, "manifest_cache_table_name")
-        if name:
-            return name
-    return None
-
-
 def require_api_url() -> str:
     api_url = os.environ.get("RAJA_API_URL")
     if not api_url:
@@ -228,22 +199,57 @@ def require_rale_router_url() -> str:
     return endpoint.rstrip("/")
 
 
+def require_rale_test_quilt_uri() -> str:
+    """Return the test package URI or fail loudly if test data is missing."""
+    uri = os.environ.get("RALE_TEST_QUILT_URI") or os.environ.get("TEST_PACKAGE")
+    if not uri and _RALE_URI_FILE.is_file():
+        uri = _RALE_URI_FILE.read_text().strip()
+    if not uri:
+        pytest.fail(
+            "RALE_TEST_QUILT_URI (or TEST_PACKAGE) is not set and .rale-test-uri does not exist.\n"
+            "Run: python scripts/seed_packages.py\n"
+            "Then set RALE_TEST_QUILT_URI=<printed URI> (or TEST_PACKAGE=<URI>) "
+            "or rely on .rale-test-uri"
+        )
+    return uri
+
+
+def parse_rale_test_quilt_uri(uri: str) -> dict[str, str]:
+    """Parse quilt+s3://bucket#package=author/name@hash for RALE integration tests."""
+    try:
+        scheme, rest = uri.split("://", 1)
+        storage = scheme.removeprefix("quilt+")
+        registry, fragment = rest.split("#", 1)
+        package_ref = fragment.removeprefix("package=")
+        package_name, top_hash = package_ref.rsplit("@", 1)
+    except ValueError as exc:
+        raise ValueError(
+            "invalid RALE test URI; expected quilt+s3://<bucket>#package=<author/name>@<hash>"
+        ) from exc
+    if not storage or not registry or not package_name or not top_hash:
+        raise ValueError(
+            "invalid RALE test URI; expected quilt+s3://<bucket>#package=<author/name>@<hash>"
+        )
+    return {
+        "storage": storage,
+        "registry": registry,
+        "package_name": package_name,
+        "hash": top_hash,
+    }
+
+
 def require_taj_cache_table() -> str:
-    table_name = os.environ.get("TAJ_CACHE_TABLE")
-    if not table_name:
-        table_name = _load_taj_cache_table_from_outputs(_REPO_ROOT)
-    if not table_name:
-        pytest.skip("TAJ_CACHE_TABLE not set")
-    return table_name
+    pytest.fail(
+        "TAJ cache table support was removed from RALE.\n"
+        "Use real package-backed integration tests with RALE_TEST_QUILT_URI instead."
+    )
 
 
 def require_manifest_cache_table() -> str:
-    table_name = os.environ.get("MANIFEST_CACHE_TABLE")
-    if not table_name:
-        table_name = _load_manifest_cache_table_from_outputs(_REPO_ROOT)
-    if not table_name:
-        pytest.skip("MANIFEST_CACHE_TABLE not set")
-    return table_name
+    pytest.fail(
+        "Manifest cache table support was removed from RALE.\n"
+        "Use real package-backed integration tests with RALE_TEST_QUILT_URI instead."
+    )
 
 
 def is_rale_routing_enabled() -> bool:

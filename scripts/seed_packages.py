@@ -5,9 +5,20 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+
+SEED_FILES: dict[str, bytes] = {
+    "data.csv": b"col1,col2,col3\nalpha,1,true\nbeta,2,false\ngamma,3,true\n",
+    "README.md": (
+        b"# Package Demo\n\nSample dataset for RAJA package-grant integration tests.\n\n"
+        b"## Files\n\n- `data.csv` \xe2\x80\x94 tabular data\n"
+        b"- `results.json` \xe2\x80\x94 summary stats\n"
+    ),
+    "results.json": b'{"status": "ok", "row_count": 3, "columns": ["col1", "col2", "col3"]}\n',
+}
 
 
 def _get_region() -> str:
@@ -27,22 +38,21 @@ def _ensure_test_files(s3: object, bucket: str, dry_run: bool) -> list[tuple[str
 
     Returns list of (logical_name, s3_key) tuples.
     """
-    files = [
+    files: list[tuple[str, str, bytes]] = [
         (
             "data.csv",
             "rajee-integration/package-demo/data.csv",
-            "col1,col2,col3\nalpha,1,true\nbeta,2,false\ngamma,3,true\n",
+            SEED_FILES["data.csv"],
         ),
         (
             "README.md",
             "rajee-integration/package-demo/README.md",
-            "# Package Demo\n\nSample dataset for RAJA package-grant integration tests.\n\n"
-            "## Files\n\n- `data.csv` — tabular data\n- `results.json` — summary stats\n",
+            SEED_FILES["README.md"],
         ),
         (
             "results.json",
             "rajee-integration/package-demo/results.json",
-            '{"status": "ok", "row_count": 3, "columns": ["col1", "col2", "col3"]}\n',
+            SEED_FILES["results.json"],
         ),
     ]
 
@@ -58,7 +68,9 @@ def _ensure_test_files(s3: object, bucket: str, dry_run: bool) -> list[tuple[str
         except ClientError as exc:
             if exc.response["Error"]["Code"] == "404":
                 s3.put_object(  # type: ignore[attr-defined]
-                    Bucket=bucket, Key=key, Body=body.encode()
+                    Bucket=bucket,
+                    Key=key,
+                    Body=body,
                 )
                 print(f"  ✓ Created: s3://{bucket}/{key}")
             else:
@@ -91,14 +103,36 @@ def _push_package(
         )
         return None
 
-    # dest points back to test bucket so quilt3 doesn't copy the objects
-    dest = f"s3://{test_bucket}/rajee-integration/package-demo"
-    top_hash = pkg.push(
-        package_name,
+    # Use lower-level build to avoid workflow-config dependency in bare registries.
+    top_hash = pkg._build(  # type: ignore[attr-defined]
+        name=package_name,
         registry=f"s3://{registry_bucket}",
-        dest=dest,
+        message=None,
     )
     return str(top_hash)
+
+
+def _ensure_registry_workflow_config(s3: object, registry_bucket: str, dry_run: bool) -> None:
+    key = ".quilt/workflows/config.yml"
+    body = (
+        b"version: '1'\n"
+        b"is_workflow_required: false\n"
+        b"workflows:\n"
+        b"  noop:\n"
+        b"    name: No-op\n"
+    )
+    if dry_run:
+        print(f"  [DRY-RUN] Would ensure s3://{registry_bucket}/{key}")
+        return
+    try:
+        s3.head_object(Bucket=registry_bucket, Key=key)  # type: ignore[attr-defined]
+        print(f"  ✓ Registry workflow config exists: s3://{registry_bucket}/{key}")
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "404":
+            s3.put_object(Bucket=registry_bucket, Key=key, Body=body)  # type: ignore[attr-defined]
+            print(f"  ✓ Created registry workflow config: s3://{registry_bucket}/{key}")
+        else:
+            raise
 
 
 def main() -> None:
@@ -141,6 +175,7 @@ def main() -> None:
         sys.exit(1)
 
     s3 = boto3.client("s3", region_name=region)
+    _ensure_registry_workflow_config(s3, registry_bucket, dry_run)
 
     # --- Package 1: demo/package-grant ---
     print("[1/1] demo/package-grant")
@@ -162,13 +197,21 @@ def main() -> None:
     if dry_run:
         print("✓ DRY-RUN complete — no changes made")
     else:
+        assert top_hash is not None
+        uri = f"quilt+s3://{registry_bucket}#package=demo/package-grant@{top_hash}"
+        uri_file = Path(__file__).resolve().parents[1] / ".rale-test-uri"
+        uri_file.write_text(uri + "\n")
+
         print("✓ Package seeded successfully")
-        print(f"  Name:     demo/package-grant")
+        print("  Name:     demo/package-grant")
         print(f"  Registry: s3://{registry_bucket}")
         print(f"  Hash:     {top_hash}")
         print()
         print("Quilt+ URI:")
-        print(f"  quilt+s3://{registry_bucket}#package=demo/package-grant@{top_hash}")
+        print(f"  {uri}")
+        print()
+        print(f"export RALE_TEST_QUILT_URI={uri}")
+        print(f"(also written to {uri_file})")
     print("=" * 60)
 
 

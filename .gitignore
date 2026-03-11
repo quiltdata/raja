@@ -47,3 +47,4 @@ infra/terraform/build/
 .cursorindexingignore
 infra/terraform/terraform.tfvars
 infra/tf-outputs.json
+.rale-test-uri

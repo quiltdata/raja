@@ -85,13 +85,13 @@ locals {
     ARM64  = "ARM64 (linux/arm64)"
     X86_64 = "X86_64 (linux/amd64)"
   }
-  lambda_arn_prefix              = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
-  control_plane_lambda_name      = "${var.stack_name}-control-plane"
-  rale_authorizer_lambda_name    = "${var.stack_name}-rale-authorizer"
-  rale_router_lambda_name        = "${var.stack_name}-rale-router"
-  control_plane_lambda_arn       = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
-  rale_authorizer_lambda_arn     = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
-  rale_router_lambda_arn         = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
+  lambda_arn_prefix           = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
+  control_plane_lambda_name   = "${var.stack_name}-control-plane"
+  rale_authorizer_lambda_name = "${var.stack_name}-rale-authorizer"
+  rale_router_lambda_name     = "${var.stack_name}-rale-router"
+  control_plane_lambda_arn    = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
+  rale_authorizer_lambda_arn  = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
+  rale_router_lambda_arn      = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
 }
 
 resource "null_resource" "build_raja_layer" {
@@ -291,33 +291,6 @@ resource "aws_dynamodb_table" "audit_log" {
   }
 }
 
-resource "aws_dynamodb_table" "manifest_cache" {
-  name         = "${var.stack_name}-manifest-cache"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "manifest_hash"
-
-  attribute {
-    name = "manifest_hash"
-    type = "S"
-  }
-}
-
-resource "aws_dynamodb_table" "taj_cache" {
-  name         = "${var.stack_name}-taj-cache"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "cache_key"
-
-  attribute {
-    name = "cache_key"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "ttl"
-    enabled        = true
-  }
-}
-
 resource "random_password" "jwt_secret" {
   length  = 48
   special = false
@@ -449,17 +422,17 @@ resource "aws_lambda_function" "control_plane" {
 
   environment {
     variables = {
-      POLICY_STORE_ID    = aws_verifiedpermissions_policy_store.raja.policy_store_id
-      MAPPINGS_TABLE     = aws_dynamodb_table.policy_scope_mappings.name
-      PRINCIPAL_TABLE    = aws_dynamodb_table.principal_scopes.name
-      AUDIT_TABLE        = aws_dynamodb_table.audit_log.name
-      JWT_SECRET_ARN     = aws_secretsmanager_secret.jwt.arn
-      JWT_SECRET_VERSION = aws_secretsmanager_secret_version.jwt_value.version_id
-      TOKEN_TTL          = tostring(var.token_ttl)
-      RAJA_ADMIN_KEY     = var.raja_admin_key
+      POLICY_STORE_ID               = aws_verifiedpermissions_policy_store.raja.policy_store_id
+      MAPPINGS_TABLE                = aws_dynamodb_table.policy_scope_mappings.name
+      PRINCIPAL_TABLE               = aws_dynamodb_table.principal_scopes.name
+      AUDIT_TABLE                   = aws_dynamodb_table.audit_log.name
+      JWT_SECRET_ARN                = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION            = aws_secretsmanager_secret_version.jwt_value.version_id
+      TOKEN_TTL                     = tostring(var.token_ttl)
+      RAJA_ADMIN_KEY                = var.raja_admin_key
       RALE_AUTHORIZER_FUNCTION_NAME = local.rale_authorizer_lambda_name
       RALE_ROUTER_FUNCTION_NAME     = local.rale_router_lambda_name
-      AWS_ACCOUNT_ID     = data.aws_caller_identity.current.account_id
+      AWS_ACCOUNT_ID                = data.aws_caller_identity.current.account_id
     }
   }
 
@@ -512,21 +485,13 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem"
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
         ]
         Resource = [
-          aws_dynamodb_table.taj_cache.arn
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem"
-        ]
-        Resource = [
-          aws_dynamodb_table.manifest_cache.arn
+          aws_s3_bucket.rajee_registry.arn,
+          "${aws_s3_bucket.rajee_registry.arn}/*"
         ]
       },
       {
@@ -557,17 +522,14 @@ resource "aws_lambda_function" "rale_authorizer" {
 
   environment {
     variables = {
-      POLICY_STORE_ID       = aws_verifiedpermissions_policy_store.raja.policy_store_id
-      TAJ_CACHE_TABLE       = aws_dynamodb_table.taj_cache.name
-      MANIFEST_CACHE_TABLE  = aws_dynamodb_table.manifest_cache.name
-      JWT_SECRET_ARN        = aws_secretsmanager_secret.jwt.arn
-      JWT_SECRET_VERSION    = aws_secretsmanager_secret_version.jwt_value.version_id
-      TOKEN_TTL             = tostring(var.token_ttl)
-      TAJ_CACHE_TTL_SECONDS = tostring(var.taj_cache_ttl_seconds)
-      RALE_STORAGE          = var.rale_storage
-      RALE_ACTION           = "quilt:ReadPackage"
-      RALE_ISSUER           = local.issuer
-      RALE_AUDIENCE         = "raja-rale"
+      POLICY_STORE_ID    = aws_verifiedpermissions_policy_store.raja.policy_store_id
+      JWT_SECRET_ARN     = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION = aws_secretsmanager_secret_version.jwt_value.version_id
+      TOKEN_TTL          = tostring(var.token_ttl)
+      RALE_STORAGE       = var.rale_storage
+      RALE_ACTION        = "quilt:ReadPackage"
+      RALE_ISSUER        = local.issuer
+      RALE_AUDIENCE      = "raja-rale"
     }
   }
 
@@ -616,26 +578,6 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem"
-        ]
-        Resource = [
-          aws_dynamodb_table.manifest_cache.arn
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = [
-          aws_secretsmanager_secret.jwt.arn
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
           "s3:GetObject",
           "s3:GetObjectVersion",
           "s3:ListBucket"
@@ -645,6 +587,15 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
           "${aws_s3_bucket.rajee_test.arn}/*",
           aws_s3_bucket.rajee_registry.arn,
           "${aws_s3_bucket.rajee_registry.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.jwt.arn
         ]
       }
     ]
@@ -666,10 +617,9 @@ resource "aws_lambda_function" "rale_router" {
 
   environment {
     variables = {
-      MANIFEST_CACHE_TABLE = aws_dynamodb_table.manifest_cache.name
-      JWT_SECRET_ARN       = aws_secretsmanager_secret.jwt.arn
-      JWT_SECRET_VERSION   = aws_secretsmanager_secret_version.jwt_value.version_id
-      RALE_STORAGE         = var.rale_storage
+      JWT_SECRET_ARN     = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION = aws_secretsmanager_secret_version.jwt_value.version_id
+      RALE_STORAGE       = var.rale_storage
     }
   }
 

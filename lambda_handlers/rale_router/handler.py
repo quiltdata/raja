@@ -92,29 +92,6 @@ def _build_quilt_uri(storage: str, registry: str, package_name: str, manifest_ha
     return f"quilt+{storage}://{registry}#package={package_name}@{manifest_hash}"
 
 
-def _load_cached_manifest(table: Any, manifest_hash: str) -> dict[str, list[dict[str, str]]] | None:
-    item = table.get_item(Key={"manifest_hash": manifest_hash}).get("Item")
-    if not item:
-        return None
-    entries = item.get("entries")
-    if isinstance(entries, dict):
-        return entries
-    return None
-
-
-def _store_manifest(
-    table: Any,
-    manifest_hash: str,
-    entries: dict[str, list[dict[str, str]]],
-) -> None:
-    table.put_item(
-        Item={
-            "manifest_hash": manifest_hash,
-            "entries": entries,
-        }
-    )
-
-
 def _get_targets(entries: dict[str, list[dict[str, str]]], logical_key: str) -> list[S3Location]:
     raw = entries.get(logical_key, [])
     targets: list[S3Location] = []
@@ -161,11 +138,10 @@ def _proxy_get_or_head(
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
-    manifest_cache_table = os.environ.get("MANIFEST_CACHE_TABLE")
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
     jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if not manifest_cache_table or not jwt_secret_arn or not region:
+    if not jwt_secret_arn or not region:
         return _response(500, {"error": "missing required environment variables"})
 
     try:
@@ -203,33 +179,19 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     if claims.registry != registry:
         return _response(403, {"error": "registry mismatch"})
 
-    ddb = boto3.resource("dynamodb", region_name=region)
-    table = ddb.Table(manifest_cache_table)
-
+    storage = os.environ.get("RALE_STORAGE", "s3")
+    quilt_uri = _build_quilt_uri(storage, registry, package_name, manifest_hash)
     try:
-        cached_entries = _load_cached_manifest(table, manifest_hash)
-    except (ClientError, BotoCoreError):
-        return _response(503, {"error": "failed to read manifest cache"})
+        package_map = resolve_package_map(quilt_uri)
+    except RuntimeError as exc:
+        return _response(502, {"error": f"manifest resolution unavailable: {exc}"})
+    except Exception as exc:
+        return _response(502, {"error": f"manifest resolution failed: {exc}"})
 
-    entries = cached_entries
-    if entries is None:
-        storage = os.environ.get("RALE_STORAGE", "s3")
-        quilt_uri = _build_quilt_uri(storage, registry, package_name, manifest_hash)
-        try:
-            package_map = resolve_package_map(quilt_uri)
-        except RuntimeError as exc:
-            return _response(502, {"error": f"manifest resolution unavailable: {exc}"})
-        except Exception:
-            return _response(502, {"error": "manifest resolution failed"})
-
-        entries = {
-            logical: [location.model_dump(mode="json") for location in locations]
-            for logical, locations in package_map.entries.items()
-        }
-        try:
-            _store_manifest(table, manifest_hash, entries)
-        except (ClientError, BotoCoreError):
-            return _response(503, {"error": "failed to write manifest cache"})
+    entries = {
+        logical: [location.model_dump(mode="json") for location in locations]
+        for logical, locations in package_map.entries.items()
+    }
 
     targets = _get_targets(entries, logical_key)
     if not targets:

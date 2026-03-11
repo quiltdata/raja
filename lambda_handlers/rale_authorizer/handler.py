@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from typing import Any
 
 import boto3
@@ -50,7 +49,7 @@ def _parse_usl(raw_path: str) -> tuple[str, str, str | None, str, str | None]:
     """Parse a USL path.
 
     Supports pinned paths (``/registry/author/pkg@hash/key``) and un-pinned
-    paths (``/registry/author/pkg/key``).  For un-pinned paths the
+    paths (``/registry/author/pkg/key``). For un-pinned paths the
     manifest_hash and prefix elements are returned as ``None``.
 
     Quilt package names are always two-level (``author/name``), so an
@@ -89,17 +88,19 @@ def _parse_usl(raw_path: str) -> tuple[str, str, str | None, str, str | None]:
     return registry, package_name, None, logical_key, None
 
 
-def _resolve_manifest_hash(table: Any, registry: str, package_name: str) -> str:
-    """Look up the latest pinned manifest hash for a package.
-
-    Expects an item in the manifest-cache table with the synthetic key
-    ``pkg:{registry}/{package_name}`` and a ``latest_hash`` attribute.
-    """
-    pointer_key = f"pkg:{registry}/{package_name}"
-    item = table.get_item(Key={"manifest_hash": pointer_key}).get("Item")
-    if not item or not isinstance(item.get("latest_hash"), str):
-        raise ValueError(f"no latest manifest hash registered for {registry}/{package_name}")
-    return str(item["latest_hash"])
+def _resolve_latest_hash_via_quilt3(registry: str, package_name: str) -> str:
+    os.environ.setdefault("HOME", "/tmp")
+    os.environ.setdefault("XDG_DATA_HOME", "/tmp")
+    os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
+    try:
+        import quilt3  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover - exercised via integration tests
+        raise RuntimeError("quilt3 is required for package resolution") from exc
+    package = quilt3.Package.browse(
+        name=package_name,
+        registry=f"s3://{registry}",
+    )
+    return str(package.top_hash)
 
 
 def _build_entity_reference(entity: str) -> dict[str, str]:
@@ -107,24 +108,19 @@ def _build_entity_reference(entity: str) -> dict[str, str]:
         entity_type, entity_id = entity.split("::", 1)
         if entity_type and entity_id:
             return {"entityType": entity_type, "entityId": entity_id}
-    return {"entityType": "User", "entityId": entity}
+    return {"entityType": "Raja::User", "entityId": entity}
 
 
 def _build_package_uri(storage: str, registry: str, package_name: str, manifest_hash: str) -> str:
     return f"quilt+{storage}://{registry}#package={package_name}@{manifest_hash}"
 
 
-def _now() -> int:
-    return int(time.time())
-
-
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
     policy_store_id = os.environ.get("POLICY_STORE_ID")
-    taj_cache_table = os.environ.get("TAJ_CACHE_TABLE")
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
     jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if not policy_store_id or not taj_cache_table or not jwt_secret_arn or not region:
+    if not policy_store_id or not jwt_secret_arn or not region:
         return _response(500, {"error": "missing required environment variables"})
 
     try:
@@ -134,41 +130,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     except ValueError as exc:
         return _response(400, {"error": str(exc)})
 
-    ddb = boto3.resource("dynamodb", region_name=region)
-    cache_table = ddb.Table(taj_cache_table)
-    manifest_cache_table_name = os.environ.get("MANIFEST_CACHE_TABLE")
-
     if manifest_hash is None:
-        # Un-pinned USL: resolve the latest manifest hash from the package registry.
-        if not manifest_cache_table_name:
-            return _response(500, {"error": "MANIFEST_CACHE_TABLE required for un-pinned USLs"})
-        manifest_cache = ddb.Table(manifest_cache_table_name)
         try:
-            manifest_hash = _resolve_manifest_hash(manifest_cache, registry, package_name)
-        except ValueError as exc:
-            return _response(404, {"error": str(exc)})
-        except (ClientError, BotoCoreError):
-            return _response(503, {"error": "failed to resolve manifest hash"})
+            manifest_hash = _resolve_latest_hash_via_quilt3(registry, package_name)
+        except RuntimeError as exc:
+            return _response(502, {"error": f"manifest resolution unavailable: {exc}"})
+        except Exception as exc:
+            return _response(502, {"error": f"manifest resolution failed: {exc}"})
         prefix = f"{registry}/{package_name}@{manifest_hash}/"
-
-    cache_key = f"{principal}#{manifest_hash}"
-
-    try:
-        cached = cache_table.get_item(Key={"cache_key": cache_key}).get("Item")
-        if cached and isinstance(cached.get("taj"), str):
-            return _response(
-                200,
-                {
-                    "decision": str(cached.get("decision") or "ALLOW"),
-                    "token": cached["taj"],
-                    "cached": True,
-                    "manifest_hash": manifest_hash,
-                    "package_name": package_name,
-                    "registry": registry,
-                },
-            )
-    except (ClientError, BotoCoreError):
-        return _response(503, {"error": "failed to read TAJ cache"})
 
     action = os.environ.get("RALE_ACTION", "quilt:ReadPackage")
     storage = os.environ.get("RALE_STORAGE", "s3")
@@ -183,12 +152,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     request = {
         "policyStoreId": policy_store_id,
         "principal": _build_entity_reference(principal),
-        "action": {"actionType": "Action", "actionId": action},
-        "resource": {"entityType": "Package", "entityId": quilt_uri},
+        "action": {"actionType": "Raja::Action", "actionId": action},
+        "resource": {"entityType": "Raja::Package", "entityId": quilt_uri},
         "entities": {
             "entityList": [
                 {
-                    "identifier": {"entityType": "Package", "entityId": quilt_uri},
+                    "identifier": {"entityType": "Raja::Package", "entityId": quilt_uri},
                     "attributes": {
                         "registry": {"string": registry},
                         "packageName": {"string": package_name},
@@ -225,8 +194,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
         return _response(503, {"error": "failed to load jwt secret"})
 
     token_ttl = int(os.environ.get("TOKEN_TTL", "3600"))
-    issuer = os.environ.get("RALE_ISSUER")
-    audience = os.environ.get("RALE_AUDIENCE")
     assert prefix is not None  # always set: either from URL or resolved above
     grants = [f"s3:GetObject/{prefix}"]
     taj = create_taj_token(
@@ -237,22 +204,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
         registry=registry,
         ttl=token_ttl,
         secret=jwt_secret,
-        issuer=issuer,
-        audience=audience,
     )
-
-    cache_ttl_seconds = int(os.environ.get("TAJ_CACHE_TTL_SECONDS", "300"))
-    try:
-        cache_table.put_item(
-            Item={
-                "cache_key": cache_key,
-                "taj": taj,
-                "decision": "ALLOW",
-                "ttl": _now() + cache_ttl_seconds,
-            }
-        )
-    except (ClientError, BotoCoreError):
-        return _response(503, {"error": "failed to write TAJ cache"})
 
     return _response(
         200,
