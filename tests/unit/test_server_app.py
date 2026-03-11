@@ -187,3 +187,39 @@ def test_delete_policy_success() -> None:
         assert mock_audit.put_item.call_args[1]["Item"]["action"] == "policy.delete"
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Static asset path tests (regression: API Gateway stage prefix) ---
+#
+# When deployed behind an API Gateway stage (e.g. /prod), absolute paths like
+# /static/admin.css resolve to the root of the host, bypassing the stage
+# prefix, and return 403.  All static asset references in admin.html must be
+# relative so they resolve relative to whatever stage the page is served from.
+
+
+def test_admin_html_static_refs_are_relative():
+    """admin.html must use relative paths for static assets.
+
+    Absolute paths (starting with '/') break under API Gateway stage prefixes —
+    the request goes to the host root instead of /stage/static/..., returning 403.
+    """
+    client = TestClient(app)
+    response = client.get("/")
+    assert response.status_code == 200
+
+    html = response.text
+    # Collect every href/src value that references /static/
+    import re
+
+    absolute_refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
+    assert not absolute_refs, (
+        f"admin.html has absolute static paths (breaks under API Gateway stages): {absolute_refs}"
+    )
+
+
+def test_static_assets_are_served():
+    """Static assets must return 200 so the admin UI can load."""
+    client = TestClient(app)
+    for path in ("/static/admin.css", "/static/admin.js"):
+        response = client.get(path)
+        assert response.status_code == 200, f"{path} returned {response.status_code}"
