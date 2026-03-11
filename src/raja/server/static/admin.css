@@ -322,6 +322,17 @@ th {
 .claim-value { font-family: monospace; font-size: 0.84rem; margin-top: 0.15rem; }
 .claim-note  { color: var(--muted); font-size: 0.8rem; font-style: italic; }
 
+/* ── Overview narrative lists ───────────────────────────── */
+
+.narrative-list,
+.tour-steps {
+  margin: 0;
+  padding-left: 1.4rem;
+  line-height: 1.7;
+}
+
+.tour-steps li { margin-bottom: 0.4rem; }
+
 /* ── Pill row (overview) ─────────────────────────────────── */
 
 .pill-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }

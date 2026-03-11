@@ -27,37 +27,53 @@
       <aside class="sidebar" aria-label="Primary navigation">
         <nav id="side-nav">
           <a href="#overview" data-view="overview">Overview</a>
-          <a href="#authority" data-view="authority">Authority</a>
-          <a href="#token" data-view="token">Token</a>
-          <a href="#enforce" data-view="enforce">Enforce</a>
-          <a href="#failures" data-view="failures">Failures</a>
-          <a href="#incident" data-view="incident">Incident</a>
+          <a href="#authority" data-view="authority">Access Policy</a>
+          <a href="#token" data-view="token">The Token</a>
+          <a href="#enforce" data-view="enforce">Enforcement</a>
+          <a href="#failures" data-view="failures">Failure Modes</a>
+          <a href="#incident" data-view="incident">Revocation</a>
           <a href="#audit" data-view="audit">Audit</a>
         </nav>
       </aside>
 
       <main class="content">
         <section id="view-overview" class="view">
-          <h1>Overview</h1>
-          <p class="concept">The system compiles authorization once in RAJA and enforces by subset checks in RAJEE.</p>
+          <h1>Logical Data Management for Scalable Object Storage</h1>
 
-          <pre class="architecture" aria-label="RAJA architecture diagram">
- ┌──────────┐   Cedar policies    ┌─────────┐
- │   RAJA   │ ──────────────────► │   AVP   │
- │ Authority│ ◄── ALLOW/DENY ──── │ (Cedar) │
- └────┬─────┘                     └─────────┘
-      │ issues RAJ / TAJ
-      ▼
- ┌──────────┐   validates + routes  ┌──────────┐
- │  RAJEE   │ ─────────────────────►│    S3    │
- │ (Envoy)  │                       │ (actual) │
- └──────────┘                       └──────────┘
-      ▲
-      │ attaches token, routes request
- ┌──────────┐   logical path (USL)
- │  Diwan   │ ◄── developer uses boto3 normally
- └──────────┘
-          </pre>
+          <section class="panel">
+            <p>A researcher wants a dataset. They should not have to know which bucket it lives in, which region, which account, or who to ask for an IAM role. They should not have to learn anything about storage infrastructure at all. They should just get the data — or a clear denial.</p>
+            <p>Today that is not how object storage works. Sharing data means exposing infrastructure. Granting access means managing IAM roles, bucket policies, and presigned URLs — all of which leak physical coordinates and require ongoing maintenance. Every request re-asks the same permission question, at runtime, under load.</p>
+            <p>This is a proof of concept that it does not have to work that way.</p>
+          </section>
+
+          <section class="panel">
+            <h2>The Idea</h2>
+            <p>Treat datasets as logical things with names, not physical locations. Grant access to the dataset — not to the bucket. Let the system figure out where the data lives and route the request there, invisibly.</p>
+            <p>Access control happens once, when a request is first made, and the decision is encoded into a short-lived signed token. After that, enforcement is mechanical: does this request fall within the boundary already drawn? No policy engine runs in the data path. No IAM call. No bucket name exposed.</p>
+            <p>"The hotel key contains the authority. The concierge never calls a policy engine." — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
+          </section>
+
+          <section class="panel">
+            <h2>How This Demo Works</h2>
+            <ol class="tour-steps">
+              <li><strong>You define who can access what</strong> — in plain Cedar policy, by dataset name, not by bucket. <a href="#authority">See live policies →</a></li>
+              <li><strong>The system compiles that decision into a token</strong> — a signed JWT that carries the access grant, valid for a short window. <a href="#token">Mint a token and inspect it →</a></li>
+              <li><strong>The token is the only thing enforcement checks</strong> — no policy engine, no IAM, just: does this request fall inside the token's scope? <a href="#enforce">Run a live enforcement probe →</a></li>
+              <li><strong>Anything outside the boundary is denied</strong> — expired tokens, wrong audience, tampered claims. The system is fail-closed. <a href="#failures">See the failure suite →</a></li>
+              <li><strong>Revocation is immediate or eventual</strong> — remove a principal to stop new grants, or rotate the signing key to invalidate everything at once. <a href="#incident">Incident response →</a></li>
+              <li><strong>Every decision is traceable</strong> — each access traces back to a token, which traces back to a policy evaluation. <a href="#audit">Browse the audit log →</a></li>
+            </ol>
+          </section>
+
+          <section class="panel">
+            <h2>Further Reading</h2>
+            <ul class="narrative-list">
+              <li><a href="https://ihack.us/2026/02/05/rale-raj-authorizing-logical-endpoint/" target="_blank" rel="noopener">RALE: RAJ-Authorizing Logical Endpoint</a> — the full system architecture</li>
+              <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a> — why category collapse is the original sin of cloud authorization</li>
+              <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a> — ambient authority vs. manifest authority</li>
+              <li><a href="https://ihack.us/2026/01/23/the-boy-who-ate-the-menu-raj-taj-as-software-defined-addressing-for-universal-storage-locators/" target="_blank" rel="noopener">The Boy Who Ate the Menu</a> — logical addressing for storage, without the infrastructure leak</li>
+            </ul>
+          </section>
 
           <section class="panel">
             <h2>System Status</h2>
@@ -66,8 +82,8 @@
         </section>
 
         <section id="view-authority" class="view" hidden>
-          <h1>Authority</h1>
-          <p class="concept">RAJA is the only component that evaluates policy. It consults Cedar policies in AVP, and if it issues a token, that decision is final.</p>
+          <h1>Access Policy</h1>
+          <p class="concept">Access in this system is defined by what a principal may do — not where data lives. Write a Cedar policy: "alice can read dataset X." That is the complete grant. This is the only place that decision gets made. Everything downstream enforces it; nothing downstream reconsiders it. — <a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></p>
           <div class="actions">
             <button type="button" id="authority-refresh">Refresh</button>
           </div>
@@ -126,8 +142,8 @@
         </section>
 
         <section id="view-token" class="view" hidden>
-          <h1>Token</h1>
-          <p class="concept">A RAJ is compiled authority. RAJA evaluates policy once and encodes the result into a signed JWT.</p>
+          <h1>The Access Token</h1>
+          <p class="concept">When a policy is evaluated, the result isn't a yes or a no — it's a signed token. The decision is compiled in: every scope represents a permission that was already decided. Mint one and read it. The authorization is in plain sight. — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
 
           <section class="panel">
             <h2>Mint</h2>
@@ -168,8 +184,8 @@
         </section>
 
         <section id="view-enforce" class="view" hidden>
-          <h1>Enforce</h1>
-          <p class="concept">RAJEE does not evaluate policy. It checks whether the requested scope is a subset of token scopes and then allows or denies.</p>
+          <h1>Enforcement</h1>
+          <p class="concept">The claim: once a token exists, enforcement requires no policy engine. One check — does the requested scope fit inside the token's scopes? If yes, forward. If no, deny. No third outcome. This view lets you prove that against a live instance. — <a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a></p>
 
           <section class="panel">
             <form id="probe-form">
@@ -194,7 +210,7 @@
 
         <section id="view-failures" class="view" hidden>
           <h1>Failure Modes</h1>
-          <p class="concept">The system is fail-closed: anything ambiguous or unknown becomes a DENY.</p>
+          <p class="concept">The system is fail-closed. That is a claim. These tests prove it. Expired tokens, wrong audience, tampered claims, missing scopes — every case should produce a denial. Run each scenario and see the actual system response. — <a href="https://ihack.us/2026/01/20/rajee-vs-iam-the-petty-life-of-secrets/" target="_blank" rel="noopener">RAJEE vs IAM</a></p>
 
           <section class="panel failure-tests">
             <div class="failure-header">
@@ -210,8 +226,8 @@
         </section>
 
         <section id="view-incident" class="view" hidden>
-          <h1>Incident Response</h1>
-          <p class="concept">Soft revocation deletes a principal (new issuance blocked, existing TTL remains). Hard revocation rotates signing secret and invalidates all issued tokens.</p>
+          <h1>Revocation</h1>
+          <p class="concept">Two levers with different blast radii. Remove a principal: new grants are blocked, existing tokens remain valid until they expire naturally. Rotate the signing key: every previously issued token becomes invalid immediately. The choice is between surgical and total.</p>
 
           <section class="panel">
             <h2>Soft Revocation</h2>
@@ -241,8 +257,8 @@
         </section>
 
         <section id="view-audit" class="view" hidden>
-          <h1>Audit</h1>
-          <p class="concept">Every token issuance and enforcement decision is logged.</p>
+          <h1>Audit Log</h1>
+          <p class="concept">Because authorization is compiled into tokens at issuance, the audit trail is complete. Every access traces back to a specific token, which traces back to a specific policy evaluation. Nothing is ambient — every decision has a receipt.</p>
 
           <section class="panel">
             <form id="audit-filter-form">
