@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>document.write('<base href="'+location.href.replace(/\/?$/,'/')+'">'); </script>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RAJA Admin</title>
@@ -50,7 +51,7 @@
  ┌──────────┐   validates + routes  ┌──────────┐
  │  RAJEE   │ ─────────────────────►│    S3    │
  │ (Envoy)  │                       │ (actual) │
- └──────────┘
+ └──────────┘                       └──────────┘
       ▲
       │ attaches token, routes request
  ┌──────────┐   logical path (USL)

@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-10
+
+### Added
+
+- **Admin key authentication**: Control-plane endpoints (`/compile`, `/token`, `/policies`, `/principals`) now require an `X-Admin-Key` header; unauthenticated requests return 401.
+- **Live-tour admin UI**: Interactive walkthrough of the full RAJA pipeline (compile → issue → enforce) with per-step probe diagnostics and status indicators.
+- **Secret-rotation revocation flow**: Rotating the JWT signing secret now atomically revokes all tokens issued under the previous key; unit and integration tests cover the full revocation lifecycle.
+- **`show-outputs` script**: `scripts/show_outputs.py` pretty-prints the current Terraform outputs for quick stack inspection without opening raw JSON.
+
+### Changed
+
+- **Admin UI**: Restyled with the W3C Swiss stylesheet for a cleaner look; static assets and API calls now use relative paths so the UI works correctly behind an API Gateway stage prefix.
+- **S3 harness removed**: The synthetic S3-harness endpoints have been replaced with the real RAJA compile → token → enforce pipeline end-to-end.
+
+### Fixed
+
+- **Health check hang**: Fixed a hang in the `/health` endpoint that could block the admin UI on startup.
+- **API Gateway stage prefix**: Static asset URLs and `fetch()` calls are now relative, fixing broken resources when deployed under a non-root stage path.
+
 ## [0.6.1] - 2026-03-09
 
 ### Changed
