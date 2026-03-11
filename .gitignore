@@ -46,3 +46,6 @@ infra/terraform/build/
 .cursorignore
 .cursorindexingignore
 infra/terraform/terraform.tfvars
+infra/tf-outputs.json
+.rale-test-uri
+infra/terraform/.terraform.tfstate.lock.info

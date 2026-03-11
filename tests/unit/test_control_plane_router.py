@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -351,3 +351,53 @@ def test_get_request_id_generates_uuid():
     # Should be a valid UUID-like string
     assert len(request_id) > 0
     assert "-" in request_id
+
+
+def test_rotate_secret_records_succeeded_operation() -> None:
+    audit_table = MagicMock()
+    with patch.object(control_plane, "_perform_secret_rotation", return_value="v-new"):
+        response = control_plane.rotate_secret(audit_table=audit_table)
+
+    assert response["status"] == "SUCCEEDED"
+    assert "operation_id" in response
+    assert audit_table.put_item.call_count == 3
+
+
+def test_rotate_secret_records_failed_operation() -> None:
+    audit_table = MagicMock()
+    with patch.object(control_plane, "_perform_secret_rotation", side_effect=RuntimeError("boom")):
+        response = control_plane.rotate_secret(audit_table=audit_table)
+
+    assert response["status"] == "FAILED"
+    assert "operation_id" in response
+    assert audit_table.put_item.call_count == 3
+
+
+def test_get_rotate_secret_status_returns_operation() -> None:
+    audit_table = MagicMock()
+    audit_table.get_item.return_value = {
+        "Item": {
+            "status": "SUCCEEDED",
+            "phase": "completed",
+            "version_id": "v-new",
+            "updated_at": 123,
+        }
+    }
+
+    response = control_plane.get_rotate_secret_status("op-123", audit_table=audit_table)
+
+    assert response["operation_id"] == "op-123"
+    assert response["status"] == "SUCCEEDED"
+    assert response["phase"] == "completed"
+    assert response["version"] == "v-new"
+    assert response["updated_at"] == 123
+
+
+def test_get_rotate_secret_status_not_found() -> None:
+    audit_table = MagicMock()
+    audit_table.get_item.return_value = {}
+
+    with pytest.raises(HTTPException) as exc_info:
+        control_plane.get_rotate_secret_status("missing", audit_table=audit_table)
+
+    assert exc_info.value.status_code == 404

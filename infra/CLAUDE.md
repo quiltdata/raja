@@ -35,7 +35,6 @@ The infrastructure is **optional** — the core `raja` library can be used stand
 ┌────────────────────────────────┐
 │    Secrets Manager             │
 │  - JWT Signing Key             │
-│  - Harness Signing Key         │
 └────────────────────────────────┘
          │
          ▼
@@ -84,7 +83,6 @@ infra/
 | `aws_dynamodb_table.principal_scopes` | Principal → scopes |
 | `aws_dynamodb_table.audit_log` | Audit trail |
 | `aws_secretsmanager_secret.jwt` | JWT signing key |
-| `aws_secretsmanager_secret.harness` | S3 harness signing key |
 | `aws_verifiedpermissions_policy_store` | Cedar policy store + schema |
 
 ### RALE Stack

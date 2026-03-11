@@ -27,6 +27,12 @@ variable "token_ttl" {
   default     = 3600
 }
 
+variable "raja_admin_key" {
+  description = "Bearer token required for protected RAJA admin/control-plane endpoints."
+  type        = string
+  sensitive   = true
+}
+
 variable "taj_cache_ttl_seconds" {
   description = "TTL (seconds) for cached TAJ decisions in the RALE authorizer table."
   type        = number

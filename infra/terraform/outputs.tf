@@ -33,24 +33,9 @@ output "audit_table_name" {
   value       = aws_dynamodb_table.audit_log.name
 }
 
-output "manifest_cache_table_name" {
-  description = "Manifest cache table for RALE router."
-  value       = aws_dynamodb_table.manifest_cache.name
-}
-
-output "taj_cache_table_name" {
-  description = "TAJ decision cache table for RALE authorizer."
-  value       = aws_dynamodb_table.taj_cache.name
-}
-
 output "jwt_secret_arn" {
   description = "JWT signing secret ARN."
   value       = aws_secretsmanager_secret.jwt.arn
-}
-
-output "harness_secret_arn" {
-  description = "Harness signing secret ARN."
-  value       = aws_secretsmanager_secret.harness.arn
 }
 
 output "rajee_endpoint" {
@@ -61,6 +46,11 @@ output "rajee_endpoint" {
 output "rajee_test_bucket_name" {
   description = "S3 bucket used for RAJEE integration tests."
   value       = aws_s3_bucket.rajee_test.bucket
+}
+
+output "rajee_registry_bucket_name" {
+  description = "S3 bucket used as the Quilt package registry."
+  value       = aws_s3_bucket.rajee_registry.bucket
 }
 
 output "envoy_repository_uri" {

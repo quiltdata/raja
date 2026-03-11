@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 # Import TokenBuilder from tests package
 # This is acceptable since the admin server is for development/testing
 import sys
@@ -10,22 +12,149 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, model_validator
 
 from raja.server import dependencies
 from raja.server.logging_config import get_logger
-from raja.server.routers.harness import (
-    S3EnforceRequest,
-    S3VerifyRequest,
-    _harness_audience,
-    _harness_issuer,
-    _secret_kid,
-    s3_harness_enforce,
-    s3_harness_verify,
-)
+
+# ---------------------------------------------------------------------------
+# Token-building utilities (inlined from former s3-harness, test-only use)
+# ---------------------------------------------------------------------------
+
+_HARNESS_ISSUER_DEFAULT = "https://raja.local"
+_HARNESS_AUDIENCE_DEFAULT = "raja-s3"
+
+
+def _harness_issuer() -> str:
+    import os
+
+    return os.environ.get("RAJ_HARNESS_ISSUER", _HARNESS_ISSUER_DEFAULT)
+
+
+def _harness_audience() -> str:
+    import os
+
+    return os.environ.get("RAJ_HARNESS_AUDIENCE", _HARNESS_AUDIENCE_DEFAULT)
+
+
+def _secret_kid(secret: str) -> str:
+    digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+class S3Resource(BaseModel):
+    bucket: str = Field(min_length=1)
+    key: str | None = None
+    prefix: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_selector(self) -> S3Resource:
+        has_key = bool(self.key)
+        has_prefix = bool(self.prefix)
+        if has_key == has_prefix:
+            raise ValueError("Provide exactly one of key or prefix")
+        return self
+
+
+class S3VerifyRequest(BaseModel):
+    token: str = Field(min_length=1)
+    audience: str | None = None
+
+
+class S3EnforceRequest(BaseModel):
+    token: str = Field(min_length=1)
+    audience: str | None = None
+    bucket: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    action: Literal[
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket",
+        "s3:ListBucketMultipartUploads",
+        "s3:ListMultipartUploadParts",
+    ]
+
+
+def s3_harness_verify(request: S3VerifyRequest, *, secret: str) -> dict[str, Any]:
+    audience = request.audience or _harness_audience()
+    try:
+        payload = jwt.decode(
+            request.token,
+            secret,
+            algorithms=["HS256"],
+            audience=audience,
+            issuer=_harness_issuer(),
+        )
+        return {
+            "valid": True,
+            "payload": payload,
+            "header": jwt.get_unverified_header(request.token),
+        }
+    except jwt.ExpiredSignatureError:
+        return {"valid": False, "error": "token expired"}
+    except jwt.InvalidTokenError as exc:
+        return {"valid": False, "error": f"invalid token: {exc}"}
+
+
+def s3_harness_enforce(request: S3EnforceRequest, *, secret: str) -> dict[str, Any]:
+    audience = request.audience or _harness_audience()
+    try:
+        payload = jwt.decode(
+            request.token,
+            secret,
+            algorithms=["HS256"],
+            audience=audience,
+            issuer=_harness_issuer(),
+        )
+    except jwt.ExpiredSignatureError:
+        return {"allowed": False, "reason": "token expired", "failed_check": "token"}
+    except jwt.InvalidTokenError as exc:
+        return {"allowed": False, "reason": f"invalid token: {exc}", "failed_check": "token"}
+
+    authority_action = payload.get("action")
+    authority_resource = payload.get("s3", {})
+    try:
+        authority = S3Resource(
+            bucket=authority_resource.get("bucket", ""),
+            key=authority_resource.get("key"),
+            prefix=authority_resource.get("prefix"),
+        )
+    except Exception as exc:
+        return {"allowed": False, "reason": f"invalid authority: {exc}", "failed_check": "resource"}
+
+    action_matches = authority_action == request.action
+    resource_matches = _s3_resource_allows(authority, request.bucket, request.key)
+
+    if action_matches and resource_matches:
+        return {
+            "allowed": True,
+            "reason": "request is within authority",
+            "request": {"bucket": request.bucket, "key": request.key, "action": request.action},
+            "authority": {"action": authority_action, "s3": authority_resource},
+        }
+    failed_check = "action" if not action_matches else "resource"
+    return {
+        "allowed": False,
+        "reason": "request is outside authority",
+        "failed_check": failed_check,
+        "request": {"bucket": request.bucket, "key": request.key, "action": request.action},
+        "authority": {"action": authority_action, "s3": authority_resource},
+    }
+
+
+def _s3_resource_allows(authority: S3Resource, bucket: str, key: str) -> bool:
+    if authority.bucket != bucket:
+        return False
+    if authority.key is not None:
+        return key == authority.key
+    if authority.prefix is not None:
+        return key.startswith(authority.prefix)
+    return False
+
 
 tests_dir = Path(__file__).parent.parent.parent.parent.parent / "tests"
 if tests_dir.exists() and str(tests_dir) not in sys.path:
@@ -673,7 +802,10 @@ def _runner_revocation(secret: str) -> FailureTestRun:
         expected="DENY – revoked token",
         actual="Token revocation feature not implemented",
         details={
-            "note": "Revocation requires additional infrastructure (Redis/DynamoDB blacklist)"
+            "note": (
+                "Per-token revocation is unsupported by design. Hard revocation is via "
+                "secret rotation + Lambda cold start. See specs/5-rale/08-incident-response.md."
+            )
         },
         timestamp=time.time(),
     )
@@ -1745,7 +1877,7 @@ def _serialize_test_definition(test: FailureTestDefinition) -> dict[str, Any]:
 
 
 @router.get("/")
-def list_failure_tests(secret: str = Depends(dependencies.get_harness_secret)) -> dict[str, Any]:
+def list_failure_tests(_: None = Depends(dependencies.require_admin_auth)) -> dict[str, Any]:
     tests = [_serialize_test_definition(test) for test in FAILURE_TEST_DEFINITIONS]
     categories = [
         {
@@ -1763,7 +1895,8 @@ def list_failure_tests(secret: str = Depends(dependencies.get_harness_secret)) -
 
 @router.get("/{test_id}")
 def get_failure_test_definition(
-    test_id: str, secret: str = Depends(dependencies.get_harness_secret)
+    test_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
 ) -> dict[str, Any]:
     definition = FAILURE_TEST_BY_ID.get(test_id)
     if definition is None:
@@ -1773,7 +1906,9 @@ def get_failure_test_definition(
 
 @router.post("/{test_id}/run")
 def run_failure_test(
-    test_id: str, secret: str = Depends(dependencies.get_harness_secret)
+    test_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+    secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     if not TOKEN_BUILDER_AVAILABLE:
         raise HTTPException(
@@ -1785,7 +1920,9 @@ def run_failure_test(
 
 @router.post("/categories/{category}/run")
 def run_failure_category(
-    category: str, secret: str = Depends(dependencies.get_harness_secret)
+    category: str,
+    _: None = Depends(dependencies.require_admin_auth),
+    secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     if not TOKEN_BUILDER_AVAILABLE:
         raise HTTPException(
@@ -1802,7 +1939,10 @@ def run_failure_category(
 
 
 @router.get("/runs/{run_id}")
-def get_failure_run(run_id: str) -> dict[str, Any]:
+def get_failure_run(
+    run_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
     run = RUN_HISTORY.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -1810,7 +1950,10 @@ def get_failure_run(run_id: str) -> dict[str, Any]:
 
 
 @router.delete("/runs/{run_id}")
-def delete_failure_run(run_id: str) -> dict[str, bool]:
+def delete_failure_run(
+    run_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, bool]:
     if run_id in RUN_HISTORY:
         del RUN_HISTORY[run_id]
         return {"deleted": True}

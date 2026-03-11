@@ -1,201 +1,305 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>document.write('<base href="'+location.href.replace(/\/?$/,'/')+'">'); </script>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RAJA Admin</title>
-    <link rel="stylesheet" href="/static/admin.css" />
+    <link rel="stylesheet" href="https://www.w3.org/StyleSheets/Core/Swiss" type="text/css" />
+    <link rel="stylesheet" href="static/admin.css" />
   </head>
   <body>
-    <header>
-      <div class="pill">S3 Validation Harness</div>
-      <h1>RAJA Admin</h1>
-      <p>Mint, verify, and enforce Resource Authorization JWTs for S3 without policy
-      evaluation or AWS calls.</p>
+    <header class="app-header">
+      <div class="brand">RAJA Admin</div>
+      <label class="admin-key-wrap" for="admin-key">
+        <span>Admin Key</span>
+        <input id="admin-key" type="password" autocomplete="off" placeholder="Enter ADMIN_KEY" />
+      </label>
+      <div class="health-chip" id="header-health-chip">
+        <span class="dot" id="header-health-dot" aria-hidden="true"></span>
+        <span id="header-health-text">checking...</span>
+      </div>
     </header>
-    <main>
-      <section class="card" style="--delay: 0s;">
-        <h2>Issuer &amp; JWKS</h2>
-        <p>Live signing metadata for validation and key introspection.</p>
-        <div>
-          <label>Issuer</label>
-          <div class="status" id="issuer">Loading...</div>
-        </div>
-        <div>
-          <label>Audience</label>
-          <div class="status" id="audience">Loading...</div>
-        </div>
-        <div>
-          <label>JWKS</label>
-          <pre id="jwks">Loading...</pre>
-        </div>
-        <div class="actions">
-          <button class="secondary" id="refresh-config">Refresh metadata</button>
-        </div>
-      </section>
-      <section class="card" style="--delay: 0.05s;">
-        <h2>Mint RAJ</h2>
-        <p>Create a short-lived authorization for a single S3 action and resource.</p>
-        <form id="mint-form">
-          <div class="field-row">
-            <div>
-              <label for="mint-subject">Subject (sub)</label>
-              <input id="mint-subject" name="subject" placeholder="User::alice" />
-            </div>
-            <div>
-              <label for="mint-audience">Audience (aud)</label>
-              <input id="mint-audience" name="audience" placeholder="raja-s3" />
-            </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="mint-bucket">Bucket</label>
-              <input id="mint-bucket" name="bucket" placeholder="my-bucket" />
-            </div>
-            <div>
-              <label for="mint-action">Action</label>
-              <select id="mint-action" name="action">
-                <option value="s3:GetObject">s3:GetObject</option>
-                <option value="s3:PutObject">s3:PutObject</option>
-                <option value="s3:ListBucket">s3:ListBucket</option>
-                <option value="s3:ListBucketMultipartUploads">s3:ListBucketMultipartUploads</option>
-                <option value="s3:ListMultipartUploadParts">s3:ListMultipartUploadParts</option>
-              </select>
-            </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="mint-key">Key (exact)</label>
-              <input id="mint-key" name="key" placeholder="reports/2024/summary.csv" />
-            </div>
-            <div>
-              <label for="mint-prefix">Prefix (starts with)</label>
-              <input id="mint-prefix" name="prefix" placeholder="reports/2024/" />
-            </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="mint-ttl">TTL (seconds)</label>
-              <input id="mint-ttl" name="ttl" type="number" min="60" placeholder="300" />
-            </div>
-          </div>
+
+    <div class="admin-auth-error" id="admin-auth-error" hidden>Invalid or missing admin key.</div>
+
+    <div class="layout">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <nav id="side-nav">
+          <a href="#overview" data-view="overview">Overview</a>
+          <a href="#authority" data-view="authority">Access Policy</a>
+          <a href="#token" data-view="token">The Token</a>
+          <a href="#enforce" data-view="enforce">Enforcement</a>
+          <a href="#failures" data-view="failures">Failure Modes</a>
+          <a href="#incident" data-view="incident">Revocation</a>
+          <a href="#audit" data-view="audit">Audit</a>
+          <a href="#about" data-view="about">About</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <section id="view-overview" class="view">
+          <h1>Overview</h1>
+          <p class="concept">Grant access to datasets by name, not by bucket. Cedar policies compile to JWT tokens; enforcement is pure subset checking — no policy engine in the data path. <a href="#about">Why this matters →</a></p>
+
+          <section class="panel">
+            <h2>How It Works</h2>
+            <ol class="tour-steps">
+              <li><strong>Define who can access what</strong> — in plain Cedar policy, by dataset name, not by bucket. <a href="#authority">See live policies →</a></li>
+              <li><strong>The system compiles that decision into a token</strong> — a signed JWT that carries the access grant, valid for a short window. <a href="#token">Mint a token and inspect it →</a></li>
+              <li><strong>The token is the only thing enforcement checks</strong> — no policy engine, no IAM, just: does this request fall inside the token's scope? <a href="#enforce">Run a live enforcement probe →</a></li>
+              <li><strong>Anything outside the boundary is denied</strong> — expired tokens, wrong audience, tampered claims. The system is fail-closed. <a href="#failures">See the failure suite →</a></li>
+              <li><strong>Revocation is immediate or eventual</strong> — remove a principal to stop new grants, or rotate the signing key to invalidate everything at once. <a href="#incident">Incident response →</a></li>
+              <li><strong>Every decision is traceable</strong> — each access traces back to a token, which traces back to a policy evaluation. <a href="#audit">Browse the audit log →</a></li>
+            </ol>
+          </section>
+
+          <section class="panel">
+            <h2>System Status</h2>
+            <div class="pill-row" id="overview-status-pills"></div>
+          </section>
+        </section>
+
+        <section id="view-authority" class="view" hidden>
+          <h1>Access Policy</h1>
+          <p class="concept">Access in this system is defined by what a principal may do — not where data lives. Write a Cedar policy: "alice can read dataset X." That is the complete grant. This is the only place that decision gets made. Everything downstream enforces it; nothing downstream reconsiders it. — <a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></p>
           <div class="actions">
-            <button type="submit">Mint RAJ</button>
+            <button type="button" id="authority-refresh">Refresh</button>
           </div>
-        </form>
-        <div>
-          <label>Token</label>
-          <textarea id="mint-token" readonly placeholder="Your RAJ will appear here."></textarea>
-        </div>
-        <div>
-          <label>Claims</label>
-          <pre id="mint-claims">Waiting for mint.</pre>
-        </div>
-      </section>
-      <section class="card" style="--delay: 0.1s;">
-        <h2>Verify RAJ</h2>
-        <p>Confirm signature, issuer, audience, and expiration.</p>
-        <form id="verify-form">
-          <div>
-            <label for="verify-token">Token</label>
-            <textarea id="verify-token" name="token"
-              placeholder="Paste a RAJ to verify."></textarea>
-          </div>
-          <div>
-            <label for="verify-aud">Audience (aud)</label>
-            <input id="verify-aud" name="audience" placeholder="raja-s3" />
-          </div>
-          <div class="actions">
-            <button type="submit">Verify token</button>
-          </div>
-        </form>
-        <div>
-          <label>Verification result</label>
-          <pre id="verify-output">Waiting for token.</pre>
-        </div>
-      </section>
-      <section class="card" style="--delay: 0.15s;">
-        <h2>Simulate Enforcement</h2>
-        <p>Check Request ⊆ Authority and see why it fails.</p>
-        <form id="enforce-form">
-          <div>
-            <label for="enforce-token">Token</label>
-            <textarea id="enforce-token" name="token"
-              placeholder="Paste or use the minted RAJ."></textarea>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="enforce-aud">Audience (aud)</label>
-              <input id="enforce-aud" name="audience" placeholder="raja-s3" />
+
+          <section class="panel">
+            <h2>JWKS</h2>
+            <pre id="authority-jwks">Not loaded.</pre>
+          </section>
+
+          <section class="panel">
+            <h2>Active Principals</h2>
+            <table>
+              <thead>
+                <tr><th>Principal</th><th>Scope Count</th></tr>
+              </thead>
+              <tbody id="authority-principals-body"></tbody>
+            </table>
+          </section>
+
+          <section class="panel">
+            <h2>Active Policies</h2>
+            <table>
+              <thead>
+                <tr><th>Policy ID</th><th>Statement</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="authority-policies-body"></tbody>
+            </table>
+          </section>
+
+          <section class="panel">
+            <h2>Create Policy</h2>
+            <form id="policy-create-form">
+              <label for="policy-create-statement">Cedar statement</label>
+              <textarea id="policy-create-statement" placeholder="permit(...);"></textarea>
+              <label for="policy-create-description">Description (optional)</label>
+              <input id="policy-create-description" placeholder="Optional description" />
+              <div class="actions"><button type="submit">Create policy</button></div>
+            </form>
+            <pre id="policy-create-result">No policy created yet.</pre>
+          </section>
+
+          <section class="panel" id="policy-editor-panel" hidden>
+            <h2>Edit Policy</h2>
+            <div id="policy-editor-meta"></div>
+            <form id="policy-edit-form">
+              <label for="policy-edit-statement">Cedar statement</label>
+              <textarea id="policy-edit-statement"></textarea>
+              <div class="actions">
+                <button type="submit">Save changes</button>
+                <button type="button" class="secondary" id="policy-edit-cancel">Cancel</button>
+              </div>
+            </form>
+            <h3>Diff</h3>
+            <pre id="policy-edit-diff">No changes yet.</pre>
+          </section>
+        </section>
+
+        <section id="view-token" class="view" hidden>
+          <h1>The Access Token</h1>
+          <p class="concept">When a policy is evaluated, the result isn't a yes or a no — it's a signed token. The decision is compiled in: every scope represents a permission that was already decided. Mint one and read it. The authorization is in plain sight. — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
+
+          <section class="panel">
+            <h2>Mint</h2>
+            <form id="token-form">
+              <div class="field-grid">
+                <label>Principal
+                  <input id="token-principal" placeholder="User::alice" />
+                </label>
+                <label>Token Type
+                  <select id="token-type">
+                    <option value="raja">RAJ</option>
+                    <option value="rajee">RAJEE</option>
+                  </select>
+                </label>
+              </div>
+              <div class="actions"><button type="submit">Mint token</button></div>
+            </form>
+            <label for="token-output">Token</label>
+            <textarea id="token-output" readonly></textarea>
+            <div id="token-mint-status"></div>
+            <h3>Annotated Claims</h3>
+            <div id="token-claims-annotated" class="claims"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Verify</h2>
+            <form id="verify-form">
+              <label for="verify-token">Token</label>
+              <textarea id="verify-token" placeholder="Paste token"></textarea>
+              <label for="verify-audience">Expected audience</label>
+              <input id="verify-audience" value="raja-s3" />
+              <div class="actions"><button type="submit">Verify token</button></div>
+            </form>
+            <div id="verify-status" class="status-banner">No token verified yet.</div>
+            <h3>Decoded Claims</h3>
+            <div id="verify-claims-annotated" class="claims"></div>
+          </section>
+        </section>
+
+        <section id="view-enforce" class="view" hidden>
+          <h1>Enforcement</h1>
+          <p class="concept">The claim: once a token exists, enforcement requires no policy engine. One check — does the requested scope fit inside the token's scopes? If yes, forward. If no, deny. No third outcome. This view lets you prove that against a live instance. — <a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a></p>
+
+          <section class="panel">
+            <form id="probe-form">
+              <label for="probe-endpoint">RAJEE endpoint URL</label>
+              <input id="probe-endpoint" value="http://localhost:10000" />
+
+              <label for="probe-usl">Logical path (USL)</label>
+              <input id="probe-usl" placeholder="quilt+s3://registry#package=author/pkg@hash" />
+
+              <label for="probe-principal">Principal</label>
+              <input id="probe-principal" placeholder="User::alice" />
+
+              <div class="actions">
+                <button type="submit">Run live probe</button>
+                <button type="button" class="secondary" id="probe-health">RAJEE health check</button>
+              </div>
+            </form>
+            <div id="probe-status" class="status-banner">No probe run yet.</div>
+            <pre id="probe-output">Awaiting probe.</pre>
+          </section>
+        </section>
+
+        <section id="view-failures" class="view" hidden>
+          <h1>Failure Modes</h1>
+          <p class="concept">The system is fail-closed. That is a claim. These tests prove it. Expired tokens, wrong audience, tampered claims, missing scopes — every case should produce a denial. Run each scenario and see the actual system response. — <a href="https://ihack.us/2026/01/20/rajee-vs-iam-the-petty-life-of-secrets/" target="_blank" rel="noopener">RAJEE vs IAM</a></p>
+
+          <section class="panel failure-tests">
+            <div class="failure-header">
+              <div class="failure-header-actions">
+                <button class="secondary" id="failure-run-category" disabled>Run category</button>
+                <button class="secondary" id="failure-export-results" disabled>Export results</button>
+              </div>
             </div>
-            <div>
-              <label for="enforce-action">Action</label>
-              <select id="enforce-action" name="action">
-                <option value="s3:GetObject">s3:GetObject</option>
-                <option value="s3:PutObject">s3:PutObject</option>
-                <option value="s3:ListBucket">s3:ListBucket</option>
-                <option value="s3:ListBucketMultipartUploads">s3:ListBucketMultipartUploads</option>
-                <option value="s3:ListMultipartUploadParts">s3:ListMultipartUploadParts</option>
-              </select>
+            <div class="failure-category-selector" id="failure-category-selector">Loading failure test categories...</div>
+            <div class="failure-test-list" id="failure-test-list">Loading failure test definitions...</div>
+            <div class="failure-run-summary" id="failure-run-summary"></div>
+          </section>
+        </section>
+
+        <section id="view-incident" class="view" hidden>
+          <h1>Revocation</h1>
+          <p class="concept">Two levers with different blast radii. Remove a principal: new grants are blocked, existing tokens remain valid until they expire naturally. Rotate the signing key: every previously issued token becomes invalid immediately. The choice is between surgical and total.</p>
+
+          <section class="panel">
+            <h2>Soft Revocation</h2>
+            <div class="field-grid">
+              <label>Principal
+                <select id="incident-principal"></select>
+              </label>
             </div>
-          </div>
-          <div class="field-row">
-            <div>
-              <label for="enforce-bucket">Bucket</label>
-              <input id="enforce-bucket" name="bucket" placeholder="my-bucket" />
+            <div class="actions">
+              <button type="button" class="secondary" id="incident-refresh-principals">Refresh principals</button>
+              <button type="button" id="incident-delete-principal">Delete principal</button>
             </div>
-            <div>
-              <label for="enforce-key">Key</label>
-              <input id="enforce-key" name="key" placeholder="reports/2024/summary.csv" />
-            </div>
-          </div>
-          <div class="actions">
-            <button type="submit">Simulate decision</button>
-          </div>
-        </form>
-        <div>
-          <label>Decision</label>
-          <pre id="enforce-output">Waiting for request.</pre>
-        </div>
-      </section>
-      <section class="card control-plane" style="--delay: 0.2s;">
-        <h2>Control Plane (Optional)</h2>
-        <p>Fetches live AWS control-plane data only when requested.</p>
-        <div class="actions">
-          <button class="secondary" id="load-control-plane">Load control-plane data</button>
-        </div>
-        <div>
-          <label>Principals</label>
-          <pre id="principals">Not loaded.</pre>
-        </div>
-        <div>
-          <label>Policies</label>
-          <pre id="policies">Not loaded.</pre>
-        </div>
-        <div>
-          <label>Audit Log</label>
-          <pre id="audit">Not loaded.</pre>
-        </div>
-      </section>
-      <section class="card failure-tests" style="--delay: 0.25s;">
-        <div class="failure-header">
-          <div>
-            <h2>Failure Mode Test Suite</h2>
-            <p>Execute documented failure modes and inspect why expected failures occur.</p>
-          </div>
-          <div class="failure-header-actions">
-            <button class="secondary" id="failure-run-category" disabled>Run category</button>
-            <button class="secondary" id="failure-export-results" disabled>Export results</button>
-          </div>
-        </div>
-        <div class="failure-category-selector" id="failure-category-selector">
-          Loading failure test categories…
-        </div>
-        <div class="failure-test-list" id="failure-test-list">
-          Loading failure test definitions…
-        </div>
-        <div class="failure-run-summary" id="failure-run-summary"></div>
-      </section>
-    </main>
-    <script src="/static/admin.js"></script>
+            <pre id="incident-soft-result">No action yet.</pre>
+          </section>
+
+          <section class="panel">
+            <h2>Hard Revocation</h2>
+            <div class="actions"><button type="button" id="incident-rotate-secret">Rotate Secret</button></div>
+            <ul id="rotate-timeline" class="timeline"></ul>
+            <pre id="incident-hard-result">No rotation started.</pre>
+          </section>
+
+          <section class="panel">
+            <h2>No per-token revocation</h2>
+            <p><code>POST /token/revoke</code> returns <code>{"status": "unsupported"}</code> by design. A denylist would force every enforcement call to hit mutable shared state; short TTLs bound exposure instead.</p>
+          </section>
+        </section>
+
+        <section id="view-audit" class="view" hidden>
+          <h1>Audit Log</h1>
+          <p class="concept">Because authorization is compiled into tokens at issuance, the audit trail is complete. Every access traces back to a specific token, which traces back to a specific policy evaluation. Nothing is ambient — every decision has a receipt.</p>
+
+          <section class="panel">
+            <form id="audit-filter-form">
+              <div class="field-grid">
+                <label>Principal
+                  <input id="audit-principal" placeholder="User::alice" />
+                </label>
+                <label>Action
+                  <input id="audit-action" placeholder="token.issue" />
+                </label>
+                <label>Resource
+                  <input id="audit-resource" placeholder="quilt+s3://..." />
+                </label>
+                <label>Start Time (epoch)
+                  <input id="audit-start-time" type="number" min="0" />
+                </label>
+                <label>End Time (epoch)
+                  <input id="audit-end-time" type="number" min="0" />
+                </label>
+              </div>
+              <div class="actions"><button type="submit">Load audit</button></div>
+            </form>
+
+            <table>
+              <thead>
+                <tr><th>Time</th><th>Principal</th><th>Action</th><th>Resource</th><th>Decision</th></tr>
+              </thead>
+              <tbody id="audit-table-body"></tbody>
+            </table>
+            <pre id="audit-raw" hidden></pre>
+          </section>
+        </section>
+
+        <section id="view-about" class="view" hidden>
+          <h1>About RAJA</h1>
+
+          <section class="panel">
+            <p>A researcher wants a dataset. They should not have to know which bucket it lives in, which region, which account, or who to ask for an IAM role. They should just get the data — or a clear denial.</p>
+            <p>Today that is not how object storage works. Sharing data means exposing infrastructure. Granting access means managing IAM roles, bucket policies, and presigned URLs — all of which leak physical coordinates and require ongoing maintenance. Every request re-asks the same permission question, at runtime, under load.</p>
+            <p>This is a proof of concept that it does not have to work that way.</p>
+          </section>
+
+          <section class="panel">
+            <h2>The Idea</h2>
+            <p>Treat datasets as logical things with names, not physical locations. Grant access to the dataset — not to the bucket. Let the system figure out where the data lives and route the request there, invisibly.</p>
+            <p>Access control happens once, when a request is first made, and the decision is encoded into a short-lived signed token. After that, enforcement is mechanical: does this request fall within the boundary already drawn? No policy engine runs in the data path. No IAM call. No bucket name exposed.</p>
+            <p>"The hotel key contains the authority. The concierge never calls a policy engine." — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
+          </section>
+
+          <section class="panel">
+            <h2>Further Reading</h2>
+            <ul class="narrative-list">
+              <li><a href="https://ihack.us/2026/02/05/rale-raj-authorizing-logical-endpoint/" target="_blank" rel="noopener">RALE: RAJ-Authorizing Logical Endpoint</a> — the full system architecture</li>
+              <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a> — why category collapse is the original sin of cloud authorization</li>
+              <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a> — ambient authority vs. manifest authority</li>
+              <li><a href="https://ihack.us/2026/01/23/the-boy-who-ate-the-menu-raj-taj-as-software-defined-addressing-for-universal-storage-locators/" target="_blank" rel="noopener">The Boy Who Ate the Menu</a> — logical addressing for storage, without the infrastructure leak</li>
+            </ul>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="static/admin.js"></script>
   </body>
 </html>

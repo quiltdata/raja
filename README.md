@@ -1,191 +1,134 @@
 # RAJA
 
-![CI](https://github.com/quiltdata/raja/workflows/CI/badge.svg)
-![Integration Tests](https://github.com/quiltdata/raja/workflows/Integration%20Tests/badge.svg)
-![Coverage](https://codecov.io/gh/quiltdata/raja/branch/main/graph/badge.svg)
+This README is intentionally short and focused on day-to-day usage.
 
-**Resource Authorization JWT Authority** - Compile Cedar policies into JWT tokens for deterministic authorization.
+For architecture, design notes, tests, and deeper docs, see [AGENTS.md](AGENTS.md).
 
-## What is RAJA?
+## Target Workflow
 
-RAJA compiles Cedar authorization policies into JWT tokens with explicit scopes. This means:
+1. Set env and deploy the stack.
+2. Use the Admin UI and/or call RALE via `boto3`.
+3. Add S3 buckets for testing.
 
-- Authorization decisions are **deterministic** (same token + request = same result)
-- Tokens are **transparent** (you can see exactly what permissions are granted)
-- Enforcement is **fast** (simple scope checking, no policy evaluation)
+## 1) Set Env And Deploy
 
-## Quick Start
-
-### Installation
+Prereqs:
+- AWS credentials configured locally
+- `uv`, `terraform`, `docker`
 
 ```bash
-git clone https://github.com/quiltdata/raja.git
-cd raja
 uv sync
+
+# one-time (if missing)
+cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
+
+# required admin key used by protected control-plane endpoints
+cat > .env <<'ENV'
+RAJA_ADMIN_KEY=change-me-admin-key
+ENV
+
+./poe deploy
+python scripts/show_outputs.py
 ```
 
-### Deploy to AWS (Control Plane)
+`./poe deploy` writes deployment outputs to `infra/tf-outputs.json`.
+
+## 2) Run Admin UI
 
 ```bash
-# Deploy infrastructure (Terraform)
-./poe deploy
+export API_URL="$(python - <<'PY'
+import json
+print(json.load(open('infra/tf-outputs.json'))['api_url'])
+PY
+)"
 
-# Load Cedar policies
-python scripts/load_policies.py
-
-# Compile policies to scopes
-export RAJA_API_URL="https://your-api.execute-api.us-east-1.amazonaws.com/prod"
-python scripts/invoke_compiler.py
+open "$API_URL"
 ```
 
-### Control Plane UI
+- Browse to `/` for the Admin UI.
+- Enter the same `RAJA_ADMIN_KEY` you used for deploy.
 
-After deployment, open the API Gateway URL in your browser. The root path (`/`) renders a
-simple admin UI with live data from `/principals`, `/policies`, and `/audit`.
+Quick API check:
 
-## How It Works
-
-```text
-Cedar Policies → Compiler → JWT Scopes → Library Enforcement
+```bash
+curl -sS "$API_URL/principals" \
+  -H "Authorization: Bearer $RAJA_ADMIN_KEY"
 ```
 
-1. **Write Cedar policies** that define who can do what
-2. **Compiler** converts policies into scope strings (e.g., `Document:doc123:read`)
-3. **Token Service** issues JWTs containing these scopes
-4. **Applications** validate tokens and check scopes locally
+## 3) Call RALE With boto3
 
-## API Endpoints
+This uses the RAJEE endpoint (which fronts RALE) with normal S3 API calls.
 
-When deployed to AWS, RAJA provides:
+```bash
+export API_URL="$(python - <<'PY'
+import json
+o=json.load(open('infra/tf-outputs.json'))
+print(o['api_url'])
+PY
+)"
+export RAJEE_ENDPOINT="$(python - <<'PY'
+import json
+o=json.load(open('infra/tf-outputs.json'))
+print(o['rajee_endpoint'])
+PY
+)"
+export TEST_BUCKET="$(python - <<'PY'
+import json
+o=json.load(open('infra/tf-outputs.json'))
+print(o['rajee_test_bucket_name'])
+PY
+)"
 
-**POST /compile** - Compile Cedar policies into scopes
+# create a principal with test-bucket permissions
+curl -sS -X POST "$API_URL/principals" \
+  -H "Authorization: Bearer $RAJA_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"principal\":\"User::demo\",\"scopes\":[\"S3Object:${TEST_BUCKET}/*:s3:GetObject\",\"S3Object:${TEST_BUCKET}/*:s3:PutObject\",\"S3Bucket:${TEST_BUCKET}:s3:ListBucket\"]}"
 
-```json
-{}
-→ {"message": "Policies compiled successfully", "policies_compiled": 3}
+# mint a RAJEE token for that principal
+export RAJEE_TOKEN="$(curl -sS -X POST "$API_URL/token" \
+  -H "Authorization: Bearer $RAJA_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"principal":"User::demo","token_type":"rajee"}' | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
 ```
-
-**POST /token** - Issue a JWT token
-
-```json
-{"principal": "alice"}
-→ {"token": "eyJ...", "scopes": ["S3Object:analytics-data/*:s3:GetObject", "S3Bucket:analytics-data:s3:ListBucket"]}
-```
-
-**GET /principals** - List principals and their scopes
-
-```text
-→ {"principals": [{"principal": "alice", "scopes": [...]}]}
-
-**GET /policies** - List Cedar policies
-
-```json
-→ {"policies": [{"policyId": "..."}]}
-```
-
-**GET /audit** - View audit log entries
-
-```
-Query params:
-  principal=<principal>
-  action=<action>
-  resource=<resource>
-  start_time=<epoch-seconds>
-  end_time=<epoch-seconds>
-  limit=<1-200>
-  next_token=<pagination-token>
-
-Response fields include: timestamp, principal, action, resource, decision,
-policy_store_id, request_id.
-
-```
-
-## Local Development
-
-Use the Python library standalone (no AWS required):
 
 ```python
-from raja import AuthRequest, create_token, enforce
+import os
+import boto3
+from botocore.config import Config
 
-# Create token with S3 scopes
-token = create_token(
-    subject="alice",
-    scopes=[
-        "S3Object:analytics-data/*:s3:GetObject",
-        "S3Bucket:analytics-data:s3:ListBucket"
-    ],
-    secret="your-secret"
+region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+endpoint = os.environ["RAJEE_ENDPOINT"]
+token = os.environ["RAJEE_TOKEN"]
+bucket = os.environ["TEST_BUCKET"]
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=endpoint,
+    region_name=region,
+    config=Config(s3={"addressing_style": "path"}),
 )
 
-# Check authorization for S3 GetObject
-decision = enforce(
-    token_str=token,
-    request=AuthRequest(
-        resource_type="S3Object",
-        resource_id="analytics-data/reports/2024.csv",
-        action="s3:GetObject"
-    ),
-    secret="your-secret"
-)
-print(decision.allowed)  # True
+def _headers(request, **_):
+    request.headers["Host"] = f"s3.{region}.amazonaws.com"
+    request.headers["x-raja-authorization"] = f"Bearer {token}"
+
+s3.meta.events.register("before-sign.s3", _headers)
+
+s3.put_object(Bucket=bucket, Key="rajee-integration/hello.txt", Body=b"hello")
+print(s3.get_object(Bucket=bucket, Key="rajee-integration/hello.txt")["Body"].read())
+print([x["Key"] for x in s3.list_objects_v2(Bucket=bucket, Prefix="rajee-integration/").get("Contents", [])])
 ```
 
-### Run Tests
+## 4) Add Buckets To Test With
+
+1. Add a new `aws_s3_bucket` (+ versioning/encryption/public-access-block) in `infra/terraform/main.tf`.
+2. Add that bucket ARN to both IAM policies in `infra/terraform/main.tf`:
+   - `aws_iam_role_policy.rale_router_permissions`
+   - `aws_iam_role_policy.rajee_task_permissions`
+3. Add an output in `infra/terraform/outputs.tf` if you want the bucket name in `infra/tf-outputs.json`.
+4. Re-deploy:
 
 ```bash
-./poe test-unit    # Unit tests (no AWS)
-./poe test         # All tests
-./poe check        # Format, lint, typecheck
+./poe deploy
 ```
-
-### Demo RAJEE Envoy S3 Proxy
-
-To demonstrate RAJEE's Envoy proxy correctly routing S3 operations:
-
-```bash
-./poe demo
-```
-
-This runs verbose integration tests showing:
-
-- S3 operations (PUT, GET, DELETE, LIST) proxied through Envoy
-- Host header rewriting (Envoy endpoint → s3.amazonaws.com)
-- Multiple S3 API operations (GetObject, ListObjects, GetObjectAttributes, versioning)
-- Timing metrics for each operation
-- Complete request/response verification
-
-## Scope Format
-
-Scopes follow the pattern: `{ResourceType}:{ResourceId}:{Action}`
-
-Examples:
-
-- `S3Object:analytics-data/reports/2024.csv:s3:GetObject` - Read specific S3 object
-- `S3Object:analytics-data/*:s3:GetObject` - Read all objects in bucket
-- `S3Bucket:analytics-data:s3:ListBucket` - List bucket contents
-- `*:*:*` - Full admin access
-
-## Project Structure
-
-```text
-raja/
-├── src/raja/           # Core Python library
-├── lambda_handlers/    # AWS Lambda handlers
-├── infra/             # Terraform infrastructure
-├── policies/          # Sample Cedar policies
-└── tests/             # Test suite
-```
-
-## Documentation
-
-- **[CLAUDE.md](CLAUDE.md)** - Developer guide and architecture
-- **[specs/](specs/)** - Design specifications
-- **Module READMEs** - See CLAUDE.md files in subdirectories
-
-## Contributing
-
-See [CLAUDE.md](CLAUDE.md) for development guidelines.
-
-## License
-
-Apache License 2.0 - See [LICENSE](LICENSE) for details.

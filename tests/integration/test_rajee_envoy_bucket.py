@@ -13,8 +13,8 @@ import pytest
 from botocore.exceptions import ClientError
 
 from .helpers import (
+    fetch_jwks_secret,
     request_url,
-    require_jwt_secret_arn,
     require_manifest_cache_table,
     require_rajee_endpoint,
     require_rajee_test_bucket,
@@ -53,9 +53,7 @@ def test_rale_router_retrieves_object_from_test_bucket() -> None:
         }
     )
 
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
     now = int(time.time())
     taj = pyjwt.encode(
         {
@@ -90,9 +88,7 @@ def test_rale_authorizer_returns_taj_for_authorized_principal() -> None:
     logical_key = f"file-{uuid.uuid4().hex}.txt"
     principal = "test-user"
 
-    jwt_secret = boto3.client("secretsmanager").get_secret_value(SecretId=require_jwt_secret_arn())[
-        "SecretString"
-    ]
+    jwt_secret = fetch_jwks_secret()
     now = int(time.time())
     taj = pyjwt.encode(
         {
