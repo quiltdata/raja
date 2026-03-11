@@ -58,6 +58,11 @@ output "rajee_test_bucket_name" {
   value       = aws_s3_bucket.rajee_test.bucket
 }
 
+output "rajee_registry_bucket_name" {
+  description = "S3 bucket used as the Quilt package registry."
+  value       = aws_s3_bucket.rajee_registry.bucket
+}
+
 output "envoy_repository_uri" {
   description = "ECR repository URI for Envoy images."
   value       = aws_ecr_repository.envoy.repository_url

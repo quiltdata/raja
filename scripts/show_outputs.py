@@ -37,6 +37,7 @@ _SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("Router URL", "rale_router_url", ""),
         ("RAJEE Proxy Endpoint", "rajee_endpoint", ""),
         ("Test Bucket", "rajee_test_bucket_name", ""),
+        ("Registry Bucket", "rajee_registry_bucket_name", ""),
         ("Envoy Debug UI (9901)", "rajee_admin_url", "(disabled — set admin_allowed_cidrs to enable)"),
     ]),
     ("Envoy", [

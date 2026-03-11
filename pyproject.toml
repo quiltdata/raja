@@ -110,6 +110,7 @@ deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
 destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
 load-policies = { cmd = "python scripts/load_policies.py", help = "Load Cedar policies to AVP" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DynamoDB" }
+seed-packages = { cmd = "python scripts/seed_packages.py", help = "Seed quilt3 packages into raja-poc-registry from raja-poc-test" }
 
 # Docker image building
 build-envoy = { cmd = "bash scripts/build-envoy-image.sh", help = "Build Envoy container image locally" }

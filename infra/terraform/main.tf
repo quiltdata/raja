@@ -642,7 +642,9 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
         ]
         Resource = [
           aws_s3_bucket.rajee_test.arn,
-          "${aws_s3_bucket.rajee_test.arn}/*"
+          "${aws_s3_bucket.rajee_test.arn}/*",
+          aws_s3_bucket.rajee_registry.arn,
+          "${aws_s3_bucket.rajee_registry.arn}/*"
         ]
       }
     ]
@@ -964,6 +966,38 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "rajee_test" {
 
 resource "aws_s3_bucket_public_access_block" "rajee_test" {
   bucket = aws_s3_bucket.rajee_test.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket" "rajee_registry" {
+  bucket        = "raja-poc-registry-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_versioning" "rajee_registry" {
+  bucket = aws_s3_bucket.rajee_registry.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "rajee_registry" {
+  bucket = aws_s3_bucket.rajee_registry.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "rajee_registry" {
+  bucket = aws_s3_bucket.rajee_registry.id
 
   block_public_acls       = true
   block_public_policy     = true
