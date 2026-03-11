@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`rajee-registry` S3 bucket**: New Terraform-managed S3 bucket for the RAJEE package registry; `scripts/seed_packages.py` seeds test package data into it.
+
+### Changed
+
+- **Admin UI**: Redesigned as a logical-data discovery journey — Overview page now explains how the system works; backstory moved to About page; nav, title, S3 box, and static assets fixed.
+
 ## [0.7.0] - 2026-03-10
 
 ### Added
