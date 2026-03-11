@@ -48,3 +48,4 @@ infra/terraform/build/
 infra/terraform/terraform.tfvars
 infra/tf-outputs.json
 .rale-test-uri
+infra/terraform/.terraform.tfstate.lock.info

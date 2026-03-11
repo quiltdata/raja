@@ -33,46 +33,25 @@
           <a href="#failures" data-view="failures">Failure Modes</a>
           <a href="#incident" data-view="incident">Revocation</a>
           <a href="#audit" data-view="audit">Audit</a>
+          <a href="#about" data-view="about">About</a>
         </nav>
       </aside>
 
       <main class="content">
         <section id="view-overview" class="view">
-          <h1>Logical Data Management for Scalable Object Storage</h1>
+          <h1>Overview</h1>
+          <p class="concept">Grant access to datasets by name, not by bucket. Cedar policies compile to JWT tokens; enforcement is pure subset checking — no policy engine in the data path. <a href="#about">Why this matters →</a></p>
 
           <section class="panel">
-            <p>A researcher wants a dataset. They should not have to know which bucket it lives in, which region, which account, or who to ask for an IAM role. They should not have to learn anything about storage infrastructure at all. They should just get the data — or a clear denial.</p>
-            <p>Today that is not how object storage works. Sharing data means exposing infrastructure. Granting access means managing IAM roles, bucket policies, and presigned URLs — all of which leak physical coordinates and require ongoing maintenance. Every request re-asks the same permission question, at runtime, under load.</p>
-            <p>This is a proof of concept that it does not have to work that way.</p>
-          </section>
-
-          <section class="panel">
-            <h2>The Idea</h2>
-            <p>Treat datasets as logical things with names, not physical locations. Grant access to the dataset — not to the bucket. Let the system figure out where the data lives and route the request there, invisibly.</p>
-            <p>Access control happens once, when a request is first made, and the decision is encoded into a short-lived signed token. After that, enforcement is mechanical: does this request fall within the boundary already drawn? No policy engine runs in the data path. No IAM call. No bucket name exposed.</p>
-            <p>"The hotel key contains the authority. The concierge never calls a policy engine." — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
-          </section>
-
-          <section class="panel">
-            <h2>How This Demo Works</h2>
+            <h2>How It Works</h2>
             <ol class="tour-steps">
-              <li><strong>You define who can access what</strong> — in plain Cedar policy, by dataset name, not by bucket. <a href="#authority">See live policies →</a></li>
+              <li><strong>Define who can access what</strong> — in plain Cedar policy, by dataset name, not by bucket. <a href="#authority">See live policies →</a></li>
               <li><strong>The system compiles that decision into a token</strong> — a signed JWT that carries the access grant, valid for a short window. <a href="#token">Mint a token and inspect it →</a></li>
               <li><strong>The token is the only thing enforcement checks</strong> — no policy engine, no IAM, just: does this request fall inside the token's scope? <a href="#enforce">Run a live enforcement probe →</a></li>
               <li><strong>Anything outside the boundary is denied</strong> — expired tokens, wrong audience, tampered claims. The system is fail-closed. <a href="#failures">See the failure suite →</a></li>
               <li><strong>Revocation is immediate or eventual</strong> — remove a principal to stop new grants, or rotate the signing key to invalidate everything at once. <a href="#incident">Incident response →</a></li>
               <li><strong>Every decision is traceable</strong> — each access traces back to a token, which traces back to a policy evaluation. <a href="#audit">Browse the audit log →</a></li>
             </ol>
-          </section>
-
-          <section class="panel">
-            <h2>Further Reading</h2>
-            <ul class="narrative-list">
-              <li><a href="https://ihack.us/2026/02/05/rale-raj-authorizing-logical-endpoint/" target="_blank" rel="noopener">RALE: RAJ-Authorizing Logical Endpoint</a> — the full system architecture</li>
-              <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a> — why category collapse is the original sin of cloud authorization</li>
-              <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a> — ambient authority vs. manifest authority</li>
-              <li><a href="https://ihack.us/2026/01/23/the-boy-who-ate-the-menu-raj-taj-as-software-defined-addressing-for-universal-storage-locators/" target="_blank" rel="noopener">The Boy Who Ate the Menu</a> — logical addressing for storage, without the infrastructure leak</li>
-            </ul>
           </section>
 
           <section class="panel">
@@ -289,6 +268,33 @@
               <tbody id="audit-table-body"></tbody>
             </table>
             <pre id="audit-raw" hidden></pre>
+          </section>
+        </section>
+
+        <section id="view-about" class="view" hidden>
+          <h1>About RAJA</h1>
+
+          <section class="panel">
+            <p>A researcher wants a dataset. They should not have to know which bucket it lives in, which region, which account, or who to ask for an IAM role. They should just get the data — or a clear denial.</p>
+            <p>Today that is not how object storage works. Sharing data means exposing infrastructure. Granting access means managing IAM roles, bucket policies, and presigned URLs — all of which leak physical coordinates and require ongoing maintenance. Every request re-asks the same permission question, at runtime, under load.</p>
+            <p>This is a proof of concept that it does not have to work that way.</p>
+          </section>
+
+          <section class="panel">
+            <h2>The Idea</h2>
+            <p>Treat datasets as logical things with names, not physical locations. Grant access to the dataset — not to the bucket. Let the system figure out where the data lives and route the request there, invisibly.</p>
+            <p>Access control happens once, when a request is first made, and the decision is encoded into a short-lived signed token. After that, enforcement is mechanical: does this request fall within the boundary already drawn? No policy engine runs in the data path. No IAM call. No bucket name exposed.</p>
+            <p>"The hotel key contains the authority. The concierge never calls a policy engine." — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
+          </section>
+
+          <section class="panel">
+            <h2>Further Reading</h2>
+            <ul class="narrative-list">
+              <li><a href="https://ihack.us/2026/02/05/rale-raj-authorizing-logical-endpoint/" target="_blank" rel="noopener">RALE: RAJ-Authorizing Logical Endpoint</a> — the full system architecture</li>
+              <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a> — why category collapse is the original sin of cloud authorization</li>
+              <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a> — ambient authority vs. manifest authority</li>
+              <li><a href="https://ihack.us/2026/01/23/the-boy-who-ate-the-menu-raj-taj-as-software-defined-addressing-for-universal-storage-locators/" target="_blank" rel="noopener">The Boy Who Ate the Menu</a> — logical addressing for storage, without the infrastructure leak</li>
+            </ul>
           </section>
         </section>
       </main>

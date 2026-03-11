@@ -1,7 +1,7 @@
 const select = (id) => document.getElementById(id);
 const ADMIN_KEY_STORAGE_KEY = "raja_admin_key";
 const DEFAULT_VIEW = "overview";
-const VIEW_IDS = ["overview", "authority", "token", "enforce", "failures", "incident", "audit"];
+const VIEW_IDS = ["overview", "authority", "token", "enforce", "failures", "incident", "audit", "about"];
 // Base URL for API calls — strips fragment and trailing slash so paths like
 // "/health" work correctly even when served under an API Gateway stage prefix.
 const API_BASE = window.location.href.split("#")[0].replace(/\/+$/, "");
