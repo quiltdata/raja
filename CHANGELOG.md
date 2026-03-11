@@ -8,14 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **`rajee-registry` S3 bucket**: New Terraform-managed S3 bucket for the RAJEE package registry; `scripts/seed_packages.py` seeds test package data into it.
-
-### Changed
-
-- **Admin UI**: Redesigned as a logical-data discovery journey — Overview page now explains how the system works; backstory moved to About page; nav, title, S3 box, and static assets fixed.
-
 ## [0.7.0] - 2026-03-10
 
 ### Added
@@ -24,10 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live-tour admin UI**: Interactive walkthrough of the full RAJA pipeline (compile → issue → enforce) with per-step probe diagnostics and status indicators.
 - **Secret-rotation revocation flow**: Rotating the JWT signing secret now atomically revokes all tokens issued under the previous key; unit and integration tests cover the full revocation lifecycle.
 - **`show-outputs` script**: `scripts/show_outputs.py` pretty-prints the current Terraform outputs for quick stack inspection without opening raw JSON.
+- **`rajee-registry` S3 bucket**: New Terraform-managed S3 bucket for the RAJEE package registry; `scripts/seed_packages.py` seeds test package data into it.
 
 ### Changed
 
-- **Admin UI**: Restyled with the W3C Swiss stylesheet for a cleaner look; static assets and API calls now use relative paths so the UI works correctly behind an API Gateway stage prefix.
+- **Admin UI**: Redesigned as a logical-data discovery journey — Overview explains how the system works, backstory moved to About page; restyled with the W3C Swiss stylesheet; static assets and API calls now use relative paths so the UI works correctly behind an API Gateway stage prefix.
 - **S3 harness removed**: The synthetic S3-harness endpoints have been replaced with the real RAJA compile → token → enforce pipeline end-to-end.
 
 ### Fixed
