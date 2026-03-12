@@ -42,7 +42,7 @@ def run_phase2(state: SessionState, console: Console) -> None:
         response = httpx.get(
             f"{state.config.rajee_endpoint.rstrip('/')}{authorizer_path}",
             headers={"x-raja-principal": _principal_id(state.config.principal)},
-            timeout=10.0,
+            timeout=30.0,
         )
     except httpx.RequestError as exc:
         raise RuntimeError(f"RAJEE not reachable at {state.config.rajee_endpoint}") from exc

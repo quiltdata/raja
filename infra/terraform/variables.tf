@@ -114,3 +114,9 @@ variable "admin_allowed_cidrs" {
   type        = list(string)
   default     = []
 }
+
+variable "registry_accessor_arns" {
+  description = "IAM principal ARNs (users, roles) granted read/write access to the RAJEE registry bucket. Add Quilt platform roles or developer users here."
+  type        = list(string)
+  default     = []
+}
