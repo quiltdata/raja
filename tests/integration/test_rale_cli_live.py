@@ -23,9 +23,7 @@ def _require_quilt3_runtime() -> None:
         importlib.import_module("quilt3")
         importlib.import_module("awscrt.checksums")
     except Exception:
-        pytest.fail(
-            "quilt3 runtime dependencies are not fully installed (missing awscrt/quilt3)"
-        )
+        pytest.fail("quilt3 runtime dependencies are not fully installed (missing awscrt/quilt3)")
 
 
 @pytest.mark.integration

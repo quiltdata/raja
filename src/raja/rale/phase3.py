@@ -61,7 +61,8 @@ def run_phase3(state: SessionState, console: Console) -> None:
             console.print(f"{key}: {value}")
 
     encoded_path = quote(_router_path_from_usl(usl), safe="/@")
-    object_url = f"{state.config.rajee_endpoint.rstrip('/')}{encoded_path}"
+    router_url = state.config.rale_router_url
+    object_url = f"{router_url.rstrip('/')}{encoded_path}"
     try:
         response = httpx.get(
             object_url,
@@ -69,8 +70,7 @@ def run_phase3(state: SessionState, console: Console) -> None:
             timeout=30.0,
         )
     except httpx.RequestError as exc:
-        message = f"RAJEE not reachable at {state.config.rajee_endpoint} - run health check"
-        raise RuntimeError(message) from exc
+        raise RuntimeError(f"RALE router not reachable at {router_url}") from exc
 
     if response.status_code >= 400:
         message = f"Object retrieval failed with status {response.status_code}: {response.text}"

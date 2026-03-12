@@ -14,6 +14,8 @@ class ResolvedConfig:
     admin_key: str
     principal: str
     tf_dir: str
+    rale_authorizer_url: str = ""
+    rale_router_url: str = ""
 
 
 @dataclass

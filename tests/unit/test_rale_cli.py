@@ -56,18 +56,23 @@ def test_resolve_config_priority_env_over_file(
 
 def test_validate_config_reports_required_values() -> None:
     missing = ResolvedConfig(
-        server_url="http://localhost:8000",
+        server_url="",
         registry="",
-        rajee_endpoint="http://localhost:10000",
+        rajee_endpoint="",
         admin_key="",
         principal="User::demo-user",
         tf_dir="infra/terraform",
     )
 
     errors = validate_config(missing)
-    assert len(errors) == 2
-    assert "RAJA_REGISTRY" in errors[0]
-    assert "RAJA_ADMIN_KEY" in errors[1]
+    assert len(errors) == 6
+    error_text = " ".join(errors)
+    assert "RAJA_REGISTRY" in error_text
+    assert "RAJA_ADMIN_KEY" in error_text
+    assert "RAJA_SERVER_URL" in error_text
+    assert "RAJEE_ENDPOINT" in error_text
+    assert "RALE_AUTHORIZER_URL" in error_text
+    assert "RALE_ROUTER_URL" in error_text
 
 
 def test_cli_check_reports_missing_required_values(

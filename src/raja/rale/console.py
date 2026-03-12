@@ -15,6 +15,7 @@ if RichConsole is not None and RichTable is not None:
     Console = RichConsole
     Table = RichTable
 else:
+
     class Table:
         def __init__(self, title: str = "") -> None:
             self.title = title
@@ -31,7 +32,6 @@ else:
             for row in self._rows:
                 lines.append(" | ".join(row))
             return "\n".join(lines)
-
 
     class Console:
         def rule(self, title: str) -> None:

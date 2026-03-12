@@ -38,14 +38,15 @@ def run_phase2(state: SessionState, console: Console) -> None:
         raise RuntimeError("USL must include a logical file path")
     authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}/{parsed.path}", safe="/@")
 
+    authorizer_url = state.config.rale_authorizer_url
     try:
         response = httpx.get(
-            f"{state.config.rajee_endpoint.rstrip('/')}{authorizer_path}",
+            f"{authorizer_url.rstrip('/')}{authorizer_path}",
             headers={"x-raja-principal": _principal_id(state.config.principal)},
             timeout=30.0,
         )
     except httpx.RequestError as exc:
-        raise RuntimeError(f"RAJEE not reachable at {state.config.rajee_endpoint}") from exc
+        raise RuntimeError(f"RALE authorizer not reachable at {authorizer_url}") from exc
 
     if response.status_code == 403:
         raise RuntimeError("DENY - no Cedar policy permits this principal + action + resource")

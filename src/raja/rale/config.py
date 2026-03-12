@@ -14,8 +14,8 @@ from .state import ResolvedConfig, RunMode
 
 load_dotenv()
 
-DEFAULT_SERVER_URL = "http://localhost:8000"
-DEFAULT_RAJEE_ENDPOINT = "http://localhost:10000"
+DEFAULT_SERVER_URL = ""
+DEFAULT_RAJEE_ENDPOINT = ""
 DEFAULT_PRINCIPAL = 'User::"demo-user"'
 DEFAULT_TF_DIR = "infra/terraform"
 
@@ -140,6 +140,8 @@ def resolve_config(
     tf_api_url = _extract_tf_value(tf_outputs.get("api_url"))
     tf_registry = _extract_tf_value(tf_outputs.get("rajee_registry_bucket_name"))
     tf_rajee_endpoint = _extract_tf_value(tf_outputs.get("rajee_endpoint"))
+    tf_rale_authorizer_url = _extract_tf_value(tf_outputs.get("rale_authorizer_url"))
+    tf_rale_router_url = _extract_tf_value(tf_outputs.get("rale_router_url"))
 
     server_url = (
         chosen.server_url
@@ -179,6 +181,21 @@ def resolve_config(
         or DEFAULT_PRINCIPAL
     )
 
+    rale_authorizer_url = (
+        os.getenv("RALE_AUTHORIZER_URL")
+        or file_values.get("RALE_AUTHORIZER_URL")
+        or file_values.get("rale_authorizer_url")
+        or tf_rale_authorizer_url
+        or ""
+    )
+    rale_router_url = (
+        os.getenv("RALE_ROUTER_URL")
+        or file_values.get("RALE_ROUTER_URL")
+        or file_values.get("rale_router_url")
+        or tf_rale_router_url
+        or ""
+    )
+
     return (
         ResolvedConfig(
             server_url=server_url.rstrip("/"),
@@ -187,6 +204,8 @@ def resolve_config(
             admin_key=admin_key,
             principal=principal,
             tf_dir=tf_dir,
+            rale_authorizer_url=rale_authorizer_url.rstrip("/") if rale_authorizer_url else "",
+            rale_router_url=rale_router_url.rstrip("/") if rale_router_url else "",
         ),
         tf_outputs,
     )
@@ -198,4 +217,12 @@ def validate_config(config: ResolvedConfig) -> list[str]:
         errors.append("RAJA_REGISTRY is required (flag/env/config/terraform output)")
     if not config.admin_key:
         errors.append("RAJA_ADMIN_KEY is required (flag/env/config)")
+    if not config.server_url:
+        errors.append("RAJA_SERVER_URL is required (flag/env/config/terraform output: api_url)")
+    if not config.rajee_endpoint:
+        errors.append("RAJEE_ENDPOINT is required (terraform output: rajee_endpoint)")
+    if not config.rale_authorizer_url:
+        errors.append("RALE_AUTHORIZER_URL is required (terraform output: rale_authorizer_url)")
+    if not config.rale_router_url:
+        errors.append("RALE_ROUTER_URL is required (terraform output: rale_router_url)")
     return errors
