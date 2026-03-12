@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import secrets
 import time
 import uuid
@@ -297,6 +298,7 @@ def _validate_cedar_statement(statement: str) -> None:
 
 
 router = APIRouter(prefix="", tags=["control-plane"])
+_ENTITY_RE = re.compile(r'^(?P<type>.+)::"(?P<id>[^"]+)"$')
 
 
 def _extract_quilt_uri(resource: str) -> str:
@@ -312,7 +314,7 @@ def _extract_quilt_uri(resource: str) -> str:
 def _build_package_entity(quilt_uri: str) -> dict[str, Any]:
     parsed = parse_quilt_uri(quilt_uri)
     return {
-        "identifier": {"entityType": "Package", "entityId": quilt_uri},
+        "identifier": {"entityType": "Raja::Package", "entityId": quilt_uri},
         "attributes": {
             "registry": {"string": parsed.registry},
             "packageName": {"string": parsed.package_name},
@@ -322,15 +324,19 @@ def _build_package_entity(quilt_uri: str) -> dict[str, Any]:
 
 
 def _build_entity_reference(entity: str) -> dict[str, str]:
-    try:
-        entity_type, entity_id = parse_entity(entity)
-        return {"entityType": entity_type, "entityId": entity_id}
-    except ValueError:
-        if "::" in entity:
-            entity_type, entity_id = entity.split("::", 1)
-            if entity_type and entity_id:
-                return {"entityType": entity_type, "entityId": entity_id}
-        raise
+    match = _ENTITY_RE.match(entity.strip())
+    if match:
+        entity_type = match.group("type")
+        if "::" not in entity_type:
+            entity_type = f"Raja::{entity_type}"
+        return {"entityType": entity_type, "entityId": match.group("id")}
+    if "::" in entity:
+        entity_type, entity_id = entity.split("::", 1)
+        if entity_type and entity_id:
+            if "::" not in entity_type:
+                entity_type = f"Raja::{entity_type}"
+            return {"entityType": entity_type, "entityId": entity_id}
+    raise ValueError('entity must be in the form Type::"id"')
 
 
 def _authorize_package(
@@ -344,8 +350,8 @@ def _authorize_package(
     request: dict[str, Any] = {
         "policyStoreId": policy_store_id,
         "principal": _build_entity_reference(principal),
-        "action": {"actionType": "Action", "actionId": action},
-        "resource": {"entityType": "Package", "entityId": quilt_uri},
+        "action": {"actionType": "Raja::Action", "actionId": action},
+        "resource": {"entityType": "Raja::Package", "entityId": quilt_uri},
         "entities": {"entityList": [_build_package_entity(quilt_uri)]},
     }
     if context is not None:

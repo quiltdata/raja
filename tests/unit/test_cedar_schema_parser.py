@@ -126,7 +126,7 @@ def test_parse_actual_raja_schema():
     schema_path = repo_root / "policies" / "schema.cedar"
 
     if not schema_path.exists():
-        pytest.skip(f"Schema file not found at {schema_path}")
+        pytest.fail(f"Schema file not found at {schema_path}")
 
     result = load_cedar_schema_from_file(str(schema_path))
     parsed = json.loads(result)

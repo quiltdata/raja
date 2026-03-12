@@ -12,9 +12,10 @@ def _cedar_tool_available() -> bool:
     return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_PARSE_BIN"))
 
 
-pytestmark = pytest.mark.skipif(
-    not _cedar_tool_available(), reason="cargo or CEDAR_PARSE_BIN is required for Cedar parsing"
-)
+@pytest.fixture(autouse=True)
+def _require_cedar_tool() -> None:
+    if not _cedar_tool_available():
+        pytest.fail("cargo or CEDAR_PARSE_BIN is required for Cedar parsing")
 
 
 def test_compile_forbid_policy_with_flag():

@@ -386,6 +386,7 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
+          "verifiedpermissions:IsAuthorized",
           "verifiedpermissions:ListPolicies",
           "verifiedpermissions:GetPolicy",
           "verifiedpermissions:GetPolicyStore"
@@ -953,6 +954,38 @@ resource "aws_s3_bucket_public_access_block" "rajee_registry" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "rajee_registry_accessor" {
+  count  = length(var.registry_accessor_arns) > 0 ? 1 : 0
+  bucket = aws_s3_bucket.rajee_registry.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "RegistryAccessorReadWrite"
+        Effect = "Allow"
+        Principal = {
+          AWS = var.registry_accessor_arns
+        }
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = [
+          aws_s3_bucket.rajee_registry.arn,
+          "${aws_s3_bucket.rajee_registry.arn}/*"
+        ]
+      }
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.rajee_registry]
 }
 
 resource "aws_iam_role" "rajee_task_execution" {

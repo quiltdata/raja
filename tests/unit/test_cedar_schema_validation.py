@@ -17,10 +17,10 @@ def _cedar_tool_available() -> bool:
     return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_VALIDATE_BIN"))
 
 
-pytestmark = pytest.mark.skipif(
-    not _cedar_tool_available(),
-    reason="cargo or CEDAR_VALIDATE_BIN is required for schema validation",
-)
+@pytest.fixture(autouse=True)
+def _require_cedar_tool() -> None:
+    if not _cedar_tool_available():
+        pytest.fail("cargo or CEDAR_VALIDATE_BIN is required for schema validation")
 
 
 def test_load_cedar_schema(tmp_path):

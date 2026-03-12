@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-12
+
+### Added
+
+- **RALE CLI** (`rale` command): New end-to-end demo runner for the RALE authorization flow
+  - Multi-phase orchestration: authorize → select → fetch, with auto and manual (step-through) modes
+  - Config resolution from `.env` files, Terraform outputs, and CLI flags (`--server-url`, `--registry`, `--rajee-endpoint`, `--admin-key`, `--principal`, `--tf-dir`)
+  - Rich terminal console output with phase status indicators
+  - `rale = "raja.cli:main"` entry point registered in `pyproject.toml`
+- **`raja.rale` package**: Modular implementation of the RALE CLI phases
+  - `config.py` — config resolution and validation with `ConfigOverrides` and Terraform output loading
+  - `authorize.py` — calls control-plane to issue a TAJ token for the demo principal
+  - `select.py` — resolves a Quilt package and selects a logical S3 path
+  - `fetch.py` — fetches the physical S3 object through the RAJEE proxy using the TAJ token
+  - `runner.py` — orchestrates all phases in sequence
+  - `console.py` — `Console` wrapper for styled Rich output
+  - `state.py` — `SessionState` dataclass carrying phase results between steps
+- **`rale_demo_user` Cedar policy**: New policy granting the demo principal access for CLI walkthroughs
+- **Integration test** (`test_rale_cli_live.py`): Live end-to-end test of the full RALE CLI flow against a deployed stack
+- **Unit tests** (`test_rale_cli.py`): Offline unit coverage for CLI config, phase logic, and failure modes
+- **New dependencies**: `click`, `httpx`, `rich`, `python-dotenv`, `quilt3`, `awscrt` added to package runtime deps
+
+### Changed
+
+- **RALE CLI hardening**: All endpoint URLs (`server_url`, `rajee_endpoint`, `registry`) are now required; the CLI fails fast with a clear error rather than falling back to defaults
+- **`python-dotenv` support**: Config resolution now loads `.env` files automatically before resolving environment variables
+- **Integration test skips → failures**: Tests that previously skipped when endpoints were absent now fail, ensuring CI catches misconfigured environments
+- **Terraform outputs**: Added `rale_authorizer_url` and `rale_router_url` output variables to `infra/terraform/`
+
+### Fixed
+
+- **mypy errors**: Resolved type errors in `console.py`, `select.py`, and `manifest.py` (`import-untyped` → correct ignore comment)
+
 ## [0.7.0] - 2026-03-10
 
 ### Added
