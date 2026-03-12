@@ -14,7 +14,7 @@ def _load_quilt3() -> Any:
     try:
         import quilt3  # type: ignore[import-not-found]
     except Exception as exc:
-        raise RuntimeError("quilt3 is required for phase 1 package selection") from exc
+        raise RuntimeError("quilt3 is required for package selection") from exc
     return quilt3
 
 
@@ -30,7 +30,7 @@ def _select_index(*, count: int, mode: RunMode, label: str) -> int:
     return selected - 1
 
 
-def run_phase1(state: SessionState, mode: RunMode, console: Console) -> None:
+def run_select(state: SessionState, mode: RunMode, console: Console) -> None:
     quilt3 = _load_quilt3()
     registry = state.config.registry
 

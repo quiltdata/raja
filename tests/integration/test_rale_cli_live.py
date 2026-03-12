@@ -6,8 +6,8 @@ import os
 import pytest
 
 from raja.rale.console import Console
-from raja.rale.phase2 import run_phase2
-from raja.rale.phase3 import run_phase3
+from raja.rale.authorize import run_authorize
+from raja.rale.fetch import run_fetch
 from raja.rale.state import ResolvedConfig, SessionState
 
 from .helpers import (
@@ -27,7 +27,7 @@ def _require_quilt3_runtime() -> None:
 
 
 @pytest.mark.integration
-def test_rale_phase2_mints_live_taj() -> None:
+def test_rale_authorize_mints_live_taj() -> None:
     _require_quilt3_runtime()
     admin_key = os.environ.get("RAJA_ADMIN_KEY")
     if not admin_key:
@@ -50,7 +50,7 @@ def test_rale_phase2_mints_live_taj() -> None:
     )
     state = SessionState(config=config, usl=usl)
 
-    run_phase2(state=state, console=Console())
+    run_authorize(state=state, console=Console())
 
     assert state.taj
     assert state.taj_claims is not None
@@ -58,7 +58,7 @@ def test_rale_phase2_mints_live_taj() -> None:
 
 
 @pytest.mark.integration
-def test_rale_phase3_fetches_live_object() -> None:
+def test_rale_fetch_live_object() -> None:
     _require_quilt3_runtime()
     admin_key = os.environ.get("RAJA_ADMIN_KEY")
     if not admin_key:
@@ -81,5 +81,5 @@ def test_rale_phase3_fetches_live_object() -> None:
     )
     state = SessionState(config=config, usl=usl)
 
-    run_phase2(state=state, console=Console())
-    run_phase3(state=state, console=Console())
+    run_authorize(state=state, console=Console())
+    run_fetch(state=state, console=Console())

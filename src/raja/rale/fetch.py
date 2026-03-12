@@ -16,7 +16,7 @@ def _router_path_from_usl(usl: str) -> str:
     return f"/{parsed.registry}/{parsed.package_name}@{parsed.hash}/{logical_path}"
 
 
-def run_phase3(state: SessionState, console: Console) -> None:
+def run_fetch(state: SessionState, console: Console) -> None:
     usl = state.ensure_usl()
     _ = state.ensure_taj()
 

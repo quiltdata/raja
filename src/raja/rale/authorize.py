@@ -23,7 +23,7 @@ def _principal_id(principal: str) -> str:
     return value
 
 
-def run_phase2(state: SessionState, console: Console) -> None:
+def run_authorize(state: SessionState, console: Console) -> None:
     usl = state.ensure_usl()
     console.rule("RALE CLI - AUTHORIZATION")
     console.print(f"Principal: [bold]{state.config.principal}[/bold]")
