@@ -386,6 +386,7 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
+          "verifiedpermissions:IsAuthorized",
           "verifiedpermissions:ListPolicies",
           "verifiedpermissions:GetPolicy",
           "verifiedpermissions:GetPolicyStore"
