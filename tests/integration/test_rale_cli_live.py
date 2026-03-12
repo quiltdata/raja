@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from raja.rale.console import Console
 from raja.rale.authorize import run_authorize
+from raja.rale.console import Console
 from raja.rale.fetch import run_fetch
 from raja.rale.state import ResolvedConfig, SessionState
 

@@ -1,22 +1,13 @@
 from __future__ import annotations
 
-# mypy: disable-error-code=no-redef
 from typing import Any
 
-try:  # pragma: no cover - depends on optional runtime dependency
-    from rich.console import Console as RichConsole  # type: ignore[import-not-found]
-    from rich.table import Table as RichTable  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover - exercised only when rich is unavailable
-    RichConsole = None
-    RichTable = None
+try:
+    from rich.console import Console
+    from rich.table import Table
+except ImportError:  # pragma: no cover - exercised only when rich is unavailable
 
-
-if RichConsole is not None and RichTable is not None:
-    Console = RichConsole
-    Table = RichTable
-else:
-
-    class Table:
+    class Table:  # type: ignore[no-redef]
         def __init__(self, title: str = "") -> None:
             self.title = title
             self._rows: list[list[str]] = []
@@ -33,7 +24,7 @@ else:
                 lines.append(" | ".join(row))
             return "\n".join(lines)
 
-    class Console:
+    class Console:  # type: ignore[no-redef]
         def rule(self, title: str) -> None:
             print(f"=== {title} ===")
 

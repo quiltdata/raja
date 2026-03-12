@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import click
 
-from .console import Console
 from .authorize import run_authorize
+from .console import Console
 from .fetch import run_fetch
 from .select import run_select
 from .state import RunMode, SessionState

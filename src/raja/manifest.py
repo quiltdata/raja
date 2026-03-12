@@ -14,7 +14,7 @@ def _load_quilt3() -> Any:
     os.environ.setdefault("XDG_DATA_HOME", "/tmp")
     os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
     try:
-        import quilt3  # type: ignore[import-not-found]
+        import quilt3  # type: ignore[import-untyped]
     except Exception as exc:  # pragma: no cover - exercised via callers
         raise RuntimeError("quilt3 is required for package resolution") from exc
     return quilt3
