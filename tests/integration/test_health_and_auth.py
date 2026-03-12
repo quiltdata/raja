@@ -72,7 +72,7 @@ def test_protected_endpoint_accepts_correct_key():
     api_url = require_api_url()
     admin_key = os.environ.get("RAJA_ADMIN_KEY")
     if not admin_key:
-        pytest.skip("RAJA_ADMIN_KEY not set")
+        pytest.fail("RAJA_ADMIN_KEY not set")
     status, body = _raw_get(
         f"{api_url}/principals",
         headers={"Authorization": f"Bearer {admin_key}"},

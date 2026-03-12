@@ -33,7 +33,7 @@ def test_rale_phase2_mints_live_taj() -> None:
     _require_quilt3_runtime()
     admin_key = os.environ.get("RAJA_ADMIN_KEY")
     if not admin_key:
-        pytest.skip("RAJA_ADMIN_KEY not set")
+        pytest.fail("RAJA_ADMIN_KEY not set")
 
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)
@@ -64,7 +64,7 @@ def test_rale_phase3_fetches_live_object() -> None:
     _require_quilt3_runtime()
     admin_key = os.environ.get("RAJA_ADMIN_KEY")
     if not admin_key:
-        pytest.skip("RAJA_ADMIN_KEY not set")
+        pytest.fail("RAJA_ADMIN_KEY not set")
 
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)

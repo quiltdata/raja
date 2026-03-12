@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.110.0",
     "mangum>=0.17.0",
     "structlog>=24.1.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.optional-dependencies]

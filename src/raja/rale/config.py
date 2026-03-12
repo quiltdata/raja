@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from .state import ResolvedConfig, RunMode
+
+load_dotenv()
 
 DEFAULT_SERVER_URL = "http://localhost:8000"
 DEFAULT_RAJEE_ENDPOINT = "http://localhost:10000"

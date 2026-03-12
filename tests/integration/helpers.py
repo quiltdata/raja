@@ -144,7 +144,7 @@ def require_api_url() -> str:
     if not api_url:
         api_url = _load_api_url_from_outputs(_REPO_ROOT)
     if not api_url:
-        pytest.skip("RAJA_API_URL not set")
+        pytest.fail("RAJA_API_URL not set")
     return api_url.rstrip("/")
 
 
@@ -153,7 +153,7 @@ def require_jwt_secret_arn() -> str:
     if not secret_arn:
         secret_arn = _load_jwt_secret_arn_from_outputs(_REPO_ROOT)
     if not secret_arn:
-        pytest.skip("JWT_SECRET_ARN not set")
+        pytest.fail("JWT_SECRET_ARN not set")
     return secret_arn
 
 
@@ -168,7 +168,7 @@ def require_rajee_test_bucket() -> str:
     if not bucket:
         bucket = _load_rajee_bucket_from_outputs(_REPO_ROOT)
     if not bucket:
-        pytest.skip("RAJEE_TEST_BUCKET not set")
+        pytest.fail("RAJEE_TEST_BUCKET not set")
     return bucket
 
 
@@ -177,7 +177,7 @@ def require_rajee_endpoint() -> str:
     if not endpoint:
         endpoint = _load_rajee_endpoint_from_outputs(_REPO_ROOT)
     if not endpoint:
-        pytest.skip("RAJEE_ENDPOINT not set")
+        pytest.fail("RAJEE_ENDPOINT not set")
     return endpoint.rstrip("/")
 
 
@@ -186,7 +186,7 @@ def require_rale_authorizer_url() -> str:
     if not endpoint:
         endpoint = _load_rale_authorizer_url_from_outputs(_REPO_ROOT)
     if not endpoint:
-        pytest.skip("RALE_AUTHORIZER_URL not set")
+        pytest.fail("RALE_AUTHORIZER_URL not set")
     return endpoint.rstrip("/")
 
 
@@ -195,7 +195,7 @@ def require_rale_router_url() -> str:
     if not endpoint:
         endpoint = _load_rale_router_url_from_outputs(_REPO_ROOT)
     if not endpoint:
-        pytest.skip("RALE_ROUTER_URL not set")
+        pytest.fail("RALE_ROUTER_URL not set")
     return endpoint.rstrip("/")
 
 
@@ -277,7 +277,7 @@ def request_json(
     if normalized_path not in _PUBLIC_CONTROL_PLANE_PATHS:
         admin_key = os.environ.get("RAJA_ADMIN_KEY")
         if not admin_key:
-            pytest.skip("RAJA_ADMIN_KEY not set for protected control-plane endpoint tests")
+            pytest.fail("RAJA_ADMIN_KEY not set for protected control-plane endpoint tests")
         headers["Authorization"] = f"Bearer {admin_key}"
     if body is not None:
         data = json.dumps(body).encode("utf-8")

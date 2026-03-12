@@ -268,7 +268,7 @@ def test_admin_rotate_secret_invalidates_old_tokens() -> None:
 @pytest.mark.integration
 def test_policy_to_token_traceability() -> None:
     if not _cedar_tool_available():
-        pytest.skip("cargo or CEDAR_PARSE_BIN is required for Cedar parsing")
+        pytest.fail("cargo or CEDAR_PARSE_BIN is required for Cedar parsing")
     status, body = request_json("GET", "/policies", query={"include_statements": "true"})
     assert status == 200
     policies = body.get("policies", [])
