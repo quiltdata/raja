@@ -15,7 +15,7 @@ import boto3
 from fastapi import HTTPException, Request
 
 # Module-level caches (initialized once per Lambda container)
-_avp_client: Any | None = None
+_datazone_client: Any | None = None
 _dynamodb_resource: Any | None = None
 _principal_table: Any | None = None
 _mappings_table: Any | None = None
@@ -56,19 +56,12 @@ def _require_env(value: str | None, name: str) -> str:
     return value
 
 
-def get_avp_client() -> Any:
-    """Get cached Amazon Verified Permissions client.
-
-    Creates the client on first call and reuses it for subsequent calls
-    within the same Lambda container.
-
-    Returns:
-        boto3 verifiedpermissions client
-    """
-    global _avp_client
-    if _avp_client is None:
-        _avp_client = boto3.client("verifiedpermissions", region_name=_get_region())
-    return _avp_client
+def get_datazone_client() -> Any:
+    """Get cached Amazon DataZone client."""
+    global _datazone_client
+    if _datazone_client is None:
+        _datazone_client = boto3.client("datazone", region_name=_get_region())
+    return _datazone_client
 
 
 def get_dynamodb_resource() -> Any:

@@ -66,6 +66,8 @@ def health() -> dict[str, Any]:
     _check("principal_table", dependencies.get_principal_table)
     _check("mappings_table", dependencies.get_mappings_table)
     _check("audit_table", dependencies.get_audit_table)
+    if dependencies.os.environ.get("DATAZONE_DOMAIN_ID"):
+        _check("datazone", dependencies.get_datazone_client)
 
     status = "ok" if all(value == "ok" for value in dependency_checks.values()) else "degraded"
     return {"status": status, "dependencies": dependency_checks}

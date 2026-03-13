@@ -19,6 +19,7 @@ from pydantic import BaseModel, model_validator
 from raja import create_token
 from raja.cedar.entities import parse_entity
 from raja.cedar.schema import validate_policy_against_schema
+from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
 from raja.exceptions import TokenInvalidError
 from raja.package_map import parse_s3_path
 from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
@@ -106,7 +107,7 @@ class PolicyUpdateRequest(BaseModel):
     statement: str
 
 
-POLICY_STORE_ID = os.environ.get("POLICY_STORE_ID")
+DATAZONE_DOMAIN_ID = os.environ.get("DATAZONE_DOMAIN_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 ROTATION_PK = "ROTATE_SECRET"
 
@@ -297,6 +298,10 @@ def _validate_cedar_statement(statement: str) -> None:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
+def _policy_plane_id() -> str:
+    return f"datazone:{_require_env(DATAZONE_DOMAIN_ID, 'DATAZONE_DOMAIN_ID')}"
+
+
 router = APIRouter(prefix="", tags=["control-plane"])
 _ENTITY_RE = re.compile(r'^(?P<type>.+)::"(?P<id>[^"]+)"$')
 
@@ -339,26 +344,34 @@ def _build_entity_reference(entity: str) -> dict[str, str]:
     raise ValueError('entity must be in the form Type::"id"')
 
 
-def _authorize_package(
-    avp: Any,
+def _datazone_service(client: Any) -> DataZoneService:
+    return DataZoneService(client=client, config=DataZoneConfig.from_env())
+
+
+def _principal_project_id(table: Any, principal: str) -> str:
+    response = table.get_item(Key={"principal": principal})
+    item = response.get("Item") or {}
+    project_id = item.get("datazone_project_id")
+    if isinstance(project_id, str) and project_id:
+        return project_id
+    raise HTTPException(
+        status_code=404,
+        detail=f"DataZone project not found for principal: {principal}",
+    )
+
+
+def _authorize_package_with_datazone(
+    datazone: Any,
+    table: Any,
     principal: str,
-    action: str,
     quilt_uri: str,
-    context: dict[str, Any] | None = None,
 ) -> bool:
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-    request: dict[str, Any] = {
-        "policyStoreId": policy_store_id,
-        "principal": _build_entity_reference(principal),
-        "action": {"actionType": "Raja::Action", "actionId": action},
-        "resource": {"entityType": "Raja::Package", "entityId": quilt_uri},
-        "entities": {"entityList": [_build_package_entity(quilt_uri)]},
-    }
-    if context is not None:
-        request["context"] = {"contextMap": context}
-    response = avp.is_authorized(**request)
-    decision: str = response.get("decision", "DENY")
-    return decision == "ALLOW"
+    try:
+        service = _datazone_service(datazone)
+        project_id = _principal_project_id(table, principal)
+        return service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/token")
@@ -372,7 +385,7 @@ def issue_token(
 ) -> dict[str, Any]:
     logger.info("token_requested", principal=payload.principal)
 
-    policy_store_id = POLICY_STORE_ID
+    policy_store_id = _policy_plane_id()
     response = table.get_item(Key={"principal": payload.principal})
     item = response.get("Item")
     if not item:
@@ -444,7 +457,8 @@ def issue_package_token(
     request: Request,
     payload: PackageTokenRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
+    table: Any = Depends(dependencies.get_principal_table),
+    datazone: Any = Depends(dependencies.get_datazone_client),
     audit_table: Any = Depends(dependencies.get_audit_table),
     secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
@@ -459,9 +473,7 @@ def issue_package_token(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        allowed = _authorize_package(
-            avp, payload.principal, payload.action, quilt_uri, payload.context
-        )
+        allowed = _authorize_package_with_datazone(datazone, table, payload.principal, quilt_uri)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -473,7 +485,7 @@ def issue_package_token(
                     action="token.issue.package",
                     resource=quilt_uri,
                     decision="DENY",
-                    policy_store_id=POLICY_STORE_ID,
+                    policy_store_id=_policy_plane_id(),
                     request_id=_get_request_id(request),
                 )
             )
@@ -496,7 +508,7 @@ def issue_package_token(
                 action="token.issue.package",
                 resource=quilt_uri,
                 decision="SUCCESS",
-                policy_store_id=POLICY_STORE_ID,
+                policy_store_id=_policy_plane_id(),
                 request_id=_get_request_id(request),
             )
         )
@@ -511,7 +523,8 @@ def issue_translation_token(
     request: Request,
     payload: TranslationTokenRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
+    table: Any = Depends(dependencies.get_principal_table),
+    datazone: Any = Depends(dependencies.get_datazone_client),
     audit_table: Any = Depends(dependencies.get_audit_table),
     secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
@@ -526,9 +539,7 @@ def issue_translation_token(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        allowed = _authorize_package(
-            avp, payload.principal, payload.action, quilt_uri, payload.context
-        )
+        allowed = _authorize_package_with_datazone(datazone, table, payload.principal, quilt_uri)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -540,7 +551,7 @@ def issue_translation_token(
                     action="token.issue.translation",
                     resource=quilt_uri,
                     decision="DENY",
-                    policy_store_id=POLICY_STORE_ID,
+                    policy_store_id=_policy_plane_id(),
                     request_id=_get_request_id(request),
                 )
             )
@@ -565,7 +576,7 @@ def issue_translation_token(
                 action="token.issue.translation",
                 resource=quilt_uri,
                 decision="SUCCESS",
-                policy_store_id=POLICY_STORE_ID,
+                policy_store_id=_policy_plane_id(),
                 request_id=_get_request_id(request),
             )
         )
@@ -671,6 +682,7 @@ def create_principal(
     request: PrincipalRequest,
     _: None = Depends(dependencies.require_admin_auth),
     table: Any = Depends(dependencies.get_principal_table),
+    datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
     """Create or update principal with scopes."""
     logger.info(
@@ -678,17 +690,27 @@ def create_principal(
         principal=request.principal,
         scopes_count=len(request.scopes),
     )
+    item: dict[str, Any] = {
+        "principal": request.principal,
+        "scopes": request.scopes,
+        "updated_at": int(time.time()),
+    }
+    if datazone_enabled():
+        try:
+            project = _datazone_service(datazone).ensure_project_for_principal(request.principal)
+        except DataZoneError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        item["datazone_project_id"] = project["project_id"]
+        item["datazone_project_name"] = project["project_name"]
 
-    table.put_item(
-        Item={
-            "principal": request.principal,
-            "scopes": request.scopes,
-            "updated_at": int(time.time()),
-        }
-    )
+    table.put_item(Item=item)
 
     logger.info("principal_created", principal=request.principal)
-    return {"principal": request.principal, "scopes": request.scopes}
+    return {
+        "principal": request.principal,
+        "scopes": request.scopes,
+        "datazone_project_id": item.get("datazone_project_id"),
+    }
 
 
 @router.delete("/principals/{principal}")
@@ -708,27 +730,35 @@ def delete_principal(
 def list_policies(
     include_statements: bool = False,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
+    datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
     logger.debug("policies_list_requested", include_statements=include_statements)
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-    response = avp.list_policies(policyStoreId=policy_store_id, maxResults=100)
-    policies = response.get("policies", [])
+    try:
+        service = _datazone_service(datazone)
+        listings = service._search_listings("")
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    if not include_statements:
-        logger.info("policies_listed", count=len(policies))
-        return {"policies": policies}
-
-    detailed: list[dict[str, Any]] = []
-    for policy in policies:
-        policy_id = policy.get("policyId")
-        if not policy_id:
+    policies: list[dict[str, Any]] = []
+    for listing in listings:
+        if listing.get("entityType") != service._config.asset_type_name:
             continue
-        policy_response = avp.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
-        detailed.append({"policyId": policy_id, "definition": policy_response.get("definition")})
-
-    logger.info("policies_listed_with_statements", count=len(detailed))
-    return {"policies": detailed}
+        entry: dict[str, Any] = {
+            "policyId": listing.get("listingId"),
+            "name": listing.get("name"),
+            "ownerProjectId": listing.get("owningProjectId"),
+            "type": "datazone-listing",
+        }
+        if include_statements:
+            entry["definition"] = {
+                "static": {
+                    "statement": "",
+                    "description": "DataZone-backed package access listing",
+                }
+            }
+        policies.append(entry)
+    logger.info("policies_listed", count=len(policies))
+    return {"policies": policies}
 
 
 @router.post("/policies")
@@ -736,42 +766,39 @@ def create_policy(
     request: Request,
     payload: PolicyCreateRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
-    """Create a new Cedar policy in the AVP policy store."""
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-    _validate_cedar_statement(payload.statement)
-    response = avp.create_policy(
-        policyStoreId=policy_store_id,
-        definition={"static": {"statement": payload.statement, "description": payload.description}},
-    )
-    policy_id = response["policyId"]
-    logger.info("policy_created", policy_id=policy_id)
+    """Policy mutation is disabled in the DataZone POC."""
+    policy_store_id = _policy_plane_id()
     audit_table.put_item(
         Item=build_audit_item(
             principal="admin",
             action="policy.create",
             resource=payload.statement,
-            decision="SUCCESS",
+            decision="UNSUPPORTED",
             policy_store_id=policy_store_id,
             request_id=_get_request_id(request),
         )
     )
-    return {"policyId": policy_id}
+    raise HTTPException(
+        status_code=410,
+        detail="Direct Cedar policy mutation is not supported in the DataZone POC",
+    )
 
 
 @router.get("/policies/{policy_id}")
 def get_policy(
     policy_id: str,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
+    datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
-    """Get a single Cedar policy with its full statement."""
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-    response = avp.get_policy(policyStoreId=policy_store_id, policyId=policy_id)
-    logger.debug("policy_fetched", policy_id=policy_id)
-    return {"policyId": policy_id, "definition": response.get("definition")}
+    """Get a single DataZone-backed listing."""
+    response = list_policies(include_statements=True, datazone=datazone)
+    for policy in response["policies"]:
+        if isinstance(policy, dict) and policy.get("policyId") == policy_id:
+            logger.debug("policy_fetched", policy_id=policy_id)
+            return policy
+    raise HTTPException(status_code=404, detail="listing not found")
 
 
 @router.put("/policies/{policy_id}")
@@ -780,29 +807,24 @@ def update_policy(
     request: Request,
     payload: PolicyUpdateRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
-    """Replace the Cedar statement of an existing policy."""
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-    _validate_cedar_statement(payload.statement)
-    avp.update_policy(
-        policyStoreId=policy_store_id,
-        policyId=policy_id,
-        definition={"static": {"statement": payload.statement}},
-    )
-    logger.info("policy_updated", policy_id=policy_id)
+    """Policy mutation is disabled in the DataZone POC."""
+    policy_store_id = _policy_plane_id()
     audit_table.put_item(
         Item=build_audit_item(
             principal="admin",
             action="policy.update",
             resource=payload.statement,
-            decision="SUCCESS",
+            decision="UNSUPPORTED",
             policy_store_id=policy_store_id,
             request_id=_get_request_id(request),
         )
     )
-    return {"policyId": policy_id, "updated": True}
+    raise HTTPException(
+        status_code=410,
+        detail="Direct Cedar policy mutation is not supported in the DataZone POC",
+    )
 
 
 @router.delete("/policies/{policy_id}")
@@ -810,24 +832,24 @@ def delete_policy(
     policy_id: str,
     request: Request,
     _: None = Depends(dependencies.require_admin_auth),
-    avp: Any = Depends(dependencies.get_avp_client),
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
-    """Delete a Cedar policy from the AVP policy store."""
-    policy_store_id = _require_env(POLICY_STORE_ID, "POLICY_STORE_ID")
-    avp.delete_policy(policyStoreId=policy_store_id, policyId=policy_id)
-    logger.info("policy_deleted", policy_id=policy_id)
+    """Policy mutation is disabled in the DataZone POC."""
+    policy_store_id = _policy_plane_id()
     audit_table.put_item(
         Item=build_audit_item(
             principal="admin",
             action="policy.delete",
             resource=policy_id,
-            decision="SUCCESS",
+            decision="UNSUPPORTED",
             policy_store_id=policy_store_id,
             request_id=_get_request_id(request),
         )
     )
-    return {"policyId": policy_id, "deleted": True}
+    raise HTTPException(
+        status_code=410,
+        detail="Direct Cedar policy mutation is not supported in the DataZone POC",
+    )
 
 
 @router.get("/.well-known/jwks.json")
