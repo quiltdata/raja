@@ -14,6 +14,8 @@ from .helpers import (
     parse_rale_test_quilt_uri,
     require_api_url,
     require_rajee_endpoint,
+    require_rale_authorizer_url,
+    require_rale_router_url,
     require_rale_test_quilt_uri,
 )
 
@@ -47,6 +49,7 @@ def test_rale_authorize_mints_live_taj() -> None:
         admin_key=admin_key,
         principal="test-user",
         tf_dir="infra/terraform",
+        rale_authorizer_url=require_rale_authorizer_url(),
     )
     state = SessionState(config=config, usl=usl)
 
@@ -78,6 +81,8 @@ def test_rale_fetch_live_object() -> None:
         admin_key=admin_key,
         principal="test-user",
         tf_dir="infra/terraform",
+        rale_authorizer_url=require_rale_authorizer_url(),
+        rale_router_url=require_rale_router_url(),
     )
     state = SessionState(config=config, usl=usl)
 
