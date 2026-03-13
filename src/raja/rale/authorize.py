@@ -36,7 +36,7 @@ def run_authorize(state: SessionState, console: Console) -> None:
     parsed = parse_quilt_uri(usl)
     if not parsed.path:
         raise RuntimeError("USL must include a logical file path")
-    authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}@{parsed.hash}/{parsed.path}", safe="/")
+    authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}/{parsed.path}", safe="/")
 
     authorizer_url = state.config.rale_authorizer_url
     try:

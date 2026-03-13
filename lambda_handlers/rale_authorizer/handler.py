@@ -7,6 +7,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService
 from raja.quilt_uri import parse_quilt_uri
 from raja.token import create_taj_token
 
@@ -115,12 +116,21 @@ def _build_package_uri(storage: str, registry: str, package_name: str, manifest_
     return f"quilt+{storage}://{registry}#package={package_name}@{manifest_hash}"
 
 
+def _get_project_id(table_name: str, principal: str, region: str) -> str | None:
+    table = boto3.resource("dynamodb", region_name=region).Table(table_name)
+    item = table.get_item(Key={"principal": principal}).get("Item") or {}
+    project_id = item.get("datazone_project_id")
+    if isinstance(project_id, str) and project_id:
+        return project_id
+    return None
+
+
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
-    policy_store_id = os.environ.get("POLICY_STORE_ID")
+    principal_table = os.environ.get("PRINCIPAL_TABLE")
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
     jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if not policy_store_id or not jwt_secret_arn or not region:
+    if not principal_table or not jwt_secret_arn or not region:
         return _response(500, {"error": "missing required environment variables"})
 
     try:
@@ -139,7 +149,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
             return _response(502, {"error": f"manifest resolution failed: {exc}"})
         prefix = f"{registry}/{package_name}@{manifest_hash}/"
 
-    action = os.environ.get("RALE_ACTION", "quilt:ReadPackage")
     storage = os.environ.get("RALE_STORAGE", "s3")
     quilt_uri = _build_package_uri(storage, registry, package_name, manifest_hash)
 
@@ -148,32 +157,22 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     except ValueError as exc:
         return _response(400, {"error": f"invalid package URI: {exc}"})
 
-    avp = boto3.client("verifiedpermissions", region_name=region)
-    request = {
-        "policyStoreId": policy_store_id,
-        "principal": _build_entity_reference(principal),
-        "action": {"actionType": "Raja::Action", "actionId": action},
-        "resource": {"entityType": "Raja::Package", "entityId": quilt_uri},
-        "entities": {
-            "entityList": [
-                {
-                    "identifier": {"entityType": "Raja::Package", "entityId": quilt_uri},
-                    "attributes": {
-                        "registry": {"string": registry},
-                        "packageName": {"string": package_name},
-                        "hash": {"string": manifest_hash},
-                    },
-                }
-            ]
-        },
-    }
+    project_id = _get_project_id(principal_table, principal, region)
+    if not project_id:
+        return _response(403, {"decision": "DENY", "error": "principal project not found"})
 
     try:
-        decision = avp.is_authorized(**request).get("decision", "DENY")
+        service = DataZoneService(
+            client=boto3.client("datazone", region_name=region),
+            config=DataZoneConfig.from_env(),
+        )
+        allowed = service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
+    except DataZoneError:
+        return _response(503, {"error": "authorization service unavailable"})
     except (ClientError, BotoCoreError):
         return _response(503, {"error": "authorization service unavailable"})
 
-    if decision != "ALLOW":
+    if not allowed:
         return _response(
             403,
             {

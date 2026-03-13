@@ -6,6 +6,7 @@ import click
 
 from raja.quilt_uri import QuiltUri
 
+from .config import DEFAULT_PRINCIPAL
 from .console import Console, Table
 from .state import RunMode, SessionState
 
@@ -30,6 +31,14 @@ def _select_index(*, count: int, mode: RunMode, label: str) -> int:
     return selected - 1
 
 
+def _sorted_packages_for_principal(packages: list[str], principal: str) -> list[str]:
+    preferred: dict[str, int] = {}
+    if principal == DEFAULT_PRINCIPAL:
+        preferred["demo/package-grant"] = 0
+
+    return sorted(packages, key=lambda package: (preferred.get(package, 1), package))
+
+
 def run_select(state: SessionState, mode: RunMode, console: Console) -> None:
     quilt3 = _load_quilt3()
     registry = state.config.registry
@@ -38,7 +47,10 @@ def run_select(state: SessionState, mode: RunMode, console: Console) -> None:
     console.print(f"Registry: [bold]{registry}[/bold]")
     console.print(f"RAJEE endpoint: [bold]{state.config.rajee_endpoint}[/bold]")
 
-    packages = sorted(quilt3.list_packages(registry=registry))
+    packages = _sorted_packages_for_principal(
+        sorted(quilt3.list_packages(registry=registry)),
+        state.config.principal,
+    )
     if not packages:
         raise RuntimeError("Package not found in registry")
 
