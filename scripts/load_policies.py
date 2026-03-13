@@ -206,13 +206,13 @@ def main() -> None:
         print("⚠ Duplicate policy statements detected; deduplicating.")
         policies = sorted(set(policies))
 
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Loading {len(policies)} policies to AVP")
     print(f"Policy Store: {policy_store_id}")
     print(f"Region: {region or 'default'}")
     if dry_run:
         print("Mode: DRY-RUN (no changes will be made)")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Create client
     try:
@@ -267,7 +267,7 @@ def main() -> None:
             print(f"  Unexpected error: {e}")
             fail_count += 1
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     if dry_run:
         print(f"✓ DRY-RUN: Would load {len(policies)} policies")
     else:
@@ -278,7 +278,7 @@ def main() -> None:
             print(f"⚠ Deleted {delete_count} stale policies")
         if fail_count > 0:
             print(f"✗ Failed to load {fail_count} policies")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if fail_count > 0:
         sys.exit(1)
