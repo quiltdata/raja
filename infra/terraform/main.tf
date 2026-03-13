@@ -238,17 +238,6 @@ resource "aws_datazone_asset_type" "quilt_package" {
   description               = "RAJA Quilt package access unit"
 }
 
-resource "aws_dynamodb_table" "policy_scope_mappings" {
-  name         = "${var.stack_name}-policy-scope-mappings"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "policy_id"
-
-  attribute {
-    name = "policy_id"
-    type = "S"
-  }
-}
-
 resource "aws_dynamodb_table" "principal_scopes" {
   name         = "${var.stack_name}-principal-scopes"
   billing_mode = "PAY_PER_REQUEST"
@@ -342,7 +331,6 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
           "dynamodb:Scan"
         ]
         Resource = [
-          aws_dynamodb_table.policy_scope_mappings.arn,
           aws_dynamodb_table.principal_scopes.arn,
           aws_dynamodb_table.audit_log.arn,
           "${aws_dynamodb_table.audit_log.arn}/index/*"
@@ -419,7 +407,6 @@ resource "aws_lambda_function" "control_plane" {
       DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
-      MAPPINGS_TABLE                       = aws_dynamodb_table.policy_scope_mappings.name
       PRINCIPAL_TABLE                      = aws_dynamodb_table.principal_scopes.name
       AUDIT_TABLE                          = aws_dynamodb_table.audit_log.name
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn

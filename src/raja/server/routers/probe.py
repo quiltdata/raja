@@ -89,7 +89,7 @@ def probe_rajee(
                 action="probe.rajee",
                 resource=payload.usl,
                 decision=decision,
-                policy_store_id=None,
+                authorization_plane_id=None,
                 request_id=str(uuid.uuid4()),
             )
         )

@@ -1,6 +1,6 @@
 import pytest
 
-from raja.models import AuthRequest, CedarPolicy, Scope, Token
+from raja.models import AuthRequest, Scope, Token
 
 
 def test_scope_validation_rejects_empty():
@@ -27,14 +27,4 @@ def test_token_requires_subject():
             scopes=["S3Object:analytics-data/report.csv:s3:GetObject"],
             issued_at=1,
             expires_at=2,
-        )
-
-
-def test_cedar_policy_effect_validation():
-    with pytest.raises(ValueError):
-        CedarPolicy(
-            effect="allow",
-            principal='User::"alice"',
-            action='Action::"s3:GetObject"',
-            resource='S3Object::"analytics-data/report.csv"',
         )

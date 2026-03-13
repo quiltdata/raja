@@ -20,7 +20,7 @@ def build_audit_item(
     action: str,
     resource: str,
     decision: str,
-    policy_store_id: str | None,
+    authorization_plane_id: str | None,
     request_id: str,
     ttl_days: int = DEFAULT_TTL_DAYS,
 ) -> dict[str, Any]:
@@ -35,7 +35,7 @@ def build_audit_item(
         "action": action,
         "resource": resource,
         "decision": decision,
-        "policy_store_id": policy_store_id,
+        "authorization_plane_id": authorization_plane_id,
         "request_id": request_id,
         "ttl": ttl,
     }

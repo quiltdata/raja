@@ -15,7 +15,6 @@ def reset_caches() -> None:
     dependencies._datazone_client = None
     dependencies._dynamodb_resource = None
     dependencies._principal_table = None
-    dependencies._mappings_table = None
     dependencies._audit_table = None
     dependencies._jwt_secret_cache = None
 
@@ -81,34 +80,6 @@ def test_get_principal_table_caches_result() -> None:
 
         # Second call should return cached table
         table2 = dependencies.get_principal_table()
-        assert table2 is mock_table
-        assert mock_resource.Table.call_count == 1
-
-
-def test_get_mappings_table_requires_env_var() -> None:
-    """Test that get_mappings_table fails without MAPPINGS_TABLE env var."""
-    with patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(RuntimeError, match="MAPPINGS_TABLE is required"):
-            dependencies.get_mappings_table()
-
-
-def test_get_mappings_table_caches_result() -> None:
-    """Test that mappings table is created once and cached."""
-    mock_table = MagicMock()
-    mock_resource = MagicMock()
-    mock_resource.Table.return_value = mock_table
-
-    with (
-        patch.dict("os.environ", {"MAPPINGS_TABLE": "test-mappings-table"}),
-        patch.object(dependencies, "get_dynamodb_resource", return_value=mock_resource),
-    ):
-        # First call should create table
-        table1 = dependencies.get_mappings_table()
-        assert table1 is mock_table
-        assert mock_resource.Table.call_count == 1
-
-        # Second call should return cached table
-        table2 = dependencies.get_mappings_table()
         assert table2 is mock_table
         assert mock_resource.Table.call_count == 1
 

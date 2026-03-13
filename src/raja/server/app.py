@@ -64,7 +64,6 @@ def health() -> dict[str, Any]:
 
     _check("jwt_secret", dependencies.get_jwt_secret)
     _check("principal_table", dependencies.get_principal_table)
-    _check("mappings_table", dependencies.get_mappings_table)
     _check("audit_table", dependencies.get_audit_table)
     if dependencies.os.environ.get("DATAZONE_DOMAIN_ID"):
         _check("datazone", dependencies.get_datazone_client)

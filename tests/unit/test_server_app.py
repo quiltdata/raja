@@ -45,7 +45,7 @@ def test_audit_endpoint_returns_entries() -> None:
                 "action": "token.issue",
                 "resource": "alice",
                 "decision": "SUCCESS",
-                "policy_store_id": "store",
+                "authorization_plane_id": "datazone:test",
                 "request_id": "req",
             }
         ]

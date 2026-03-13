@@ -11,7 +11,7 @@ def test_build_audit_item_includes_fields() -> None:
         action="token.issue",
         resource="alice",
         decision="SUCCESS",
-        policy_store_id="store",
+        authorization_plane_id="datazone:test",
         request_id="req",
         ttl_days=1,
     )
@@ -19,7 +19,7 @@ def test_build_audit_item_includes_fields() -> None:
     assert item["action"] == "token.issue"
     assert item["resource"] == "alice"
     assert item["decision"] == "SUCCESS"
-    assert item["policy_store_id"] == "store"
+    assert item["authorization_plane_id"] == "datazone:test"
     assert item["request_id"] == "req"
     assert item["ttl"] > item["timestamp"]
 

@@ -230,7 +230,7 @@ function setPolicyDiff(currentStatement) {
     return;
   }
   if (!state.policyEditor.id) {
-    diffEl.textContent = "No policy selected.";
+    diffEl.textContent = "No listing selected.";
     return;
   }
   diffEl.innerHTML = renderDiff(state.policyEditor.originalStatement, currentStatement);
@@ -281,7 +281,7 @@ async function loadAuthorityView() {
     policiesBody.innerHTML = "";
     const items = policies.ok ? policies.data.policies || [] : [];
     if (!items.length) {
-      policiesBody.innerHTML = "<tr><td colspan=\"3\">No policies found.</td></tr>";
+      policiesBody.innerHTML = "<tr><td colspan=\"3\">No listings found.</td></tr>";
     } else {
       for (const policy of items) {
         const tr = document.createElement("tr");
@@ -336,7 +336,7 @@ async function openPolicyEditor(policyId) {
 
   const result = await apiFetch(`/policies/${encodeURIComponent(policyId)}`, { method: "GET" });
   if (!result.ok) {
-    meta.textContent = `Failed to load policy ${policyId}.`;
+    meta.textContent = `Failed to load listing ${policyId}.`;
     panel.hidden = false;
     return;
   }
@@ -345,7 +345,7 @@ async function openPolicyEditor(policyId) {
   state.policyEditor.id = policyId;
   state.policyEditor.originalStatement = statement;
 
-  meta.textContent = `Editing policy ${policyId}`;
+  meta.textContent = `Viewing listing ${policyId}`;
   statementInput.value = statement;
   panel.hidden = false;
   setPolicyDiff(statement);
@@ -353,7 +353,7 @@ async function openPolicyEditor(policyId) {
 
 async function deletePolicy(policyId) {
   const confirmed = window.confirm(
-    `Delete policy ${policyId}? This is permanent. Principals relying on this policy may receive DENY on next issuance.`
+    `Delete listing ${policyId}? This is permanent. Principals relying on this listing may receive DENY on next issuance.`
   );
   if (!confirmed) {
     return;

@@ -40,17 +40,17 @@
       <main class="content">
         <section id="view-overview" class="view">
           <h1>Overview</h1>
-          <p class="concept">Grant access to datasets by name, not by bucket. Cedar policies compile to JWT tokens; enforcement is pure subset checking — no policy engine in the data path. <a href="#about">Why this matters →</a></p>
+          <p class="concept">Grant access to datasets by package listing, not by bucket. DataZone grants mint JWT tokens; enforcement is pure subset checking with no policy engine in the data path. <a href="#about">Why this matters →</a></p>
 
           <section class="panel">
             <h2>How It Works</h2>
             <ol class="tour-steps">
-              <li><strong>Define who can access what</strong> — in plain Cedar policy, by dataset name, not by bucket. <a href="#authority">See live policies →</a></li>
+              <li><strong>Define who can access what</strong> — in DataZone package grants, by dataset name, not by bucket. <a href="#authority">See live listings →</a></li>
               <li><strong>The system compiles that decision into a token</strong> — a signed JWT that carries the access grant, valid for a short window. <a href="#token">Mint a token and inspect it →</a></li>
               <li><strong>The token is the only thing enforcement checks</strong> — no policy engine, no IAM, just: does this request fall inside the token's scope? <a href="#enforce">Run a live enforcement probe →</a></li>
               <li><strong>Anything outside the boundary is denied</strong> — expired tokens, wrong audience, tampered claims. The system is fail-closed. <a href="#failures">See the failure suite →</a></li>
               <li><strong>Revocation is immediate or eventual</strong> — remove a principal to stop new grants, or rotate the signing key to invalidate everything at once. <a href="#incident">Incident response →</a></li>
-              <li><strong>Every decision is traceable</strong> — each access traces back to a token, which traces back to a policy evaluation. <a href="#audit">Browse the audit log →</a></li>
+              <li><strong>Every decision is traceable</strong> — each access traces back to a token, which traces back to a grant check. <a href="#audit">Browse the audit log →</a></li>
             </ol>
           </section>
 
@@ -62,7 +62,7 @@
 
         <section id="view-authority" class="view" hidden>
           <h1>Access Policy</h1>
-          <p class="concept">Access in this system is defined by what a principal may do — not where data lives. Write a Cedar policy: "alice can read dataset X." That is the complete grant. This is the only place that decision gets made. Everything downstream enforces it; nothing downstream reconsiders it. — <a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></p>
+          <p class="concept">Access in this system is defined by what a principal may do — not where data lives. Grant a DataZone project access to dataset X and that becomes the complete grant. This is the only place that decision gets made. Everything downstream enforces it; nothing downstream reconsiders it. — <a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></p>
           <div class="actions">
             <button type="button" id="authority-refresh">Refresh</button>
           </div>
@@ -93,22 +93,22 @@
           </section>
 
           <section class="panel">
-            <h2>Create Policy</h2>
+            <h2>Create Listing</h2>
             <form id="policy-create-form">
-              <label for="policy-create-statement">Cedar statement</label>
+              <label for="policy-create-statement">Listing definition</label>
               <textarea id="policy-create-statement" placeholder="permit(...);"></textarea>
               <label for="policy-create-description">Description (optional)</label>
               <input id="policy-create-description" placeholder="Optional description" />
-              <div class="actions"><button type="submit">Create policy</button></div>
+              <div class="actions"><button type="submit">Create listing</button></div>
             </form>
-            <pre id="policy-create-result">No policy created yet.</pre>
+            <pre id="policy-create-result">No listing created yet.</pre>
           </section>
 
           <section class="panel" id="policy-editor-panel" hidden>
-            <h2>Edit Policy</h2>
+            <h2>Edit Listing</h2>
             <div id="policy-editor-meta"></div>
             <form id="policy-edit-form">
-              <label for="policy-edit-statement">Cedar statement</label>
+              <label for="policy-edit-statement">Listing definition</label>
               <textarea id="policy-edit-statement"></textarea>
               <div class="actions">
                 <button type="submit">Save changes</button>
@@ -122,7 +122,7 @@
 
         <section id="view-token" class="view" hidden>
           <h1>The Access Token</h1>
-          <p class="concept">When a policy is evaluated, the result isn't a yes or a no — it's a signed token. The decision is compiled in: every scope represents a permission that was already decided. Mint one and read it. The authorization is in plain sight. — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
+          <p class="concept">When a grant is checked, the result isn't a yes or a no alone — it's a signed token. The decision is compiled in: every scope represents a permission that was already decided. Mint one and read it. The authorization is in plain sight. — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
 
           <section class="panel">
             <h2>Mint</h2>
@@ -237,7 +237,7 @@
 
         <section id="view-audit" class="view" hidden>
           <h1>Audit Log</h1>
-          <p class="concept">Because authorization is compiled into tokens at issuance, the audit trail is complete. Every access traces back to a specific token, which traces back to a specific policy evaluation. Nothing is ambient — every decision has a receipt.</p>
+          <p class="concept">Because authorization is compiled into tokens at issuance, the audit trail is complete. Every access traces back to a specific token, which traces back to a specific grant check. Nothing is ambient — every decision has a receipt.</p>
 
           <section class="panel">
             <form id="audit-filter-form">

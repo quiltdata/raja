@@ -175,7 +175,7 @@ def test_package_grant_with_specific_file_list():
     Demonstrate package grant with explicit file membership.
 
     This test shows how package grants scale: one grant for N files,
-    without enumerating files in the Cedar policy.
+    without enumerating files in the source grant.
     """
     secret = fetch_jwks_secret()
 
@@ -227,7 +227,7 @@ def test_package_grant_with_specific_file_list():
     print("\n" + "=" * 80)
     print("✅ PACKAGE GRANT SCALABILITY DEMONSTRATED")
     print("   • One policy grant covers multiple files")
-    print("   • No file enumeration in Cedar policy")
+    print("   • No file enumeration in the source grant")
     print("   • Package manifest defines exact membership")
     print("   • Scales to thousands of files without policy explosion")
     print("=" * 80)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class ResourceValidatorMixin(BaseModel):
@@ -158,26 +158,6 @@ class TajToken(BaseModel):
     @field_validator("subject", "manifest_hash", "package_name", "registry")
     @classmethod
     def _taj_required_fields_non_empty(cls, value: str) -> str:
-        if not value or value.strip() == "":
-            raise ValueError("value must be non-empty")
-        return value
-
-
-class CedarPolicy(BaseModel):
-    id: str
-    effect: Literal["permit", "forbid"]
-    principal: str
-    action: str
-    resource: str
-    resource_type: str | None = None
-    resource_id: str | None = None
-    parent_type: str | None = None
-    parent_id: str | None = None
-    conditions: list[str] = Field(default_factory=list)
-
-    @field_validator("id", "principal", "action", "resource")
-    @classmethod
-    def _policy_parts_non_empty(cls, value: str) -> str:
         if not value or value.strip() == "":
             raise ValueError("value must be non-empty")
         return value

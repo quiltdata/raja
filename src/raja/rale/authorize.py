@@ -49,7 +49,7 @@ def run_authorize(state: SessionState, console: Console) -> None:
         raise RuntimeError(f"RALE authorizer not reachable at {authorizer_url}") from exc
 
     if response.status_code == 403:
-        raise RuntimeError("DENY - no Cedar policy permits this principal + action + resource")
+        raise RuntimeError("DENY - no DataZone package grant permits this principal + package")
     if response.status_code >= 400:
         message = f"TAJ request failed with status {response.status_code}: {response.text}"
         raise RuntimeError(message)

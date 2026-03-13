@@ -6,8 +6,6 @@ import jwt as pyjwt
 import pytest
 from botocore.exceptions import ClientError
 
-from raja.compiler import _expand_templates
-
 from ..shared.s3_client import create_rajee_s3_client
 from ..shared.token_builder import TokenBuilder
 from .helpers import (
@@ -294,14 +292,3 @@ def test_health_check_verifies_dependencies() -> None:
     status, body = request_json("GET", "/health")
     assert status == 200
     assert body.get("dependencies")
-
-
-def _split_statements(policy_text: str) -> list[str]:
-    return [f"{chunk.strip()};" for chunk in policy_text.split(";") if chunk.strip()]
-
-
-def _normalize_statement(statement: str) -> str:
-    normalized = "".join(statement.split()).rstrip(";")
-    if "{{" in normalized:
-        normalized = _expand_templates(normalized)
-    return normalized

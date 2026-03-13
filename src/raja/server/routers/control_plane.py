@@ -8,7 +8,6 @@ import re
 import secrets
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 import boto3
@@ -17,8 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 
 from raja import create_token
-from raja.cedar.entities import parse_entity
-from raja.cedar.schema import validate_policy_against_schema
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
 from raja.exceptions import TokenInvalidError
 from raja.package_map import parse_s3_path
@@ -110,9 +107,6 @@ class PolicyUpdateRequest(BaseModel):
 DATAZONE_DOMAIN_ID = os.environ.get("DATAZONE_DOMAIN_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 ROTATION_PK = "ROTATE_SECRET"
-
-# Path to the Cedar schema file for policy validation
-_SCHEMA_PATH = Path(__file__).parents[5] / "policies" / "schema.cedar"
 
 
 def _require_env(value: str | None, name: str) -> str:
@@ -290,15 +284,7 @@ def _perform_secret_rotation() -> str:
     return new_version
 
 
-def _validate_cedar_statement(statement: str) -> None:
-    """Validate Cedar statement against schema; raises HTTPException(422) on failure."""
-    try:
-        validate_policy_against_schema(statement, str(_SCHEMA_PATH), use_cedar_cli=False)
-    except (ValueError, FileNotFoundError) as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-
-
-def _policy_plane_id() -> str:
+def _authorization_plane_id() -> str:
     return f"datazone:{_require_env(DATAZONE_DOMAIN_ID, 'DATAZONE_DOMAIN_ID')}"
 
 
@@ -308,12 +294,19 @@ _ENTITY_RE = re.compile(r'^(?P<type>.+)::"(?P<id>[^"]+)"$')
 
 def _extract_quilt_uri(resource: str) -> str:
     try:
-        resource_type, resource_id = parse_entity(resource)
+        resource_type, resource_id = _parse_entity(resource)
         if resource_type != "Package":
             raise ValueError("resource must be a Package entity")
         return validate_quilt_uri(resource_id)
     except ValueError:
         return validate_quilt_uri(resource)
+
+
+def _parse_entity(entity: str) -> tuple[str, str]:
+    match = _ENTITY_RE.match(entity.strip())
+    if not match:
+        raise ValueError('entity must be in the form Type::"id"')
+    return match.group("type"), match.group("id")
 
 
 def _build_package_entity(quilt_uri: str) -> dict[str, Any]:
@@ -385,7 +378,7 @@ def issue_token(
 ) -> dict[str, Any]:
     logger.info("token_requested", principal=payload.principal)
 
-    policy_store_id = _policy_plane_id()
+    authorization_plane_id = _authorization_plane_id()
     response = table.get_item(Key={"principal": payload.principal})
     item = response.get("Item")
     if not item:
@@ -397,7 +390,7 @@ def issue_token(
                     action="token.issue",
                     resource=payload.principal,
                     decision="DENY",
-                    policy_store_id=policy_store_id,
+                    authorization_plane_id=authorization_plane_id,
                     request_id=_get_request_id(request),
                 )
             )
@@ -442,7 +435,7 @@ def issue_token(
                 action="token.issue",
                 resource=payload.principal,
                 decision="SUCCESS",
-                policy_store_id=policy_store_id,
+                authorization_plane_id=authorization_plane_id,
                 request_id=_get_request_id(request),
             )
         )
@@ -485,7 +478,7 @@ def issue_package_token(
                     action="token.issue.package",
                     resource=quilt_uri,
                     decision="DENY",
-                    policy_store_id=_policy_plane_id(),
+                    authorization_plane_id=_authorization_plane_id(),
                     request_id=_get_request_id(request),
                 )
             )
@@ -508,7 +501,7 @@ def issue_package_token(
                 action="token.issue.package",
                 resource=quilt_uri,
                 decision="SUCCESS",
-                policy_store_id=_policy_plane_id(),
+                authorization_plane_id=_authorization_plane_id(),
                 request_id=_get_request_id(request),
             )
         )
@@ -551,7 +544,7 @@ def issue_translation_token(
                     action="token.issue.translation",
                     resource=quilt_uri,
                     decision="DENY",
-                    policy_store_id=_policy_plane_id(),
+                    authorization_plane_id=_authorization_plane_id(),
                     request_id=_get_request_id(request),
                 )
             )
@@ -576,7 +569,7 @@ def issue_translation_token(
                 action="token.issue.translation",
                 resource=quilt_uri,
                 decision="SUCCESS",
-                policy_store_id=_policy_plane_id(),
+                authorization_plane_id=_authorization_plane_id(),
                 request_id=_get_request_id(request),
             )
         )
@@ -769,20 +762,20 @@ def create_policy(
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Policy mutation is disabled in the DataZone POC."""
-    policy_store_id = _policy_plane_id()
+    authorization_plane_id = _authorization_plane_id()
     audit_table.put_item(
         Item=build_audit_item(
             principal="admin",
             action="policy.create",
             resource=payload.statement,
             decision="UNSUPPORTED",
-            policy_store_id=policy_store_id,
+            authorization_plane_id=authorization_plane_id,
             request_id=_get_request_id(request),
         )
     )
     raise HTTPException(
         status_code=410,
-        detail="Direct Cedar policy mutation is not supported in the DataZone POC",
+        detail="Direct listing mutation is not supported; manage package grants through DataZone",
     )
 
 
@@ -810,20 +803,20 @@ def update_policy(
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Policy mutation is disabled in the DataZone POC."""
-    policy_store_id = _policy_plane_id()
+    authorization_plane_id = _authorization_plane_id()
     audit_table.put_item(
         Item=build_audit_item(
             principal="admin",
             action="policy.update",
             resource=payload.statement,
             decision="UNSUPPORTED",
-            policy_store_id=policy_store_id,
+            authorization_plane_id=authorization_plane_id,
             request_id=_get_request_id(request),
         )
     )
     raise HTTPException(
         status_code=410,
-        detail="Direct Cedar policy mutation is not supported in the DataZone POC",
+        detail="Direct listing mutation is not supported; manage package grants through DataZone",
     )
 
 
@@ -835,20 +828,20 @@ def delete_policy(
     audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Policy mutation is disabled in the DataZone POC."""
-    policy_store_id = _policy_plane_id()
+    authorization_plane_id = _authorization_plane_id()
     audit_table.put_item(
         Item=build_audit_item(
             principal="admin",
             action="policy.delete",
             resource=policy_id,
             decision="UNSUPPORTED",
-            policy_store_id=policy_store_id,
+            authorization_plane_id=authorization_plane_id,
             request_id=_get_request_id(request),
         )
     )
     raise HTTPException(
         status_code=410,
-        detail="Direct Cedar policy mutation is not supported in the DataZone POC",
+        detail="Direct listing mutation is not supported; manage package grants through DataZone",
     )
 
 

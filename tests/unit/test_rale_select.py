@@ -15,7 +15,7 @@ def test_sorted_packages_for_demo_principal_prioritizes_demo_package_grant() -> 
 def test_sorted_packages_for_other_principals_stays_alphabetical() -> None:
     packages = ["zeta/example", "demo/package-grant", "demo/e2e"]
 
-    assert _sorted_packages_for_principal(packages, "test-user") == [
+    assert _sorted_packages_for_principal(packages, "alice") == [
         "demo/e2e",
         "demo/package-grant",
         "zeta/example",

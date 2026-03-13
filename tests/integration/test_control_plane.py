@@ -42,11 +42,11 @@ def test_control_plane_audit_log_entries():
             "action",
             "resource",
             "decision",
-            "policy_store_id",
+            "authorization_plane_id",
             "request_id",
         ]:
             assert field in entry
-        assert str(entry["policy_store_id"]).startswith("datazone:")
+        assert str(entry["authorization_plane_id"]).startswith("datazone:")
 
 
 @pytest.mark.integration

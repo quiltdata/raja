@@ -33,11 +33,6 @@ output "control_plane_lambda_arn" {
   value       = aws_lambda_function.control_plane.arn
 }
 
-output "mappings_table_name" {
-  description = "Policy scope mappings DynamoDB table."
-  value       = aws_dynamodb_table.policy_scope_mappings.name
-}
-
 output "principal_table_name" {
   description = "Principal scopes DynamoDB table."
   value       = aws_dynamodb_table.principal_scopes.name

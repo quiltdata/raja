@@ -30,7 +30,6 @@ def _load_dotenv() -> None:
 _SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Control Plane", [
         ("Admin UI / API URL", "api_url", ""),
-        ("Policy Store ID", "policy_store_id", ""),
     ]),
     ("DataZone", [
         ("Domain ID", "datazone_domain_id", ""),

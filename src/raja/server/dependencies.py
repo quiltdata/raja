@@ -18,7 +18,6 @@ from fastapi import HTTPException, Request
 _datazone_client: Any | None = None
 _dynamodb_resource: Any | None = None
 _principal_table: Any | None = None
-_mappings_table: Any | None = None
 _audit_table: Any | None = None
 _jwt_secret_cache: dict[str, str] | None = None
 
@@ -93,22 +92,6 @@ def get_principal_table() -> Any:
         table_name = _require_env(os.environ.get("PRINCIPAL_TABLE"), "PRINCIPAL_TABLE")
         _principal_table = get_dynamodb_resource().Table(table_name)
     return _principal_table
-
-
-def get_mappings_table() -> Any:
-    """Get cached DynamoDB policy-scope mappings table.
-
-    Returns:
-        boto3 DynamoDB Table resource for policy-scope mappings
-
-    Raises:
-        RuntimeError: If MAPPINGS_TABLE environment variable is not set
-    """
-    global _mappings_table
-    if _mappings_table is None:
-        table_name = _require_env(os.environ.get("MAPPINGS_TABLE"), "MAPPINGS_TABLE")
-        _mappings_table = get_dynamodb_resource().Table(table_name)
-    return _mappings_table
 
 
 def get_audit_table() -> Any:

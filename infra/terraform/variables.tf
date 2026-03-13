@@ -10,7 +10,7 @@ variable "stack_name" {
 }
 
 variable "environment" {
-  description = "Environment tag and Cedar template value for {{env}} substitutions."
+  description = "Environment tag for stack naming and operational labeling."
   type        = string
   default     = "dev"
 }

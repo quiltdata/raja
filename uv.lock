@@ -161,9 +161,6 @@ dynamodb = [
 secretsmanager = [
     { name = "mypy-boto3-secretsmanager" },
 ]
-verifiedpermissions = [
-    { name = "mypy-boto3-verifiedpermissions" },
-]
 
 [[package]]
 name = "botocore"
@@ -881,15 +878,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mypy-boto3-verifiedpermissions"
-version = "1.42.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/22/55/4c2e5a4a2848cbece3a58ad5ed3d959d242b5ba2e96dfde9ed11dab0ce62/mypy_boto3_verifiedpermissions-1.42.3.tar.gz", hash = "sha256:d9f03edc375f79eb66876bc1a6720058eec82df4cb053c59b63275f189fe9870", size = 24714, upload-time = "2025-12-04T21:14:44.996Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/87/d903d4b16561414b2e85de985ad1364d6346e510c1a005e75872e4186654/mypy_boto3_verifiedpermissions-1.42.3-py3-none-any.whl", hash = "sha256:5396697bae517e1306c088cafc780ce864dcd79201b1d6b7dae91402cf8f21c0", size = 31011, upload-time = "2025-12-04T21:14:43.626Z" },
-]
-
-[[package]]
 name = "mypy-extensions"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1233,7 +1221,7 @@ aws = [
     { name = "constructs" },
 ]
 dev = [
-    { name = "boto3-stubs", extra = ["datazone", "dynamodb", "secretsmanager", "verifiedpermissions"] },
+    { name = "boto3-stubs", extra = ["datazone", "dynamodb", "secretsmanager"] },
     { name = "mypy" },
     { name = "poethepoet" },
     { name = "pytest-watch" },
@@ -1251,7 +1239,7 @@ requires-dist = [
     { name = "aws-cdk-lib", marker = "extra == 'aws'", specifier = ">=2.100.0" },
     { name = "awscrt", marker = "extra == 'test'", specifier = ">=0.20.0" },
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.34.0" },
-    { name = "boto3-stubs", extras = ["datazone", "dynamodb", "secretsmanager", "verifiedpermissions"], marker = "extra == 'dev'", specifier = ">=1.34.0" },
+    { name = "boto3-stubs", extras = ["datazone", "dynamodb", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.34.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "constructs", marker = "extra == 'aws'", specifier = ">=10.0.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
