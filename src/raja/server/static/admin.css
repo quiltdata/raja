@@ -55,6 +55,61 @@ body {
   color: var(--muted);
 }
 
+.key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.key-input-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Auth lock icon ──────────────────────────────────────── */
+
+.auth-lock {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: default;
+  color: var(--muted);
+  opacity: 0.55;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.auth-lock.ok   { color: var(--ok);   opacity: 1; }
+.auth-lock.fail { color: var(--deny); opacity: 1; }
+
+/* Swap locked/unlocked SVG based on state */
+.auth-lock .lock-open            { display: none; }
+.auth-lock.fail .lock-closed     { display: none; }
+.auth-lock.fail .lock-open       { display: inline-flex; }
+
+/* CSS tooltip via data-tooltip attribute */
+.auth-lock::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: #222;
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+
+.auth-lock:hover::after {
+  opacity: 1;
+}
+
 /* ── Form elements ───────────────────────────────────────── */
 
 input,

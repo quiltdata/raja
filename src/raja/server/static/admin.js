@@ -33,6 +33,45 @@ function setAdminAuthError(message) {
   el.hidden = false;
 }
 
+function setAuthState(state) {
+  const el = select("auth-lock");
+  if (!el) return;
+  el.classList.remove("unknown", "ok", "fail");
+  el.classList.add(state);
+  const labels = {
+    unknown: "Not verified",
+    ok: "Authenticated",
+    fail: "Authentication failed",
+  };
+  const label = labels[state] || "Not verified";
+  el.title = label;
+  el.setAttribute("aria-label", label);
+  el.setAttribute("data-tooltip", label);
+}
+
+let _pingAuthTimer = null;
+
+async function pingAuth() {
+  if (!getAdminKey()) {
+    setAuthState("unknown");
+    return;
+  }
+  try {
+    const result = await apiFetch("/principals", { method: "GET" });
+    if (result.ok) {
+      setAuthState("ok");
+    }
+    // 401 case is already handled inside apiFetch → setAuthState("fail")
+  } catch {
+    // network error — leave existing state
+  }
+}
+
+function schedulePingAuth() {
+  if (_pingAuthTimer) window.clearTimeout(_pingAuthTimer);
+  _pingAuthTimer = window.setTimeout(pingAuth, 600);
+}
+
 function clearStatusClasses(el) {
   if (!el) {
     return;
@@ -95,6 +134,7 @@ async function apiFetch(endpoint, options = {}) {
 
   if (response.status === 401) {
     setAdminAuthError("Invalid or missing admin key.");
+    setAuthState("fail");
   } else if (response.ok) {
     setAdminAuthError("");
   }
@@ -182,6 +222,15 @@ async function loadHealth() {
       pill.title = value;
     }
     statusPills.appendChild(pill);
+  }
+
+  // Auto-populate RAJEE endpoint from server config if the field is empty
+  const config = result.data.config || {};
+  if (config.rajee_endpoint) {
+    const probeEndpoint = select("probe-endpoint");
+    if (probeEndpoint && !probeEndpoint.value.trim()) {
+      probeEndpoint.value = config.rajee_endpoint;
+    }
   }
 }
 
@@ -556,6 +605,11 @@ function setupEvents() {
     adminKeyInput.addEventListener("input", () => {
       setAdminKey(adminKeyInput.value);
       setAdminAuthError("");
+      if (!adminKeyInput.value) {
+        setAuthState("unknown");
+      } else {
+        schedulePingAuth();
+      }
     });
   }
 
@@ -632,7 +686,7 @@ function setupEvents() {
   const probeHealth = select("probe-health");
   if (probeHealth) {
     probeHealth.addEventListener("click", async () => {
-      const endpoint = select("probe-endpoint")?.value?.trim() || "http://localhost:10000";
+      const endpoint = select("probe-endpoint")?.value?.trim() || "";
       const result = await apiFetch(`/probe/rajee/health?endpoint=${encodeURIComponent(endpoint)}`, {
         method: "GET",
       });
@@ -655,7 +709,7 @@ function setupEvents() {
     probeForm.addEventListener("submit", async (event) => {
       event.preventDefault();
 
-      const endpoint = select("probe-endpoint")?.value?.trim() || "http://localhost:10000";
+      const endpoint = select("probe-endpoint")?.value?.trim() || "";
       const principal = select("probe-principal")?.value?.trim() || "";
       const usl = select("probe-usl")?.value?.trim() || "";
 
@@ -1126,6 +1180,9 @@ function boot() {
   }
 
   loadHealth();
+  if (getAdminKey()) {
+    pingAuth();
+  }
 }
 
 boot();
