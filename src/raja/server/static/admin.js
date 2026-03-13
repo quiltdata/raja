@@ -7,10 +7,6 @@ const VIEW_IDS = ["overview", "authority", "token", "enforce", "failures", "inci
 const API_BASE = window.location.href.split("#")[0].replace(/\/+$/, "");
 
 const state = {
-  policyEditor: {
-    id: null,
-    originalStatement: "",
-  },
   loadedViews: new Set(),
   rotateOperationId: null,
   rotatePollTimer: null,
@@ -189,51 +185,11 @@ async function loadHealth() {
   }
 }
 
-function extractPolicyStatement(policy) {
-  return policy?.definition?.static?.statement || "";
-}
-
 function escapeHtml(text) {
   return String(text)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-}
-
-function renderDiff(beforeText, afterText) {
-  const before = beforeText.split("\n");
-  const after = afterText.split("\n");
-  const max = Math.max(before.length, after.length);
-  const lines = [];
-
-  for (let i = 0; i < max; i += 1) {
-    const oldLine = before[i] ?? "";
-    const newLine = after[i] ?? "";
-    if (oldLine === newLine) {
-      lines.push(`  ${escapeHtml(newLine)}`);
-      continue;
-    }
-    if (oldLine) {
-      lines.push(`<span class=\"diff-removed\">- ${escapeHtml(oldLine)}</span>`);
-    }
-    if (newLine) {
-      lines.push(`<span class=\"diff-added\">+ ${escapeHtml(newLine)}</span>`);
-    }
-  }
-
-  return lines.join("\n");
-}
-
-function setPolicyDiff(currentStatement) {
-  const diffEl = select("policy-edit-diff");
-  if (!diffEl) {
-    return;
-  }
-  if (!state.policyEditor.id) {
-    diffEl.textContent = "No listing selected.";
-    return;
-  }
-  diffEl.innerHTML = renderDiff(state.policyEditor.originalStatement, currentStatement);
 }
 
 async function loadAuthorityView() {
@@ -245,7 +201,7 @@ async function loadAuthorityView() {
     jwksEl.textContent = "Loading JWKS...";
   }
   if (principalsBody) {
-    principalsBody.innerHTML = "<tr><td colspan=\"2\">Loading principals...</td></tr>";
+    principalsBody.innerHTML = "<tr><td colspan=\"3\">Loading principals...</td></tr>";
   }
   if (policiesBody) {
     policiesBody.innerHTML = "<tr><td colspan=\"3\">Loading policies...</td></tr>";
@@ -254,7 +210,7 @@ async function loadAuthorityView() {
   const [jwks, principals, policies] = await Promise.all([
     apiFetch("/.well-known/jwks.json", { method: "GET" }),
     apiFetch("/principals", { method: "GET" }),
-    apiFetch("/policies?include_statements=true", { method: "GET" }),
+    apiFetch("/policies", { method: "GET" }),
   ]);
 
   if (jwksEl) {
@@ -265,13 +221,14 @@ async function loadAuthorityView() {
     principalsBody.innerHTML = "";
     const items = principals.ok ? principals.data.principals || [] : [];
     if (!items.length) {
-      principalsBody.innerHTML = "<tr><td colspan=\"2\">No principals found.</td></tr>";
+      principalsBody.innerHTML = "<tr><td colspan=\"3\">No principals found.</td></tr>";
     } else {
       for (const item of items) {
         const tr = document.createElement("tr");
         const principal = item.principal || "(unknown)";
         const scopes = Array.isArray(item.scopes) ? item.scopes : [];
-        tr.innerHTML = `<td>${escapeHtml(principal)}</td><td>${scopes.length}</td>`;
+        const dzProject = item.datazone_project_id || "-";
+        tr.innerHTML = `<td>${escapeHtml(principal)}</td><td>${scopes.length}</td><td>${escapeHtml(dzProject)}</td>`;
         principalsBody.appendChild(tr);
       }
     }
@@ -286,86 +243,13 @@ async function loadAuthorityView() {
       for (const policy of items) {
         const tr = document.createElement("tr");
         const policyId = policy.policyId || "(unknown)";
-        const statement = extractPolicyStatement(policy);
-        const preview = statement || "(empty statement)";
-
-        const idCell = document.createElement("td");
-        idCell.textContent = policyId;
-
-        const statementCell = document.createElement("td");
-        statementCell.className = "statement-cell";
-        const previewEl = document.createElement("span");
-        previewEl.className = "statement-preview";
-        previewEl.textContent = preview;
-        statementCell.appendChild(previewEl);
-
-        const actionsCell = document.createElement("td");
-        const editButton = document.createElement("button");
-        editButton.type = "button";
-        editButton.className = "secondary";
-        editButton.textContent = "Edit";
-        editButton.addEventListener("click", () => openPolicyEditor(policyId));
-
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "secondary";
-        deleteButton.textContent = "Delete";
-        deleteButton.addEventListener("click", () => deletePolicy(policyId));
-
-        actionsCell.appendChild(editButton);
-        actionsCell.appendChild(document.createTextNode(" "));
-        actionsCell.appendChild(deleteButton);
-
-        tr.appendChild(idCell);
-        tr.appendChild(statementCell);
-        tr.appendChild(actionsCell);
+        const name = policy.name || "-";
+        const ownerProjectId = policy.owningProjectId || "-";
+        tr.innerHTML = `<td>${escapeHtml(policyId)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(ownerProjectId)}</td>`;
         policiesBody.appendChild(tr);
       }
     }
   }
-}
-
-async function openPolicyEditor(policyId) {
-  const panel = select("policy-editor-panel");
-  const meta = select("policy-editor-meta");
-  const statementInput = select("policy-edit-statement");
-
-  if (!panel || !meta || !statementInput) {
-    return;
-  }
-
-  const result = await apiFetch(`/policies/${encodeURIComponent(policyId)}`, { method: "GET" });
-  if (!result.ok) {
-    meta.textContent = `Failed to load listing ${policyId}.`;
-    panel.hidden = false;
-    return;
-  }
-
-  const statement = extractPolicyStatement(result.data) || "";
-  state.policyEditor.id = policyId;
-  state.policyEditor.originalStatement = statement;
-
-  meta.textContent = `Viewing listing ${policyId}`;
-  statementInput.value = statement;
-  panel.hidden = false;
-  setPolicyDiff(statement);
-}
-
-async function deletePolicy(policyId) {
-  const confirmed = window.confirm(
-    `Delete listing ${policyId}? This is permanent. Principals relying on this listing may receive DENY on next issuance.`
-  );
-  if (!confirmed) {
-    return;
-  }
-
-  const result = await apiFetch(`/policies/${encodeURIComponent(policyId)}`, { method: "DELETE" });
-  if (!result.ok) {
-    alert(`Delete failed: ${formatJson(result.data)}`);
-    return;
-  }
-
-  await loadAuthorityView();
 }
 
 function jwtDecodePart(part) {
@@ -678,71 +562,6 @@ function setupEvents() {
   const authorityRefresh = select("authority-refresh");
   if (authorityRefresh) {
     authorityRefresh.addEventListener("click", loadAuthorityView);
-  }
-
-  const policyCreateForm = select("policy-create-form");
-  if (policyCreateForm) {
-    policyCreateForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const statement = select("policy-create-statement")?.value || "";
-      const description = select("policy-create-description")?.value || "";
-      const resultEl = select("policy-create-result");
-
-      const result = await apiFetch("/policies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statement, description }),
-      });
-
-      if (resultEl) {
-        resultEl.textContent = formatJson(result.data);
-      }
-
-      if (result.ok) {
-        await loadAuthorityView();
-      }
-    });
-  }
-
-  const policyEditStatement = select("policy-edit-statement");
-  if (policyEditStatement) {
-    policyEditStatement.addEventListener("input", () => setPolicyDiff(policyEditStatement.value));
-  }
-
-  const policyEditCancel = select("policy-edit-cancel");
-  if (policyEditCancel) {
-    policyEditCancel.addEventListener("click", () => {
-      state.policyEditor = { id: null, originalStatement: "" };
-      const panel = select("policy-editor-panel");
-      if (panel) {
-        panel.hidden = true;
-      }
-    });
-  }
-
-  const policyEditForm = select("policy-edit-form");
-  if (policyEditForm) {
-    policyEditForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (!state.policyEditor.id) {
-        return;
-      }
-      const statement = select("policy-edit-statement")?.value || "";
-      const result = await apiFetch(`/policies/${encodeURIComponent(state.policyEditor.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statement }),
-      });
-
-      if (!result.ok) {
-        alert(`Policy update failed: ${formatJson(result.data)}`);
-        return;
-      }
-
-      state.policyEditor.originalStatement = statement;
-      setPolicyDiff(statement);
-      await loadAuthorityView();
-    });
   }
 
   const tokenForm = select("token-form");

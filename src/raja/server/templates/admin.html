@@ -76,47 +76,20 @@
             <h2>Active Principals</h2>
             <table>
               <thead>
-                <tr><th>Principal</th><th>Scope Count</th></tr>
+                <tr><th>Principal</th><th>Scope Count</th><th>DataZone Project</th></tr>
               </thead>
               <tbody id="authority-principals-body"></tbody>
             </table>
           </section>
 
           <section class="panel">
-            <h2>Active Policies</h2>
+            <h2>DataZone Package Listings</h2>
             <table>
               <thead>
-                <tr><th>Policy ID</th><th>Statement</th><th>Actions</th></tr>
+                <tr><th>Listing ID</th><th>Name</th><th>Owner Project</th></tr>
               </thead>
               <tbody id="authority-policies-body"></tbody>
             </table>
-          </section>
-
-          <section class="panel">
-            <h2>Create Listing</h2>
-            <form id="policy-create-form">
-              <label for="policy-create-statement">Listing definition</label>
-              <textarea id="policy-create-statement" placeholder="permit(...);"></textarea>
-              <label for="policy-create-description">Description (optional)</label>
-              <input id="policy-create-description" placeholder="Optional description" />
-              <div class="actions"><button type="submit">Create listing</button></div>
-            </form>
-            <pre id="policy-create-result">No listing created yet.</pre>
-          </section>
-
-          <section class="panel" id="policy-editor-panel" hidden>
-            <h2>Edit Listing</h2>
-            <div id="policy-editor-meta"></div>
-            <form id="policy-edit-form">
-              <label for="policy-edit-statement">Listing definition</label>
-              <textarea id="policy-edit-statement"></textarea>
-              <div class="actions">
-                <button type="submit">Save changes</button>
-                <button type="button" class="secondary" id="policy-edit-cancel">Cancel</button>
-              </div>
-            </form>
-            <h3>Diff</h3>
-            <pre id="policy-edit-diff">No changes yet.</pre>
           </section>
         </section>
 
