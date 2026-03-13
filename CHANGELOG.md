@@ -8,6 +8,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-03-12
+
+### Added
+
+- **`raja.datazone` module** (`src/raja/datazone/service.py`): New DataZone service replacing Amazon Verified Permissions as the authorization backend
+  - `DataZoneService` class encapsulating all DataZone API interactions
+  - Policy compilation, principal scope management, and authorization checks via DataZone
+- **Unit tests** (`tests/unit/test_datazone_service.py`): 416-line comprehensive test suite for the DataZone service module
+- **RALE select tests** (`tests/unit/test_rale_select.py`): Unit coverage for RALE package selection logic
+- **SageMaker/DataZone migration specs** (`specs/48-use-sagemaker/`): Design documents covering the migration from AVP to DataZone
+  - `01-sm-ticket.md` — migration requirements and ticket breakdown
+  - `02-sm-setup.md` — DataZone setup and configuration guide
+
+### Changed
+
+- **Authorization backend**: Replaced Amazon Verified Permissions (AVP) with Amazon DataZone throughout the stack
+  - Terraform infrastructure (`infra/terraform/`) reconfigured for DataZone resources; AVP policy store removed
+  - Control plane (`src/raja/server/routers/control_plane.py`) now uses `DataZoneService` instead of AVP client
+  - RALE authorizer Lambda (`lambda_handlers/rale_authorizer/handler.py`) uses DataZone for authorization decisions
+  - Server dependencies (`src/raja/server/dependencies.py`) inject DataZone service instead of AVP client
+- **Terraform outputs** (`infra/terraform/outputs.tf`): Updated to export DataZone resource identifiers; AVP policy store ARN removed
+- **Terraform variables** (`infra/terraform/variables.tf`): Replaced AVP-specific variables with DataZone domain/project configuration
+- **Seed scripts**: `scripts/seed_packages.py` and `scripts/seed_test_data.py` wired to DataZone for principal and scope management
+- **`scripts/show_outputs.py`**: Updated to display DataZone-specific Terraform outputs
+- **`pyproject.toml`**: Added `datazone` boto3-stubs type stub; removed AVP stubs
+- **Integration tests**: Updated for AVP → DataZone migration; failure mode and control plane tests reflect new authorization model
+
+### Removed
+
+- **Cedar/AVP infrastructure**: All Cedar policy machinery removed as DataZone supersedes it
+  - `src/raja/cedar/` package (`__init__.py`, `entities.py`, `parser.py`, `schema.py`) deleted
+  - `src/raja/compiler.py` — Cedar-to-scope compiler removed
+  - `policies/` — Cedar policy files (`schema.cedar`, `rajee_integration_test.cedar`, `rajee_test_policy.cedar`, `rale_demo_user.cedar`, `rale_package_grant_test.cedar`) removed
+  - `scripts/load_policies.py` — Cedar policy loader (288 lines) removed
+  - `infra/terraform/scripts/apply_avp_schema.py` — AVP schema application script removed
+  - `scripts/test_all.sh` — superseded by poe tasks
+- **Unit tests for removed Cedar modules**: `test_cedar_parser.py`, `test_cedar_schema.py`, `test_cedar_schema_parser.py`, `test_cedar_schema_validation.py`, `test_compiler.py`, `test_compiler_forbid.py`, `test_compiler_templates.py` all removed
+- **Hypothesis compilation tests** (`tests/hypothesis/test_compilation.py`): Removed with Cedar compiler
+
+### Fixed
+
+- **Live RALE tests**: Pass `rale_authorizer_url` and `rale_router_url` explicitly in `test_rale_cli_live.py` to avoid missing-output errors
+- **RALE authorizer**: Pin manifest hash in authorizer path and fix TAJ claims display in admin UI
+
 ## [0.8.0] - 2026-03-12
 
 ### Added
