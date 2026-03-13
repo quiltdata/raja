@@ -8,7 +8,6 @@ from .helpers import (
     issue_token,
     request_json,
     require_api_issuer,
-    require_rajee_test_bucket,
 )
 
 
@@ -16,12 +15,7 @@ from .helpers import (
 def test_token_service_issues_token_for_known_principal():
     token, scopes = issue_token("test-user")
     assert token
-    bucket = require_rajee_test_bucket()
-    expected = {
-        f"S3Object:{bucket}/rajee-integration/:s3:GetObject",
-        f"S3Bucket:{bucket}:s3:ListBucket",
-    }
-    assert expected.issubset(set(scopes))
+    assert scopes == ["Document:public:read"]
 
 
 @pytest.mark.integration

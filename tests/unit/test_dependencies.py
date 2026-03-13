@@ -12,7 +12,7 @@ from raja.server import dependencies
 @pytest.fixture(autouse=True)
 def reset_caches() -> None:
     """Reset all module-level caches before each test."""
-    dependencies._avp_client = None
+    dependencies._datazone_client = None
     dependencies._dynamodb_resource = None
     dependencies._principal_table = None
     dependencies._mappings_table = None
@@ -20,24 +20,21 @@ def reset_caches() -> None:
     dependencies._jwt_secret_cache = None
 
 
-def test_get_avp_client_caches_result() -> None:
-    """Test that AVP client is created once and cached."""
+def test_get_datazone_client_caches_result() -> None:
     with (
         patch.dict("os.environ", {"AWS_REGION": "us-east-1"}),
         patch("boto3.client") as mock_client,
     ):
-        mock_avp = MagicMock()
-        mock_client.return_value = mock_avp
+        mock_datazone = MagicMock()
+        mock_client.return_value = mock_datazone
 
-        # First call should create client
-        client1 = dependencies.get_avp_client()
-        assert client1 is mock_avp
+        client1 = dependencies.get_datazone_client()
+        assert client1 is mock_datazone
         assert mock_client.call_count == 1
 
-        # Second call should return cached client
-        client2 = dependencies.get_avp_client()
-        assert client2 is mock_avp
-        assert mock_client.call_count == 1  # No additional calls
+        client2 = dependencies.get_datazone_client()
+        assert client2 is mock_datazone
+        assert mock_client.call_count == 1
 
 
 def test_get_dynamodb_resource_caches_result() -> None:

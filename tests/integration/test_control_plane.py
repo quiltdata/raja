@@ -4,12 +4,14 @@ from .helpers import request_json
 
 
 @pytest.mark.integration
-def test_control_plane_policies_loaded_to_avp():
-    """Verify that policies have been loaded to AVP."""
+def test_control_plane_lists_datazone_package_listings():
+    """Verify that DataZone-backed package listings are visible via /policies."""
     status, body = request_json("GET", "/policies")
     assert status == 200
     policies = body.get("policies", [])
-    assert len(policies) >= 1, "No policies found in AVP. Run ./poe load-policies first."
+    assert len(policies) >= 1, (
+        "No DataZone package listings found. Run python scripts/seed_packages.py"
+    )
 
 
 @pytest.mark.integration
@@ -21,15 +23,7 @@ def test_control_plane_lists_principals():
 
 
 @pytest.mark.integration
-def test_control_plane_lists_policies():
-    status, body = request_json("GET", "/policies")
-    assert status == 200
-    assert len(body.get("policies", [])) >= 1
-
-
-@pytest.mark.integration
 def test_control_plane_audit_log_entries():
-    request_json("POST", "/compile")
     token_status, _ = request_json("POST", "/token", {"principal": "test-user"})
     assert token_status == 200
 
@@ -52,6 +46,7 @@ def test_control_plane_audit_log_entries():
             "request_id",
         ]:
             assert field in entry
+        assert str(entry["policy_store_id"]).startswith("datazone:")
 
 
 @pytest.mark.integration

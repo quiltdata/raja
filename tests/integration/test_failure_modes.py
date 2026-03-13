@@ -1,32 +1,26 @@
-import os
-import shutil
 import time
 import uuid
 from typing import Any
 
-import boto3
 import jwt as pyjwt
 import pytest
 from botocore.exceptions import ClientError
 
-from raja.compiler import _expand_templates, compile_policy
+from raja.compiler import _expand_templates
 
 from ..shared.s3_client import create_rajee_s3_client
 from ..shared.token_builder import TokenBuilder
 from .helpers import (
     fetch_jwks_secret,
     issue_rajee_token,
+    parse_rale_test_quilt_uri,
     request_json,
     request_url,
     require_api_issuer,
-    require_manifest_cache_table,
     require_rajee_test_bucket,
     require_rale_router_url,
+    require_rale_test_quilt_uri,
 )
-
-
-def _cedar_tool_available() -> bool:
-    return bool(shutil.which("cargo")) or bool(os.environ.get("CEDAR_PARSE_BIN"))
 
 
 def _list_bucket_status(token: str | None) -> int:
@@ -184,26 +178,23 @@ def test_rale_router_denies_mismatched_package() -> None:
 
 @pytest.mark.integration
 def test_rale_router_denies_file_not_in_manifest() -> None:
-    """RALE router returns 403 when the requested logical key is not in the manifest."""
-    jwt_secret = fetch_jwks_secret()
-    manifest_hash = uuid.uuid4().hex
+    """RALE router returns 403 when the logical key is absent from the seeded manifest."""
+    uri = require_rale_test_quilt_uri()
+    parts = parse_rale_test_quilt_uri(uri)
     taj = _make_taj(
-        jwt_secret,
-        manifest_hash=manifest_hash,
-        package_name="demo/package",
-        grants=[f"s3:GetObject/registry/demo/package@{manifest_hash}/"],
-    )
-
-    boto3.resource("dynamodb").Table(require_manifest_cache_table()).put_item(
-        Item={
-            "manifest_hash": manifest_hash,
-            "entries": {"other-file.txt": [{"bucket": "some-bucket", "key": "some-key"}]},
-        }
+        fetch_jwks_secret(),
+        manifest_hash=parts["hash"],
+        package_name=parts["package_name"],
+        registry=parts["registry"],
+        grants=[f"s3:GetObject/{parts['registry']}/{parts['package_name']}@{parts['hash']}/"],
     )
 
     status, _, _ = request_url(
         "GET",
-        f"{require_rale_router_url()}/registry/demo/package@{manifest_hash}/nonexistent-file.txt",
+        (
+            f"{require_rale_router_url()}/"
+            f"{parts['registry']}/{parts['package_name']}@{parts['hash']}/nonexistent-file.txt"
+        ),
         headers={"x-rale-taj": taj},
     )
     assert status == 403
@@ -266,26 +257,11 @@ def test_admin_rotate_secret_invalidates_old_tokens() -> None:
 
 
 @pytest.mark.integration
-def test_policy_to_token_traceability() -> None:
-    if not _cedar_tool_available():
-        pytest.fail("cargo or CEDAR_PARSE_BIN is required for Cedar parsing")
+def test_package_listings_visible_via_control_plane() -> None:
     status, body = request_json("GET", "/policies", query={"include_statements": "true"})
     assert status == 200
     policies = body.get("policies", [])
-    expected_scopes: dict[str, set[str]] = {}
-
-    for policy in policies:
-        statement = policy.get("definition", {}).get("static", {}).get("statement")
-        if not statement:
-            continue
-        compiled = compile_policy(statement)
-        for principal, scopes in compiled.items():
-            expected_scopes.setdefault(principal, set()).update(scopes)
-
-    token, scopes = issue_rajee_token()
-    assert "test-user" in expected_scopes
-    assert expected_scopes["test-user"].issubset(set(scopes))
-    assert token
+    assert any(policy.get("type") == "datazone-listing" for policy in policies)
 
 
 @pytest.mark.integration
@@ -305,27 +281,12 @@ def test_principal_scope_mapping_isolated() -> None:
 
 
 @pytest.mark.integration
-def test_avp_policy_store_matches_local_files() -> None:
-    from pathlib import Path
-
+def test_rajee_token_issuance_still_uses_principal_scopes() -> None:
     status, body = request_json("GET", "/policies", query={"include_statements": "true"})
     assert status == 200
-    remote_statements = {
-        _normalize_statement(p.get("definition", {}).get("static", {}).get("statement", ""))
-        for p in body.get("policies", [])
-    }
-
-    policy_root = Path(__file__).resolve().parents[2] / "policies"
-    local_policy_files = [
-        path for path in policy_root.glob("*.cedar") if path.name != "schema.cedar"
-    ]
-    local_statements = {
-        _normalize_statement(stmt)
-        for path in local_policy_files
-        for stmt in _split_statements(path.read_text())
-    }
-
-    assert local_statements.issubset(remote_statements)
+    token, scopes = issue_rajee_token()
+    assert token
+    assert scopes
 
 
 @pytest.mark.integration
