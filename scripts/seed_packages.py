@@ -10,6 +10,8 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
+from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
+
 SEED_FILES: dict[str, bytes] = {
     "data.csv": b"col1,col2,col3\nalpha,1,true\nbeta,2,false\ngamma,3,true\n",
     "README.md": (
@@ -114,13 +116,7 @@ def _push_package(
 
 def _ensure_registry_workflow_config(s3: object, registry_bucket: str, dry_run: bool) -> None:
     key = ".quilt/workflows/config.yml"
-    body = (
-        b"version: '1'\n"
-        b"is_workflow_required: false\n"
-        b"workflows:\n"
-        b"  noop:\n"
-        b"    name: No-op\n"
-    )
+    body = b"version: '1'\nis_workflow_required: false\nworkflows:\n  noop:\n    name: No-op\n"
     if dry_run:
         print(f"  [DRY-RUN] Would ensure s3://{registry_bucket}/{key}")
         return
@@ -133,6 +129,20 @@ def _ensure_registry_workflow_config(s3: object, registry_bucket: str, dry_run: 
             print(f"  ✓ Created registry workflow config: s3://{registry_bucket}/{key}")
         else:
             raise
+
+
+def _load_project_id(table_name: str, principal: str, region: str) -> str | None:
+    item = (
+        boto3.resource("dynamodb", region_name=region)
+        .Table(table_name)
+        .get_item(Key={"principal": principal})
+        .get("Item")
+        or {}
+    )
+    project_id = item.get("datazone_project_id")
+    if isinstance(project_id, str) and project_id:
+        return project_id
+    return None
 
 
 def main() -> None:
@@ -201,6 +211,34 @@ def main() -> None:
         uri = f"quilt+s3://{registry_bucket}#package=demo/package-grant@{top_hash}"
         uri_file = Path(__file__).resolve().parents[1] / ".rale-test-uri"
         uri_file.write_text(uri + "\n")
+
+        if datazone_enabled():
+            principal = os.environ.get("DATAZONE_TEST_PRINCIPAL", "test-user")
+            principal_table = os.environ.get("PRINCIPAL_TABLE", "")
+            if principal_table:
+                project_id = _load_project_id(principal_table, principal, region)
+            else:
+                project_id = None
+            if project_id:
+                try:
+                    service = DataZoneService(
+                        client=boto3.client("datazone", region_name=region),
+                        config=DataZoneConfig.from_env(),
+                    )
+                    listing_id = service.ensure_project_package_grant(
+                        project_id=project_id,
+                        quilt_uri=uri,
+                    )
+                    print(f"  DataZone listing: {listing_id}")
+                    print(f"  Granted principal: {principal}")
+                except DataZoneError as exc:
+                    print(f"✗ Failed to sync DataZone package grant: {exc}", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print(
+                    "  Skipped DataZone grant bootstrap "
+                    f"(missing project mapping for principal {principal})"
+                )
 
         print("✓ Package seeded successfully")
         print("  Name:     demo/package-grant")
