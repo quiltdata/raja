@@ -11,9 +11,9 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
-from tf_outputs import get_tf_output
 
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
+from scripts.tf_outputs import get_tf_output
 
 
 def _get_region() -> str:

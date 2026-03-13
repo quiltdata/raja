@@ -24,6 +24,16 @@ local function respond_xml(request_handle, status, code, message)
   )
 end
 
+local function respond_json(request_handle, status, body)
+  request_handle:respond(
+    {
+      [":status"] = tostring(status),
+      ["content-type"] = "application/json",
+    },
+    body
+  )
+end
+
 local function split_csv(value)
   local items = {}
   if not value or value == "" then
@@ -191,6 +201,11 @@ function envoy_on_request(request_handle)
   end
 
   if path == "/health" then
+    respond_json(request_handle, 200, '{"status":"ok"}')
+    return
+  end
+
+  if path == "/ready" then
     return
   end
 

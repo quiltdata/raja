@@ -9,9 +9,9 @@ from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
-from tf_outputs import get_tf_output
 
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
+from scripts.tf_outputs import get_tf_output
 
 SEED_FILES: dict[str, bytes] = {
     "data.csv": b"col1,col2,col3\nalpha,1,true\nbeta,2,false\ngamma,3,true\n",

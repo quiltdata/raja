@@ -104,6 +104,11 @@ EOF
       dns_lookup_family: V4_ONLY
       connect_timeout: 5s
       lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http_protocol_options: {}
       load_assignment:
         cluster_name: rale_authorizer_cluster
         endpoints:
@@ -119,6 +124,11 @@ ${RALE_AUTHORIZER_TRANSPORT}
       dns_lookup_family: V4_ONLY
       connect_timeout: 5s
       lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http_protocol_options: {}
       load_assignment:
         cluster_name: rale_router_cluster
         endpoints:
