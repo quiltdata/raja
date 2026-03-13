@@ -36,7 +36,7 @@ def run_authorize(state: SessionState, console: Console) -> None:
     parsed = parse_quilt_uri(usl)
     if not parsed.path:
         raise RuntimeError("USL must include a logical file path")
-    authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}/{parsed.path}", safe="/@")
+    authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}@{parsed.hash}/{parsed.path}", safe="/")
 
     authorizer_url = state.config.rale_authorizer_url
     try:
@@ -64,6 +64,6 @@ def run_authorize(state: SessionState, console: Console) -> None:
     state.taj_claims = claims
 
     console.print("TAJ issued and decoded claims:")
-    for key in ["sub", "aud", "quilt_uri", "mode", "iat", "exp"]:
+    for key in ["sub", "grants", "manifest_hash", "package_name", "registry", "iat", "exp"]:
         if key in claims:
             console.print(f"  {key}: {claims[key]}")
