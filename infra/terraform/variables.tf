@@ -120,3 +120,21 @@ variable "registry_accessor_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "datazone_domain_name" {
+  description = "Amazon DataZone domain name for the RAJA package-grant POC."
+  type        = string
+  default     = "raja-poc"
+}
+
+variable "datazone_owner_project_name" {
+  description = "Amazon DataZone project that owns RAJA package assets."
+  type        = string
+  default     = "raja-owner"
+}
+
+variable "datazone_package_asset_type" {
+  description = "Custom Amazon DataZone asset type name used for Quilt package listings."
+  type        = string
+  default     = "QuiltPackage"
+}

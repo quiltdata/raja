@@ -15,25 +15,11 @@ locals {
   rale_router_requirements     = "${local.rale_router_source_dir}/requirements.txt"
   raja_source_dir              = "${local.repo_root}/src/raja"
   layer_requirements           = "${local.repo_root}/infra/raja_poc/layers/raja/requirements.txt"
-  cedar_schema_path            = "${local.repo_root}/policies/schema.cedar"
-
   build_dir                 = "${path.module}/build"
   control_plane_build_dir   = "${local.build_dir}/control_plane"
   rale_authorizer_build_dir = "${local.build_dir}/rale_authorizer"
   rale_router_build_dir     = "${local.build_dir}/rale_router"
   layer_build_dir           = "${local.build_dir}/raja_layer"
-
-  policy_files = [
-    for policy_file in fileset("${local.repo_root}/policies", "*.cedar") : policy_file
-    if policy_file != "schema.cedar"
-  ]
-  policy_statements = flatten([
-    for policy_file in local.policy_files : [
-      for statement in split(";", file("${local.repo_root}/policies/${policy_file}")) :
-      "${replace(replace(replace(trimspace(statement), "{{account}}", data.aws_caller_identity.current.account_id), "{{region}}", var.aws_region), "{{env}}", var.environment)};"
-      if trimspace(statement) != ""
-    ]
-  ])
 
   layer_source_hash = sha256(join("", concat(
     [filesha256(local.layer_requirements)],
@@ -92,6 +78,7 @@ locals {
   control_plane_lambda_arn    = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
   rale_authorizer_lambda_arn  = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
   rale_router_lambda_arn      = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
+  datazone_domain_exec_role   = "${var.stack_name}-datazone-domain-execution"
 }
 
 resource "null_resource" "build_raja_layer" {
@@ -206,45 +193,49 @@ data "archive_file" "rale_router_zip" {
   depends_on = [null_resource.build_rale_router]
 }
 
-resource "aws_verifiedpermissions_policy_store" "raja" {
-  validation_settings {
-    mode = "OFF"
-  }
+resource "aws_iam_role" "datazone_domain_execution" {
+  name = local.datazone_domain_exec_role
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "datazone.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
 }
 
-resource "null_resource" "configure_avp_schema_and_strict_mode" {
-  triggers = {
-    policy_store_id = aws_verifiedpermissions_policy_store.raja.policy_store_id
-    schema_hash     = filesha256(local.cedar_schema_path)
-    aws_region      = var.aws_region
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      set -euo pipefail
-      "${var.python_bin}" "${path.module}/scripts/apply_avp_schema.py" \
-        --policy-store-id "${aws_verifiedpermissions_policy_store.raja.policy_store_id}" \
-        --schema-path "${local.cedar_schema_path}" \
-        --region "${var.aws_region}" \
-        --namespace "Raja"
-    EOT
-  }
+resource "aws_iam_role_policy_attachment" "datazone_domain_execution" {
+  role       = aws_iam_role.datazone_domain_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonDataZoneDomainExecutionRolePolicy"
 }
 
-resource "aws_verifiedpermissions_policy" "cedar" {
-  for_each = {
-    for index, statement in local.policy_statements : tostring(index) => statement
-  }
+resource "aws_datazone_domain" "raja" {
+  name                  = var.datazone_domain_name
+  description           = "RAJA package authorization POC"
+  domain_execution_role = aws_iam_role.datazone_domain_execution.arn
+  skip_deletion_check   = true
 
-  policy_store_id = aws_verifiedpermissions_policy_store.raja.policy_store_id
+  depends_on = [aws_iam_role_policy_attachment.datazone_domain_execution]
+}
 
-  definition {
-    static {
-      statement = each.value
-    }
-  }
+resource "aws_datazone_project" "owner" {
+  domain_identifier   = aws_datazone_domain.raja.id
+  name                = var.datazone_owner_project_name
+  description         = "Owns RAJA-managed package listings"
+  skip_deletion_check = true
+}
 
-  depends_on = [null_resource.configure_avp_schema_and_strict_mode]
+resource "aws_datazone_asset_type" "quilt_package" {
+  domain_identifier         = aws_datazone_domain.raja.id
+  owning_project_identifier = aws_datazone_project.owner.id
+  name                      = var.datazone_package_asset_type
+  description               = "RAJA Quilt package access unit"
 }
 
 resource "aws_dynamodb_table" "policy_scope_mappings" {
@@ -386,15 +377,16 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "verifiedpermissions:IsAuthorized",
-          "verifiedpermissions:ListPolicies",
-          "verifiedpermissions:GetPolicy",
-          "verifiedpermissions:GetPolicyStore"
+          "datazone:AcceptSubscriptionRequest",
+          "datazone:CreateProject",
+          "datazone:CreateSubscriptionRequest",
+          "datazone:ListProjects",
+          "datazone:ListSubscriptionRequests",
+          "datazone:SearchListings",
+          "datazone:Search"
         ]
-        Resource = [
-          aws_verifiedpermissions_policy_store.raja.arn
-        ]
-      }
+        Resource = "*"
+      },
     ]
   })
 }
@@ -423,24 +415,26 @@ resource "aws_lambda_function" "control_plane" {
 
   environment {
     variables = {
-      POLICY_STORE_ID               = aws_verifiedpermissions_policy_store.raja.policy_store_id
-      MAPPINGS_TABLE                = aws_dynamodb_table.policy_scope_mappings.name
-      PRINCIPAL_TABLE               = aws_dynamodb_table.principal_scopes.name
-      AUDIT_TABLE                   = aws_dynamodb_table.audit_log.name
-      JWT_SECRET_ARN                = aws_secretsmanager_secret.jwt.arn
-      JWT_SECRET_VERSION            = aws_secretsmanager_secret_version.jwt_value.version_id
-      TOKEN_TTL                     = tostring(var.token_ttl)
-      RAJA_ADMIN_KEY                = var.raja_admin_key
-      RALE_AUTHORIZER_FUNCTION_NAME = local.rale_authorizer_lambda_name
-      RALE_ROUTER_FUNCTION_NAME     = local.rale_router_lambda_name
-      AWS_ACCOUNT_ID                = data.aws_caller_identity.current.account_id
+      DATAZONE_DOMAIN_ID                   = aws_datazone_domain.raja.id
+      DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
+      DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
+      DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
+      MAPPINGS_TABLE                       = aws_dynamodb_table.policy_scope_mappings.name
+      PRINCIPAL_TABLE                      = aws_dynamodb_table.principal_scopes.name
+      AUDIT_TABLE                          = aws_dynamodb_table.audit_log.name
+      JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION                   = aws_secretsmanager_secret_version.jwt_value.version_id
+      TOKEN_TTL                            = tostring(var.token_ttl)
+      RAJA_ADMIN_KEY                       = var.raja_admin_key
+      RALE_AUTHORIZER_FUNCTION_NAME        = local.rale_authorizer_lambda_name
+      RALE_ROUTER_FUNCTION_NAME            = local.rale_router_lambda_name
+      AWS_ACCOUNT_ID                       = data.aws_caller_identity.current.account_id
     }
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.control_plane_basic_execution,
     aws_iam_role_policy.control_plane_permissions,
-    aws_verifiedpermissions_policy.cedar,
     aws_secretsmanager_secret_version.jwt_value
   ]
 }
@@ -477,10 +471,18 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "verifiedpermissions:IsAuthorized"
+          "datazone:ListSubscriptionRequests",
+          "datazone:SearchListings"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem"
         ]
         Resource = [
-          aws_verifiedpermissions_policy_store.raja.arn
+          aws_dynamodb_table.principal_scopes.arn
         ]
       },
       {
@@ -523,21 +525,23 @@ resource "aws_lambda_function" "rale_authorizer" {
 
   environment {
     variables = {
-      POLICY_STORE_ID    = aws_verifiedpermissions_policy_store.raja.policy_store_id
-      JWT_SECRET_ARN     = aws_secretsmanager_secret.jwt.arn
-      JWT_SECRET_VERSION = aws_secretsmanager_secret_version.jwt_value.version_id
-      TOKEN_TTL          = tostring(var.token_ttl)
-      RALE_STORAGE       = var.rale_storage
-      RALE_ACTION        = "quilt:ReadPackage"
-      RALE_ISSUER        = local.issuer
-      RALE_AUDIENCE      = "raja-rale"
+      DATAZONE_DOMAIN_ID                   = aws_datazone_domain.raja.id
+      DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
+      DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
+      PRINCIPAL_TABLE                      = aws_dynamodb_table.principal_scopes.name
+      JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
+      JWT_SECRET_VERSION                   = aws_secretsmanager_secret_version.jwt_value.version_id
+      TOKEN_TTL                            = tostring(var.token_ttl)
+      RALE_STORAGE                         = var.rale_storage
+      RALE_ACTION                          = "quilt:ReadPackage"
+      RALE_ISSUER                          = local.issuer
+      RALE_AUDIENCE                        = "raja-rale"
     }
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.rale_authorizer_basic_execution,
     aws_iam_role_policy.rale_authorizer_permissions,
-    aws_verifiedpermissions_policy.cedar,
     aws_secretsmanager_secret_version.jwt_value
   ]
 }
