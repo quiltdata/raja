@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import hashlib
 import os
-import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -12,7 +10,6 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from raja.quilt_uri import parse_quilt_uri
 
-_PROJECT_PREFIX = "raja-principal"
 _SEARCH_PAGE_SIZE = 50
 
 
@@ -24,6 +21,8 @@ class DataZoneError(RuntimeError):
 class DataZoneConfig:
     domain_id: str
     owner_project_id: str = ""
+    users_project_id: str = ""
+    guests_project_id: str = ""
     asset_type_name: str = "QuiltPackage"
     asset_type_revision: str = "1"
 
@@ -35,6 +34,8 @@ class DataZoneConfig:
         return cls(
             domain_id=domain_id,
             owner_project_id=os.environ.get("DATAZONE_OWNER_PROJECT_ID", "").strip(),
+            users_project_id=os.environ.get("DATAZONE_USERS_PROJECT_ID", "").strip(),
+            guests_project_id=os.environ.get("DATAZONE_GUESTS_PROJECT_ID", "").strip(),
             asset_type_name=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE", "QuiltPackage").strip()
             or "QuiltPackage",
             asset_type_revision=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "1").strip()
@@ -56,20 +57,23 @@ def datazone_enabled() -> bool:
     return bool(os.environ.get("DATAZONE_DOMAIN_ID", "").strip())
 
 
-def project_name_for_principal(principal: str) -> str:
-    raw = principal.strip()
-    if not raw:
-        raise ValueError("principal is required")
-    if '::"' in raw and raw.endswith('"'):
-        raw = raw.rsplit('::"', 1)[1][:-1]
-    elif "::" in raw:
-        raw = raw.split("::", 1)[1].strip('"')
-    slug = re.sub(r"[^a-z0-9-]+", "-", raw.lower()).strip("-") or "principal"
-    digest = hashlib.sha1(principal.encode("utf-8")).hexdigest()[:10]
-    base = f"{_PROJECT_PREFIX}-{slug}"
-    if len(base) > 52:
-        base = base[:52].rstrip("-")
-    return f"{base}-{digest}"
+def project_id_for_scopes(scopes: list[str], config: DataZoneConfig) -> str:
+    """Return the DataZone project ID for a principal based on their scopes.
+
+    Classification rules:
+    - Any scope containing a wildcard (*) → owner project (admin)
+    - Any scope with a non-read action → users project
+    - Otherwise → guests project (read-only, public-facing)
+    """
+    has_wildcard = any("*" in s for s in scopes)
+    if has_wildcard:
+        return config.owner_project_id
+
+    has_write = any(not s.rsplit(":", 1)[-1].lower().startswith("read") for s in scopes if ":" in s)
+    if has_write:
+        return config.users_project_id
+
+    return config.guests_project_id
 
 
 class DataZoneService:
@@ -80,22 +84,6 @@ class DataZoneService:
     @property
     def domain_id(self) -> str:
         return self._config.domain_id
-
-    def ensure_project_for_principal(self, principal: str) -> dict[str, str]:
-        project_name = project_name_for_principal(principal)
-        existing = self._find_project_by_name(project_name)
-        if existing is not None:
-            return {"project_id": existing["id"], "project_name": project_name}
-
-        try:
-            response = self._client.create_project(
-                domainIdentifier=self._config.domain_id,
-                name=project_name,
-                description=f"RAJA principal mapping for {principal}",
-            )
-        except (ClientError, BotoCoreError) as exc:
-            raise DataZoneError(f"failed to create DataZone project for {principal}") from exc
-        return {"project_id": str(response["id"]), "project_name": project_name}
 
     def find_package_listing(self, quilt_uri: str) -> DataZonePackageListing | None:
         parsed = parse_quilt_uri(quilt_uri)
@@ -175,6 +163,31 @@ class DataZoneService:
             time.sleep(2)
         raise DataZoneError(f"timed out waiting for DataZone listing for {parsed.package_name}")
 
+    def ensure_project_membership(
+        self,
+        *,
+        project_id: str,
+        user_identifier: str,
+        designation: str = "PROJECT_CONTRIBUTOR",
+    ) -> None:
+        """Add an IAM user as a DataZone project member (idempotent)."""
+        try:
+            self._client.create_project_membership(
+                domainIdentifier=self._config.domain_id,
+                projectIdentifier=project_id,
+                member={"userIdentifier": user_identifier},
+                designation=designation,
+            )
+        except (ClientError, BotoCoreError) as exc:
+            # Already a member — not an error
+            error_code = ""
+            if isinstance(exc, ClientError):
+                error_code = exc.response.get("Error", {}).get("Code", "")
+            if error_code not in {"ConflictException", "ValidationException"}:
+                raise DataZoneError(
+                    f"failed to add {user_identifier} to DataZone project {project_id}"
+                ) from exc
+
     def ensure_project_package_grant(self, *, project_id: str, quilt_uri: str) -> str:
         listing = self.ensure_package_listing(quilt_uri)
         if self._has_listing_grant(project_id=project_id, listing_id=listing.listing_id):
@@ -236,27 +249,6 @@ class DataZoneService:
             next_token = response.get("nextToken")
             if not next_token:
                 return matches
-
-    def _find_project_by_name(self, project_name: str) -> dict[str, Any] | None:
-        next_token: str | None = None
-        while True:
-            kwargs: dict[str, Any] = {
-                "domainIdentifier": self._config.domain_id,
-                "name": project_name,
-                "maxResults": _SEARCH_PAGE_SIZE,
-            }
-            if next_token:
-                kwargs["nextToken"] = next_token
-            try:
-                response = self._client.list_projects(**kwargs)
-            except (ClientError, BotoCoreError) as exc:
-                raise DataZoneError("failed to list DataZone projects") from exc
-            for item in response.get("items", []):
-                if isinstance(item, dict) and item.get("name") == project_name:
-                    return item
-            next_token = response.get("nextToken")
-            if not next_token:
-                return None
 
     def _has_listing_grant(self, *, project_id: str, listing_id: str) -> bool:
         return (

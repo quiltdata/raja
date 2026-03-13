@@ -12,7 +12,7 @@ from raja.datazone import (
     DataZoneError,
     DataZoneService,
     datazone_enabled,
-    project_name_for_principal,
+    project_id_for_scopes,
 )
 
 # ---------------------------------------------------------------------------
@@ -27,10 +27,16 @@ _ASSET_TYPE_REV = "1"
 _QUILT_URI = "quilt+s3://my-bucket#package=demo/pkg@abc123"
 
 
+_USERS_PROJECT = "prj_users"
+_GUESTS_PROJECT = "prj_guests"
+
+
 def _config(**kwargs: str) -> DataZoneConfig:
     defaults: dict[str, str] = {
         "domain_id": _DOMAIN,
         "owner_project_id": _OWNER_PROJECT,
+        "users_project_id": _USERS_PROJECT,
+        "guests_project_id": _GUESTS_PROJECT,
         "asset_type_name": _ASSET_TYPE,
         "asset_type_revision": _ASSET_TYPE_REV,
     }
@@ -90,32 +96,39 @@ def test_datazone_enabled_false(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# project_name_for_principal
+# project_id_for_scopes
 # ---------------------------------------------------------------------------
 
 
-def test_project_name_plain() -> None:
-    name = project_name_for_principal("alice")
-    assert name.startswith("raja-principal-alice-")
-    assert len(name) <= 64
+def test_project_id_wildcard_scope_returns_owner() -> None:
+    cfg = _config()
+    assert project_id_for_scopes(["Document:*:*"], cfg) == _OWNER_PROJECT
 
 
-def test_project_name_cedar_syntax() -> None:
-    name = project_name_for_principal('User::"alice"')
-    assert "alice" in name
+def test_project_id_wildcard_resource_returns_owner() -> None:
+    cfg = _config()
+    assert project_id_for_scopes(["*:doc123:read"], cfg) == _OWNER_PROJECT
 
 
-def test_project_name_deterministic() -> None:
-    assert project_name_for_principal("alice") == project_name_for_principal("alice")
+def test_project_id_write_scope_returns_users() -> None:
+    cfg = _config()
+    assert project_id_for_scopes(["Document:doc123:write"], cfg) == _USERS_PROJECT
 
 
-def test_project_name_different_principals() -> None:
-    assert project_name_for_principal("alice") != project_name_for_principal("bob")
+def test_project_id_mixed_read_write_returns_users() -> None:
+    cfg = _config()
+    result = project_id_for_scopes(["Document:doc123:read", "Document:doc123:write"], cfg)
+    assert result == _USERS_PROJECT
 
 
-def test_project_name_empty_raises() -> None:
-    with pytest.raises(ValueError):
-        project_name_for_principal("")
+def test_project_id_read_only_returns_guests() -> None:
+    cfg = _config()
+    assert project_id_for_scopes(["Document:public:read"], cfg) == _GUESTS_PROJECT
+
+
+def test_project_id_empty_scopes_returns_guests() -> None:
+    cfg = _config()
+    assert project_id_for_scopes([], cfg) == _GUESTS_PROJECT
 
 
 # ---------------------------------------------------------------------------
@@ -125,12 +138,16 @@ def test_project_name_empty_raises() -> None:
 
 def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAZONE_DOMAIN_ID", "dzd_env")
-    monkeypatch.setenv("DATAZONE_OWNER_PROJECT_ID", "prj_env")
+    monkeypatch.setenv("DATAZONE_OWNER_PROJECT_ID", "prj_env_owner")
+    monkeypatch.setenv("DATAZONE_USERS_PROJECT_ID", "prj_env_users")
+    monkeypatch.setenv("DATAZONE_GUESTS_PROJECT_ID", "prj_env_guests")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE", "MyType")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "2")
     cfg = DataZoneConfig.from_env()
     assert cfg.domain_id == "dzd_env"
-    assert cfg.owner_project_id == "prj_env"
+    assert cfg.owner_project_id == "prj_env_owner"
+    assert cfg.users_project_id == "prj_env_users"
+    assert cfg.guests_project_id == "prj_env_guests"
     assert cfg.asset_type_name == "MyType"
     assert cfg.asset_type_revision == "2"
 
@@ -250,45 +267,6 @@ def test_has_package_grant_wrong_project() -> None:
     }
     svc = _service(client)
     assert svc.has_package_grant(project_id="prj_x", quilt_uri=_QUILT_URI) is False
-
-
-# ---------------------------------------------------------------------------
-# ensure_project_for_principal
-# ---------------------------------------------------------------------------
-
-
-def test_ensure_project_creates_new() -> None:
-    client = MagicMock()
-    client.list_projects.return_value = {"items": [], "nextToken": None}
-    client.create_project.return_value = {"id": "prj_new"}
-    svc = _service(client)
-    result = svc.ensure_project_for_principal("alice")
-    assert result["project_id"] == "prj_new"
-    client.create_project.assert_called_once()
-
-
-def test_ensure_project_returns_existing() -> None:
-    expected_name = project_name_for_principal("alice")
-    client = MagicMock()
-    client.list_projects.return_value = {
-        "items": [{"id": "prj_existing", "name": expected_name}],
-        "nextToken": None,
-    }
-    svc = _service(client)
-    result = svc.ensure_project_for_principal("alice")
-    assert result["project_id"] == "prj_existing"
-    client.create_project.assert_not_called()
-
-
-def test_ensure_project_create_error() -> None:
-    client = MagicMock()
-    client.list_projects.return_value = {"items": [], "nextToken": None}
-    client.create_project.side_effect = ClientError(
-        {"Error": {"Code": "ConflictException", "Message": "exists"}}, "CreateProject"
-    )
-    svc = _service(client)
-    with pytest.raises(DataZoneError):
-        svc.ensure_project_for_principal("alice")
 
 
 # ---------------------------------------------------------------------------

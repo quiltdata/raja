@@ -69,7 +69,11 @@ def health() -> dict[str, Any]:
         _check("datazone", dependencies.get_datazone_client)
 
     status = "ok" if all(value == "ok" for value in dependency_checks.values()) else "degraded"
-    return {"status": status, "dependencies": dependency_checks}
+    config: dict[str, str] = {}
+    rajee_endpoint = dependencies.os.environ.get("RAJEE_ENDPOINT")
+    if rajee_endpoint:
+        config["rajee_endpoint"] = rajee_endpoint
+    return {"status": status, "dependencies": dependency_checks, "config": config}
 
 
 @app.get("/audit")

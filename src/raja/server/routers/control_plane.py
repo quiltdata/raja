@@ -16,7 +16,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 
 from raja import create_token
-from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
+from raja.datazone import (
+    DataZoneConfig,
+    DataZoneError,
+    DataZoneService,
+    datazone_enabled,
+    project_id_for_scopes,
+)
 from raja.exceptions import TokenInvalidError
 from raja.package_map import parse_s3_path
 from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
@@ -689,12 +695,8 @@ def create_principal(
         "updated_at": int(time.time()),
     }
     if datazone_enabled():
-        try:
-            project = _datazone_service(datazone).ensure_project_for_principal(request.principal)
-        except DataZoneError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        item["datazone_project_id"] = project["project_id"]
-        item["datazone_project_name"] = project["project_name"]
+        config = DataZoneConfig.from_env()
+        item["datazone_project_id"] = project_id_for_scopes(request.scopes, config)
 
     table.put_item(Item=item)
 

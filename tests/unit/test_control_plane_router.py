@@ -246,12 +246,10 @@ def test_create_principal():
         principal="alice", scopes=["Document:doc1:read", "Document:doc2:write"]
     )
     with patch.object(control_plane, "datazone_enabled", return_value=True):
-        with patch.object(control_plane, "_datazone_service") as factory:
-            factory.return_value.ensure_project_for_principal.return_value = {
-                "project_id": "proj-123",
-                "project_name": "raja-principal-alice",
-            }
-            response = control_plane.create_principal(request, table=table, datazone=datazone)
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            mock_config_cls.from_env.return_value = MagicMock()
+            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-123"):
+                response = control_plane.create_principal(request, table=table, datazone=datazone)
 
     assert response["principal"] == "alice"
     assert response["scopes"] == ["Document:doc1:read", "Document:doc2:write"]

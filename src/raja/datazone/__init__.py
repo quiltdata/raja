@@ -4,7 +4,7 @@ from .service import (
     DataZonePackageListing,
     DataZoneService,
     datazone_enabled,
-    project_name_for_principal,
+    project_id_for_scopes,
 )
 
 __all__ = [
@@ -13,5 +13,5 @@ __all__ = [
     "DataZonePackageListing",
     "DataZoneService",
     "datazone_enabled",
-    "project_name_for_principal",
+    "project_id_for_scopes",
 ]

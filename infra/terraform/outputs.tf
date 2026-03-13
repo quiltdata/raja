@@ -18,6 +18,16 @@ output "datazone_owner_project_id" {
   value       = aws_datazone_project.owner.id
 }
 
+output "datazone_users_project_id" {
+  description = "Amazon DataZone project identifier for standard user principals."
+  value       = aws_datazone_project.users.id
+}
+
+output "datazone_guests_project_id" {
+  description = "Amazon DataZone project identifier for guest principals."
+  value       = aws_datazone_project.guests.id
+}
+
 output "datazone_package_asset_type" {
   description = "Amazon DataZone asset type name for RAJA package listings."
   value       = aws_datazone_asset_type.quilt_package.name

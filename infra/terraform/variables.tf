@@ -133,6 +133,18 @@ variable "datazone_owner_project_name" {
   default     = "raja-owner"
 }
 
+variable "datazone_users_project_name" {
+  description = "Amazon DataZone project for standard user principals."
+  type        = string
+  default     = "raja-users"
+}
+
+variable "datazone_guests_project_name" {
+  description = "Amazon DataZone project for guest (read-only public) principals."
+  type        = string
+  default     = "raja-guests"
+}
+
 variable "datazone_package_asset_type" {
   description = "Custom Amazon DataZone asset type name used for Quilt package listings."
   type        = string

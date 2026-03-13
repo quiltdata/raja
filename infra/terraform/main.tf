@@ -231,6 +231,20 @@ resource "aws_datazone_project" "owner" {
   skip_deletion_check = true
 }
 
+resource "aws_datazone_project" "users" {
+  domain_identifier   = aws_datazone_domain.raja.id
+  name                = var.datazone_users_project_name
+  description         = "RAJA standard user principals"
+  skip_deletion_check = true
+}
+
+resource "aws_datazone_project" "guests" {
+  domain_identifier   = aws_datazone_domain.raja.id
+  name                = var.datazone_guests_project_name
+  description         = "RAJA guest (read-only public) principals"
+  skip_deletion_check = true
+}
+
 resource "aws_datazone_asset_type" "quilt_package" {
   domain_identifier         = aws_datazone_domain.raja.id
   owning_project_identifier = aws_datazone_project.owner.id
@@ -405,6 +419,8 @@ resource "aws_lambda_function" "control_plane" {
     variables = {
       DATAZONE_DOMAIN_ID                   = aws_datazone_domain.raja.id
       DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
+      DATAZONE_USERS_PROJECT_ID            = aws_datazone_project.users.id
+      DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
       PRINCIPAL_TABLE                      = aws_dynamodb_table.principal_scopes.name
@@ -416,6 +432,7 @@ resource "aws_lambda_function" "control_plane" {
       RALE_AUTHORIZER_FUNCTION_NAME        = local.rale_authorizer_lambda_name
       RALE_ROUTER_FUNCTION_NAME            = local.rale_router_lambda_name
       AWS_ACCOUNT_ID                       = data.aws_caller_identity.current.account_id
+      RAJEE_ENDPOINT                       = "${local.rajee_endpoint_protocol}://${aws_lb.rajee.dns_name}"
     }
   }
 

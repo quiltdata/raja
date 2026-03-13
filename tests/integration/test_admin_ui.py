@@ -13,12 +13,11 @@ Run against a deployed stack:
 
 import json
 import os
-from urllib import error, parse, request
+from urllib import error, request
 
 import pytest
 
 from .helpers import request_json, require_api_url
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,9 +80,7 @@ def test_admin_ui_has_no_avp_references():
     js = body.decode("utf-8", errors="replace")
     # These AVP-era identifiers must be removed
     for stale_symbol in ("openPolicyEditor", "extractPolicyStatement", "setPolicyDiff"):
-        assert stale_symbol not in js, (
-            f"admin.js still contains AVP-era symbol '{stale_symbol}'"
-        )
+        assert stale_symbol not in js, f"admin.js still contains AVP-era symbol '{stale_symbol}'"
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +98,7 @@ def test_health_includes_datazone_dependency():
     dependencies = data.get("dependencies", {})
     dep_keys = set(dependencies.keys())
     # Must have datazone, must NOT have avp or cedar
-    assert "datazone" in dep_keys, (
-        f"Health response missing 'datazone' dependency; got {dep_keys}"
-    )
+    assert "datazone" in dep_keys, f"Health response missing 'datazone' dependency; got {dep_keys}"
     assert "avp" not in dep_keys, "Health still reports 'avp' dependency"
     assert "cedar" not in dep_keys, "Health still reports 'cedar' dependency"
 
@@ -116,9 +111,7 @@ def test_health_datazone_dependency_is_ok():
     assert status == 200
     data = json.loads(body)
     datazone_status = data.get("dependencies", {}).get("datazone")
-    assert datazone_status == "ok", (
-        f"DataZone dependency is not healthy: {datazone_status}"
-    )
+    assert datazone_status == "ok", f"DataZone dependency is not healthy: {datazone_status}"
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +147,7 @@ def test_principals_list_returns_datazone_project_metadata():
     principals = body.get("principals", [])
     assert isinstance(principals, list)
     # At least one principal should exist (seeded test data)
-    assert len(principals) >= 1, (
-        "No principals found. Run python scripts/seed_test_data.py"
-    )
+    assert len(principals) >= 1, "No principals found. Run python scripts/seed_test_data.py"
     # Every principal with a project should have a string project id
     for item in principals:
         if "datazone_project_id" in item:
@@ -181,17 +172,12 @@ def test_create_and_delete_principal_with_datazone():
     assert status == 200, f"Principal creation failed: {status}: {body}"
     assert body.get("principal") == test_principal
     # DataZone project id is present when DataZone is enabled
-    assert "datazone_project_id" in body, (
-        "Created principal response missing datazone_project_id"
-    )
+    assert "datazone_project_id" in body, "Created principal response missing datazone_project_id"
 
     # Verify it appears in the list
     list_status, list_body = request_json("GET", "/principals")
     assert list_status == 200
-    found = any(
-        p.get("principal") == test_principal
-        for p in list_body.get("principals", [])
-    )
+    found = any(p.get("principal") == test_principal for p in list_body.get("principals", []))
     assert found, f"Newly created principal '{test_principal}' not found in list"
 
     # Delete
@@ -209,8 +195,7 @@ def test_create_and_delete_principal_with_datazone():
     list_status2, list_body2 = request_json("GET", "/principals")
     assert list_status2 == 200
     still_there = any(
-        p.get("principal") == test_principal
-        for p in list_body2.get("principals", [])
+        p.get("principal") == test_principal for p in list_body2.get("principals", [])
     )
     assert not still_there, f"Deleted principal '{test_principal}' still in list"
 
@@ -341,9 +326,7 @@ def test_token_issuance_for_unknown_principal_returns_404():
         "/token",
         {"principal": "no-such-principal-xyzzy"},
     )
-    assert status == 404, (
-        f"Expected 404 for unknown principal, got {status}: {body}"
-    )
+    assert status == 404, f"Expected 404 for unknown principal, got {status}: {body}"
 
 
 @pytest.mark.integration
@@ -435,6 +418,4 @@ def test_rotate_secret_status_endpoint_exists():
             status = resp.status
     except error.HTTPError as exc:
         status = exc.code
-    assert status == 404, (
-        f"Expected 404 for unknown rotation op id, got {status}"
-    )
+    assert status == 404, f"Expected 404 for unknown rotation op id, got {status}"
