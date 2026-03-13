@@ -9,6 +9,7 @@ from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+from tf_outputs import get_tf_output
 
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
 
@@ -24,11 +25,34 @@ SEED_FILES: dict[str, bytes] = {
 
 
 def _get_region() -> str:
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
     if not region:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
     return region
+
+
+def _get_principal_table() -> str:
+    return os.environ.get("PRINCIPAL_TABLE") or get_tf_output("principal_table_name") or ""
+
+
+def _hydrate_datazone_env() -> None:
+    mapping = {
+        "DATAZONE_DOMAIN_ID": "datazone_domain_id",
+        "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
+        "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
+        "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
+    }
+    for env_key, output_key in mapping.items():
+        if os.environ.get(env_key):
+            continue
+        value = get_tf_output(output_key)
+        if value:
+            os.environ[env_key] = value
 
 
 def _get_account_id() -> str:
@@ -164,6 +188,7 @@ def main() -> None:
 
     region = _get_region()
     account_id = _get_account_id()
+    _hydrate_datazone_env()
 
     test_bucket = test_bucket_override or f"raja-poc-test-{account_id}-{region}"
     registry_bucket = registry_bucket_override or f"raja-poc-registry-{account_id}-{region}"
@@ -214,7 +239,7 @@ def main() -> None:
 
         if datazone_enabled():
             principal = os.environ.get("DATAZONE_TEST_PRINCIPAL", "test-user")
-            principal_table = os.environ.get("PRINCIPAL_TABLE", "")
+            principal_table = _get_principal_table()
             if principal_table:
                 project_id = _load_project_id(principal_table, principal, region)
             else:

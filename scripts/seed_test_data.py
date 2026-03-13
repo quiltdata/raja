@@ -11,17 +11,48 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
+from tf_outputs import get_tf_output
 
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
 
 
 def _get_region() -> str:
     """Get AWS region from environment."""
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
     if not region:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
     return region
+
+
+def _get_principal_table() -> str:
+    table_name = os.environ.get("PRINCIPAL_TABLE") or get_tf_output("principal_table_name")
+    if not table_name:
+        print(
+            "✗ PRINCIPAL_TABLE not set and infra/tf-outputs.json is missing principal_table_name",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return table_name
+
+
+def _hydrate_datazone_env() -> None:
+    mapping = {
+        "DATAZONE_DOMAIN_ID": "datazone_domain_id",
+        "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
+        "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
+        "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
+    }
+    for env_key, output_key in mapping.items():
+        if os.environ.get(env_key):
+            continue
+        value = get_tf_output(output_key)
+        if value:
+            os.environ[env_key] = value
 
 
 def _load_test_data(data_file: Path | None = None) -> dict[str, list[str]]:
@@ -91,12 +122,9 @@ def main() -> None:
             sys.exit(1)
 
     # Get configuration
-    table_name = os.environ.get("PRINCIPAL_TABLE")
-    if not table_name:
-        print("✗ PRINCIPAL_TABLE environment variable is required", file=sys.stderr)
-        sys.exit(1)
-
+    table_name = _get_principal_table()
     region = _get_region()
+    _hydrate_datazone_env()
 
     # Load test data
     principals = _load_test_data(data_file)
