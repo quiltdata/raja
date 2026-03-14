@@ -30,7 +30,12 @@ def _load_dotenv() -> None:
 _SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Control Plane", [
         ("Admin UI / API URL", "api_url", ""),
-        ("Policy Store ID", "policy_store_id", ""),
+    ]),
+    ("DataZone", [
+        ("Domain ID", "datazone_domain_id", ""),
+        ("Portal URL", "datazone_portal_url", ""),
+        ("Owner Project ID", "datazone_owner_project_id", ""),
+        ("Asset Type", "datazone_package_asset_type", ""),
     ]),
     ("RALE", [
         ("Authorizer URL", "rale_authorizer_url", ""),
@@ -38,7 +43,11 @@ _SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("RAJEE Proxy Endpoint", "rajee_endpoint", ""),
         ("Test Bucket", "rajee_test_bucket_name", ""),
         ("Registry Bucket", "rajee_registry_bucket_name", ""),
-        ("Envoy Debug UI (9901)", "rajee_admin_url", "(disabled — set admin_allowed_cidrs to enable)"),
+        (
+            "Envoy Debug UI (9901)",
+            "rajee_admin_url",
+            "(disabled — set admin_allowed_cidrs to enable)",
+        ),
     ]),
     ("Envoy", [
         ("Repository URI", "envoy_repository_uri", ""),
@@ -56,7 +65,7 @@ def main() -> None:
 
     outputs: dict[str, str] = json.loads(_OUTPUTS_PATH.read_text())
 
-    admin_key = os.environ.get("RAJA_ADMIN_KEY") or os.environ.get("TF_VAR_raja_admin_key", "")
+    admin_key = os.environ.get("RAJA_ADMIN_KEY", "")
 
     width = 72
     print()
@@ -72,7 +81,7 @@ def main() -> None:
             if value:
                 print(f"  {label:<24} {value}")
 
-    print(f"\n  Admin Auth")
+    print("\n  Admin Auth")
     print("  " + "-" * (width - 2))
     if admin_key:
         print(f"  {'Admin Key':<24} {admin_key}")

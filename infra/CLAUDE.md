@@ -5,7 +5,7 @@
 The `infra/` directory contains infrastructure for deploying RAJA as a managed AWS service.
 
 **Primary:** `infra/terraform/` — Terraform (current, use this)
-**Deprecated:** `infra/raja_poc/` — AWS CDK (do not use for new deployments)
+**Supporting assets:** `infra/envoy/` and `infra/layers/`
 
 The infrastructure is **optional** — the core `raja` library can be used standalone without AWS.
 
@@ -21,15 +21,6 @@ The infrastructure is **optional** — the core `raja` library can be used stand
 │ Control Plane    │  (FastAPI + Mangum Lambda)
 │ Lambda           │
 └────────┬─────────┘
-         │
-         ▼
-┌────────────────────────────────┐
-│         DynamoDB Tables        │
-│  - PolicyScopeMappings         │
-│  - PrincipalScopes             │
-│  - ManifestCache (RALE)        │
-│  - TajCache (RALE)             │
-└────────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────┐
@@ -62,12 +53,8 @@ infra/
 │   ├── variables.tf     # Input variables
 │   └── versions.tf      # Provider version constraints
 │
-├── raja_poc/            # ⚠️  DEPRECATED — CDK, do not use
-│   ├── app.py
-│   ├── stacks/
-│   └── constructs/
-│
-├── cdk.json             # ⚠️  DEPRECATED
+├── envoy/               # Envoy proxy image assets
+├── layers/              # Shared Lambda layer requirements
 └── docker-compose.yml   # Local Envoy testing
 ```
 
@@ -79,9 +66,6 @@ infra/
 | --- | --- |
 | `aws_api_gateway_rest_api` | REST API for control plane |
 | `aws_lambda_function.control_plane` | FastAPI control plane |
-| `aws_dynamodb_table.policy_scope_mappings` | Policy → scopes |
-| `aws_dynamodb_table.principal_scopes` | Principal → scopes |
-| `aws_dynamodb_table.audit_log` | Audit trail |
 | `aws_secretsmanager_secret.jwt` | JWT signing key |
 | `aws_verifiedpermissions_policy_store` | Cedar policy store + schema |
 
@@ -91,8 +75,6 @@ infra/
 | --- | --- |
 | `aws_lambda_function.rale_authorizer` | Issues TAJ tokens (cached) |
 | `aws_lambda_function.rale_router` | Resolves USL → S3, streams object |
-| `aws_dynamodb_table.manifest_cache` | Package manifest cache |
-| `aws_dynamodb_table.taj_cache` | TAJ decision cache |
 | `aws_lb.rajee` | ALB for Envoy proxy |
 | `aws_ecs_service` | Fargate Envoy service |
 | `aws_ecr_repository.envoy` | Envoy Docker image registry |
@@ -192,16 +174,6 @@ The Envoy image is built and pushed to ECR separately:
 
 ---
 
-## ⚠️ Deprecated: CDK (`infra/raja_poc/`)
+## Terraform Only
 
-The CDK stacks (`RajaAvpStack`, `RajaServicesStack`, `RajeeEnvoyStack`) have been **replaced by Terraform** and should not be used.
-
-The CDK code is retained temporarily for reference. It will be removed in a future release.
-
-**Do not run:**
-
-```bash
-# These are deprecated — use ./poe deploy instead
-cd infra && npx cdk deploy   # ❌
-cd infra && npx cdk destroy  # ❌
-```
+The old CDK stack has been removed. Use `infra/terraform/` for deployment and `infra/envoy/` for local Envoy assets and image builds.

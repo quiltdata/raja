@@ -1,4 +1,3 @@
-from .compiler import compile_policies, compile_policy
 from .enforcer import (
     enforce,
     enforce_package_grant,
@@ -19,7 +18,6 @@ from .exceptions import (
 )
 from .models import (
     AuthRequest,
-    CedarPolicy,
     Decision,
     PackageAccessRequest,
     PackageMapToken,
@@ -47,7 +45,6 @@ from .token import (
 __all__ = [
     # Models
     "AuthRequest",
-    "CedarPolicy",
     "Decision",
     "PackageAccessRequest",
     "PackageMapToken",
@@ -58,8 +55,6 @@ __all__ = [
     "Token",
     "PackageMap",
     # Functions
-    "compile_policies",
-    "compile_policy",
     "create_token",
     "create_token_with_grants",
     "create_token_with_package_grant",

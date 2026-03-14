@@ -13,11 +13,21 @@ from .state import SessionState
 
 
 def _principal_id(principal: str) -> str:
+    """Return the principal identifier to send to the RALE authorizer.
+
+    IAM ARNs (arn:aws:...) and plain usernames are passed through unchanged.
+    Legacy Cedar-style entities (e.g. User::"alice") are unwrapped to "alice".
+    """
     value = principal.strip()
     if not value:
         return value
+    # Cedar entity with quoted id: User::"alice" → alice
     if '::"' in value and value.endswith('"'):
         return value.rsplit('::"', 1)[1][:-1]
+    # IAM ARN — pass through as-is
+    if value.startswith("arn:"):
+        return value
+    # Cedar entity without quotes: User::alice → alice
     if "::" in value:
         return value.split("::", 1)[1].strip('"')
     return value
@@ -36,7 +46,7 @@ def run_authorize(state: SessionState, console: Console) -> None:
     parsed = parse_quilt_uri(usl)
     if not parsed.path:
         raise RuntimeError("USL must include a logical file path")
-    authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}/{parsed.path}", safe="/@")
+    authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}/{parsed.path}", safe="/")
 
     authorizer_url = state.config.rale_authorizer_url
     try:
@@ -49,7 +59,7 @@ def run_authorize(state: SessionState, console: Console) -> None:
         raise RuntimeError(f"RALE authorizer not reachable at {authorizer_url}") from exc
 
     if response.status_code == 403:
-        raise RuntimeError("DENY - no Cedar policy permits this principal + action + resource")
+        raise RuntimeError("DENY - no DataZone package grant permits this principal + package")
     if response.status_code >= 400:
         message = f"TAJ request failed with status {response.status_code}: {response.text}"
         raise RuntimeError(message)
@@ -64,6 +74,6 @@ def run_authorize(state: SessionState, console: Console) -> None:
     state.taj_claims = claims
 
     console.print("TAJ issued and decoded claims:")
-    for key in ["sub", "aud", "quilt_uri", "mode", "iat", "exp"]:
+    for key in ["sub", "grants", "manifest_hash", "package_name", "registry", "iat", "exp"]:
         if key in claims:
             console.print(f"  {key}: {claims[key]}")

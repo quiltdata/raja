@@ -7,6 +7,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService
 from raja.quilt_uri import parse_quilt_uri
 from raja.token import create_taj_token
 
@@ -103,24 +104,15 @@ def _resolve_latest_hash_via_quilt3(registry: str, package_name: str) -> str:
     return str(package.top_hash)
 
 
-def _build_entity_reference(entity: str) -> dict[str, str]:
-    if "::" in entity:
-        entity_type, entity_id = entity.split("::", 1)
-        if entity_type and entity_id:
-            return {"entityType": entity_type, "entityId": entity_id}
-    return {"entityType": "Raja::User", "entityId": entity}
-
-
 def _build_package_uri(storage: str, registry: str, package_name: str, manifest_hash: str) -> str:
     return f"quilt+{storage}://{registry}#package={package_name}@{manifest_hash}"
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
-    policy_store_id = os.environ.get("POLICY_STORE_ID")
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
     jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if not policy_store_id or not jwt_secret_arn or not region:
+    if not jwt_secret_arn or not region:
         return _response(500, {"error": "missing required environment variables"})
 
     try:
@@ -139,7 +131,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
             return _response(502, {"error": f"manifest resolution failed: {exc}"})
         prefix = f"{registry}/{package_name}@{manifest_hash}/"
 
-    action = os.environ.get("RALE_ACTION", "quilt:ReadPackage")
     storage = os.environ.get("RALE_STORAGE", "s3")
     quilt_uri = _build_package_uri(storage, registry, package_name, manifest_hash)
 
@@ -148,32 +139,36 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     except ValueError as exc:
         return _response(400, {"error": f"invalid package URI: {exc}"})
 
-    avp = boto3.client("verifiedpermissions", region_name=region)
-    request = {
-        "policyStoreId": policy_store_id,
-        "principal": _build_entity_reference(principal),
-        "action": {"actionType": "Raja::Action", "actionId": action},
-        "resource": {"entityType": "Raja::Package", "entityId": quilt_uri},
-        "entities": {
-            "entityList": [
-                {
-                    "identifier": {"entityType": "Raja::Package", "entityId": quilt_uri},
-                    "attributes": {
-                        "registry": {"string": registry},
-                        "packageName": {"string": package_name},
-                        "hash": {"string": manifest_hash},
-                    },
-                }
+    try:
+        config = DataZoneConfig.from_env()
+        service = DataZoneService(
+            client=boto3.client("datazone", region_name=region),
+            config=config,
+        )
+        project_ids = [
+            p
+            for p in [
+                config.owner_project_id,
+                config.users_project_id,
+                config.guests_project_id,
             ]
-        },
-    }
+            if p
+        ]
+        project_id = service.find_project_for_principal(principal, project_ids=project_ids)
+    except DataZoneError:
+        return _response(503, {"error": "authorization service unavailable"})
+
+    if not project_id:
+        return _response(403, {"decision": "DENY", "error": "principal project not found"})
 
     try:
-        decision = avp.is_authorized(**request).get("decision", "DENY")
+        allowed = service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
+    except DataZoneError:
+        return _response(503, {"error": "authorization service unavailable"})
     except (ClientError, BotoCoreError):
         return _response(503, {"error": "authorization service unavailable"})
 
-    if decision != "ALLOW":
+    if not allowed:
         return _response(
             403,
             {

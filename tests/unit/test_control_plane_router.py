@@ -20,34 +20,33 @@ def _make_request(request_id: str | None = None) -> Request:
     return Request(scope)
 
 
+def _mock_datazone_with_scopes(scopes: list[str]) -> MagicMock:
+    """Return a datazone mock whose find_project_for_principal returns 'proj-owner'."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "_derive_principal_scopes", return_value=scopes):
+        return datazone
+
+
 def test_issue_token_raja_type():
     """Test issuing a RAJA token."""
-    table = MagicMock()
-    table.get_item.return_value = {"Item": {"scopes": ["Document:doc1:read"]}}
-    audit_table = MagicMock()
-
     payload = control_plane.TokenRequest(principal="alice", token_type="raja")
-    response = control_plane.issue_token(
-        _make_request(),
-        payload,
-        table=table,
-        audit_table=audit_table,
-        secret="secret",
-    )
+    with patch.object(
+        control_plane, "_derive_principal_scopes", return_value=["Document:doc1:read"]
+    ):
+        response = control_plane.issue_token(
+            _make_request(),
+            payload,
+            datazone=MagicMock(),
+            secret="secret",
+        )
 
     assert response["principal"] == "alice"
     assert "token" in response
-    assert "scopes" in response
     assert response["scopes"] == ["Document:doc1:read"]
 
 
 def test_issue_token_rajee_type():
     """Test issuing a RAJEE token with scopes."""
-    table = MagicMock()
-    table.get_item.return_value = {"Item": {"scopes": ["S3Object:bucket:key:s3:GetObject"]}}
-    audit_table = MagicMock()
-
-    # Create a mock request with base_url
     request = MagicMock()
     request.headers = MagicMock()
     request.headers.get = Mock(return_value=None)
@@ -56,13 +55,15 @@ def test_issue_token_rajee_type():
     request.base_url = base_url_mock
 
     payload = control_plane.TokenRequest(principal="alice", token_type="rajee")
-    response = control_plane.issue_token(
-        request,
-        payload,
-        table=table,
-        audit_table=audit_table,
-        secret="secret",
-    )
+    with patch.object(
+        control_plane, "_derive_principal_scopes", return_value=["S3Object:bucket:key:s3:GetObject"]
+    ):
+        response = control_plane.issue_token(
+            request,
+            payload,
+            datazone=MagicMock(),
+            secret="secret",
+        )
 
     assert response["principal"] == "alice"
     assert "token" in response
@@ -71,63 +72,37 @@ def test_issue_token_rajee_type():
 
 def test_issue_token_invalid_type():
     """Test that issuing a token with invalid type raises HTTPException."""
-    table = MagicMock()
-    table.get_item.return_value = {"Item": {"scopes": ["Document:doc1:read"]}}
-    audit_table = MagicMock()
-
     payload = control_plane.TokenRequest(principal="alice", token_type="invalid")
-    with pytest.raises(HTTPException) as exc_info:
-        control_plane.issue_token(
-            _make_request(),
-            payload,
-            table=table,
-            audit_table=audit_table,
-            secret="secret",
-        )
+    with patch.object(
+        control_plane, "_derive_principal_scopes", return_value=["Document:doc1:read"]
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            control_plane.issue_token(
+                _make_request(),
+                payload,
+                datazone=MagicMock(),
+                secret="secret",
+            )
 
     assert exc_info.value.status_code == 400
     assert "Unsupported token_type" in exc_info.value.detail
 
 
-def test_issue_token_audit_failure():
-    """Test that audit log failures don't prevent token issuance."""
-    table = MagicMock()
-    table.get_item.return_value = {"Item": {"scopes": ["Document:doc1:read"]}}
-    audit_table = MagicMock()
-    audit_table.put_item.side_effect = Exception("DynamoDB error")
-
-    payload = control_plane.TokenRequest(principal="alice")
-    response = control_plane.issue_token(
-        _make_request(),
-        payload,
-        table=table,
-        audit_table=audit_table,
-        secret="secret",
-    )
-
-    # Should still succeed despite audit failure
-    assert response["principal"] == "alice"
-    assert "token" in response
-
-
 def test_issue_package_token_allows():
-    control_plane.POLICY_STORE_ID = "store-123"
-    avp = MagicMock()
-    avp.is_authorized.return_value = {"decision": "ALLOW"}
-    audit_table = MagicMock()
+    datazone = MagicMock()
 
     payload = control_plane.PackageTokenRequest(
         principal='Role::"analyst"',
         resource='Package::"quilt+s3://registry#package=my/pkg@abc123def456"',
         action="quilt:ReadPackage",
     )
-    response = control_plane.issue_package_token(
-        _make_request(),
-        payload,
-        avp=avp,
-        audit_table=audit_table,
-        secret="secret",
-    )
+    with patch.object(control_plane, "_authorize_package_with_datazone", return_value=True):
+        response = control_plane.issue_package_token(
+            _make_request(),
+            payload,
+            datazone=datazone,
+            secret="secret",
+        )
 
     assert response["principal"] == 'Role::"analyst"'
     assert response["quilt_uri"] == "quilt+s3://registry#package=my/pkg@abc123def456"
@@ -135,10 +110,7 @@ def test_issue_package_token_allows():
 
 
 def test_issue_package_token_denied_by_policy():
-    control_plane.POLICY_STORE_ID = "store-123"
-    avp = MagicMock()
-    avp.is_authorized.return_value = {"decision": "DENY"}
-    audit_table = MagicMock()
+    datazone = MagicMock()
 
     payload = control_plane.PackageTokenRequest(
         principal='Role::"analyst"',
@@ -146,13 +118,13 @@ def test_issue_package_token_denied_by_policy():
         action="quilt:ReadPackage",
     )
     with pytest.raises(HTTPException) as exc_info:
-        control_plane.issue_package_token(
-            _make_request(),
-            payload,
-            avp=avp,
-            audit_table=audit_table,
-            secret="secret",
-        )
+        with patch.object(control_plane, "_authorize_package_with_datazone", return_value=False):
+            control_plane.issue_package_token(
+                _make_request(),
+                payload,
+                datazone=datazone,
+                secret="secret",
+            )
 
     assert exc_info.value.status_code == 403
 
@@ -167,8 +139,7 @@ def test_issue_package_token_rejects_write_action():
         control_plane.issue_package_token(
             _make_request(),
             payload,
-            avp=MagicMock(),
-            audit_table=MagicMock(),
+            datazone=MagicMock(),
             secret="secret",
         )
 
@@ -176,10 +147,7 @@ def test_issue_package_token_rejects_write_action():
 
 
 def test_issue_translation_token_allows():
-    control_plane.POLICY_STORE_ID = "store-123"
-    avp = MagicMock()
-    avp.is_authorized.return_value = {"decision": "ALLOW"}
-    audit_table = MagicMock()
+    datazone = MagicMock()
 
     payload = control_plane.TranslationTokenRequest(
         principal='Role::"analyst"',
@@ -187,13 +155,13 @@ def test_issue_translation_token_allows():
         action="quilt:ReadPackage",
         logical_s3_path="s3://logical-bucket/logical/file.csv",
     )
-    response = control_plane.issue_translation_token(
-        _make_request(),
-        payload,
-        avp=avp,
-        audit_table=audit_table,
-        secret="secret",
-    )
+    with patch.object(control_plane, "_authorize_package_with_datazone", return_value=True):
+        response = control_plane.issue_translation_token(
+            _make_request(),
+            payload,
+            datazone=datazone,
+            secret="secret",
+        )
 
     assert response["logical_bucket"] == "logical-bucket"
     assert response["logical_key"] == "logical/file.csv"
@@ -202,114 +170,150 @@ def test_issue_translation_token_allows():
 
 
 def test_list_principals_with_limit():
-    """Test listing principals with a limit."""
-    table = MagicMock()
-    table.scan.return_value = {
-        "Items": [{"principal": "alice"}, {"principal": "bob"}],
-    }
+    """Test listing principals returns members from DataZone projects."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "_datazone_service") as factory:
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            config = MagicMock()
+            config.owner_project_id = "proj-owner"
+            config.users_project_id = "proj-users"
+            config.guests_project_id = "proj-guests"
+            mock_config_cls.from_env.return_value = config
+            service = factory.return_value
+            service.list_project_members.return_value = ["alice", "bob"]
+            response = control_plane.list_principals(limit=10, datazone=datazone)
 
-    response = control_plane.list_principals(limit=10, table=table)
-
-    assert len(response["principals"]) == 2
-    table.scan.assert_called_once_with(Limit=10)
+    assert len(response["principals"]) >= 1
+    assert all("principal" in p for p in response["principals"])
 
 
 def test_list_principals_without_limit():
     """Test listing principals without a limit."""
-    table = MagicMock()
-    table.scan.return_value = {
-        "Items": [{"principal": "alice"}],
-    }
-
-    response = control_plane.list_principals(limit=None, table=table)
+    datazone = MagicMock()
+    with patch.object(control_plane, "_datazone_service") as factory:
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            config = MagicMock()
+            config.owner_project_id = "proj-owner"
+            config.users_project_id = ""
+            config.guests_project_id = ""
+            mock_config_cls.from_env.return_value = config
+            service = factory.return_value
+            service.list_project_members.return_value = ["alice"]
+            response = control_plane.list_principals(limit=None, datazone=datazone)
 
     assert len(response["principals"]) == 1
-    table.scan.assert_called_once_with()
+    assert response["principals"][0]["principal"] == "alice"
 
 
 def test_create_principal():
-    """Test creating a principal."""
-    table = MagicMock()
+    """Test creating a principal adds them to the correct DataZone project."""
+    datazone = MagicMock()
 
     request = control_plane.PrincipalRequest(
         principal="alice", scopes=["Document:doc1:read", "Document:doc2:write"]
     )
-    response = control_plane.create_principal(request, table=table)
+    with patch.object(control_plane, "datazone_enabled", return_value=True):
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            config = MagicMock()
+            config.owner_project_id = "proj-owner"
+            config.users_project_id = "proj-users"
+            config.guests_project_id = "proj-guests"
+            mock_config_cls.from_env.return_value = config
+            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-users"):
+                with patch.object(control_plane, "_datazone_service"):
+                    response = control_plane.create_principal(request, datazone=datazone)
 
     assert response["principal"] == "alice"
-    assert response["scopes"] == ["Document:doc1:read", "Document:doc2:write"]
-    table.put_item.assert_called_once()
+    assert "datazone_project_id" in response
 
 
 def test_create_principal_empty_scopes():
-    """Test creating a principal with no scopes."""
-    table = MagicMock()
-
+    """Test creating a principal with no scopes lands in guests project."""
+    datazone = MagicMock()
     request = control_plane.PrincipalRequest(principal="alice", scopes=[])
-    response = control_plane.create_principal(request, table=table)
+    with patch.object(control_plane, "datazone_enabled", return_value=True):
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            config = MagicMock()
+            config.guests_project_id = "proj-guests"
+            mock_config_cls.from_env.return_value = config
+            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-guests"):
+                with patch.object(control_plane, "_datazone_service"):
+                    response = control_plane.create_principal(request, datazone=datazone)
 
     assert response["principal"] == "alice"
-    assert response["scopes"] == []
 
 
 def test_delete_principal():
-    """Test deleting a principal."""
-    table = MagicMock()
-
-    response = control_plane.delete_principal("alice", table=table)
+    """Test deleting a principal removes them from their DataZone project."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        config = MagicMock()
+        config.owner_project_id = "proj-owner"
+        config.users_project_id = "proj-users"
+        config.guests_project_id = "proj-guests"
+        mock_config_cls.from_env.return_value = config
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-owner"
+            response = control_plane.delete_principal("alice", datazone=datazone)
 
     assert "deleted" in response["message"]
-    table.delete_item.assert_called_once_with(Key={"principal": "alice"})
+    service.delete_project_membership.assert_called_once()
 
 
 def test_list_policies_without_statements():
-    """Test listing policies without statements."""
-    control_plane.POLICY_STORE_ID = "store-123"
-    avp = MagicMock()
-    avp.list_policies.return_value = {
-        "policies": [{"policyId": "p1"}, {"policyId": "p2"}],
-    }
+    datazone = MagicMock()
+    response_payload = [
+        {
+            "listingId": "l1",
+            "name": "demo/package-grant",
+            "entityType": "QuiltPackage",
+            "owningProjectId": "proj-owner",
+        }
+    ]
+    with patch.object(control_plane, "_datazone_service") as factory:
+        service = factory.return_value
+        service._config.asset_type_name = "QuiltPackage"
+        service._search_listings.return_value = response_payload
+        response = control_plane.list_policies(include_statements=False, datazone=datazone)
 
-    response = control_plane.list_policies(include_statements=False, avp=avp)
-
-    assert len(response["policies"]) == 2
-    avp.get_policy.assert_not_called()
+    assert len(response["policies"]) == 1
+    assert response["policies"][0]["policyId"] == "l1"
 
 
 def test_list_policies_with_statements():
-    """Test listing policies with statements included."""
-    control_plane.POLICY_STORE_ID = "store-123"
-    avp = MagicMock()
-    avp.list_policies.return_value = {
-        "policies": [{"policyId": "p1"}],
-    }
-    avp.get_policy.return_value = {
-        "definition": {"static": {"statement": "permit(...);"}},
-    }
-
-    response = control_plane.list_policies(include_statements=True, avp=avp)
+    datazone = MagicMock()
+    response_payload = [
+        {
+            "listingId": "l1",
+            "name": "demo/package-grant",
+            "entityType": "QuiltPackage",
+            "owningProjectId": "proj-owner",
+        }
+    ]
+    with patch.object(control_plane, "_datazone_service") as factory:
+        service = factory.return_value
+        service._config.asset_type_name = "QuiltPackage"
+        service._search_listings.return_value = response_payload
+        response = control_plane.list_policies(include_statements=True, datazone=datazone)
 
     assert len(response["policies"]) == 1
-    assert response["policies"][0]["policyId"] == "p1"
     assert "definition" in response["policies"][0]
-    avp.get_policy.assert_called_once()
 
 
 def test_list_policies_skips_missing_policy_id():
-    """Test that list_policies skips policies without policyId."""
-    control_plane.POLICY_STORE_ID = "store-123"
-    avp = MagicMock()
-    avp.list_policies.return_value = {
-        "policies": [{"policyId": "p1"}, {}],  # Second policy missing policyId
-    }
-    avp.get_policy.return_value = {
-        "definition": {"static": {"statement": "permit(...);"}},
-    }
-
-    response = control_plane.list_policies(include_statements=True, avp=avp)
+    datazone = MagicMock()
+    response_payload = [
+        {"listingId": "l1", "name": "demo/package-grant", "entityType": "QuiltPackage"},
+        {"name": "skip-me", "entityType": "OtherType"},
+    ]
+    with patch.object(control_plane, "_datazone_service") as factory:
+        service = factory.return_value
+        service._config.asset_type_name = "QuiltPackage"
+        service._search_listings.return_value = response_payload
+        response = control_plane.list_policies(include_statements=True, datazone=datazone)
 
     assert len(response["policies"]) == 1
-    avp.get_policy.assert_called_once()
 
 
 def test_get_jwks():
@@ -326,78 +330,39 @@ def test_get_jwks():
 
 
 def test_require_env_raises_when_missing():
-    """Test that _require_env raises RuntimeError when value is missing."""
     with pytest.raises(RuntimeError, match="TEST_VAR is required"):
         control_plane._require_env(None, "TEST_VAR")
 
 
 def test_require_env_returns_value():
-    """Test that _require_env returns value when present."""
     result = control_plane._require_env("test-value", "TEST_VAR")
     assert result == "test-value"
 
 
 def test_get_request_id_from_x_request_id():
-    """Test that _get_request_id extracts from x-request-id header."""
     request = _make_request(request_id="req-123")
     request_id = control_plane._get_request_id(request)
     assert request_id == "req-123"
 
 
 def test_get_request_id_generates_uuid():
-    """Test that _get_request_id generates UUID when no header present."""
     request = _make_request()
     request_id = control_plane._get_request_id(request)
-    # Should be a valid UUID-like string
     assert len(request_id) > 0
     assert "-" in request_id
 
 
 def test_rotate_secret_records_succeeded_operation() -> None:
-    audit_table = MagicMock()
     with patch.object(control_plane, "_perform_secret_rotation", return_value="v-new"):
-        response = control_plane.rotate_secret(audit_table=audit_table)
+        response = control_plane.rotate_secret()
 
     assert response["status"] == "SUCCEEDED"
     assert "operation_id" in response
-    assert audit_table.put_item.call_count == 3
 
 
 def test_rotate_secret_records_failed_operation() -> None:
-    audit_table = MagicMock()
     with patch.object(control_plane, "_perform_secret_rotation", side_effect=RuntimeError("boom")):
-        response = control_plane.rotate_secret(audit_table=audit_table)
+        response = control_plane.rotate_secret()
 
     assert response["status"] == "FAILED"
     assert "operation_id" in response
-    assert audit_table.put_item.call_count == 3
-
-
-def test_get_rotate_secret_status_returns_operation() -> None:
-    audit_table = MagicMock()
-    audit_table.get_item.return_value = {
-        "Item": {
-            "status": "SUCCEEDED",
-            "phase": "completed",
-            "version_id": "v-new",
-            "updated_at": 123,
-        }
-    }
-
-    response = control_plane.get_rotate_secret_status("op-123", audit_table=audit_table)
-
-    assert response["operation_id"] == "op-123"
-    assert response["status"] == "SUCCEEDED"
-    assert response["phase"] == "completed"
-    assert response["version"] == "v-new"
-    assert response["updated_at"] == 123
-
-
-def test_get_rotate_secret_status_not_found() -> None:
-    audit_table = MagicMock()
-    audit_table.get_item.return_value = {}
-
-    with pytest.raises(HTTPException) as exc_info:
-        control_plane.get_rotate_secret_status("missing", audit_table=audit_table)
-
-    assert exc_info.value.status_code == 404

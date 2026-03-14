@@ -70,22 +70,24 @@ def test_protected_principals_wrong_key_returns_401() -> None:
 
 
 def test_protected_principals_correct_key_returns_200() -> None:
-    mock_table = MagicMock()
-    mock_table.scan.return_value = {"Items": [{"principal": "User::alice", "scopes": []}]}
-    app.dependency_overrides[dependencies.get_principal_table] = lambda: mock_table
+    from unittest.mock import patch as mpatch
 
-    with patch.dict("os.environ", {"RAJA_ADMIN_KEY": "admin-key"}, clear=False):
-        client = TestClient(app)
-        response = client.get("/principals", headers={"Authorization": "Bearer admin-key"})
+    with mpatch("raja.server.routers.control_plane._datazone_service") as factory:
+        with mpatch("raja.server.routers.control_plane.DataZoneConfig") as mock_cfg_cls:
+            config = MagicMock()
+            config.owner_project_id = "proj-owner"
+            config.users_project_id = ""
+            config.guests_project_id = ""
+            mock_cfg_cls.from_env.return_value = config
+            service = factory.return_value
+            service.list_project_members.return_value = []
+            app.dependency_overrides[dependencies.get_datazone_client] = lambda: MagicMock()
+
+            with patch.dict("os.environ", {"RAJA_ADMIN_KEY": "admin-key"}, clear=False):
+                client = TestClient(app)
+                response = client.get("/principals", headers={"Authorization": "Bearer admin-key"})
 
     assert response.status_code == 200
-
-
-def test_protected_audit_without_key_returns_401() -> None:
-    with patch.dict("os.environ", {"RAJA_ADMIN_KEY": "admin-key"}, clear=False):
-        client = TestClient(app)
-        response = client.get("/audit")
-    assert response.status_code == 401
 
 
 def test_protected_probe_without_key_returns_401() -> None:

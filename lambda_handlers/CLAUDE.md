@@ -29,8 +29,6 @@ lambda_handlers/
 **Environment Variables:**
 
 - `POLICY_STORE_ID` - AVP policy store identifier
-- `MAPPINGS_TABLE` - DynamoDB table for policy → scopes mappings
-- `PRINCIPAL_TABLE` - DynamoDB table for principal → scopes mappings
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT secret
 - `TOKEN_TTL` - Token TTL in seconds (default: 3600)
 

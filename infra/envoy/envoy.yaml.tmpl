@@ -44,6 +44,11 @@ __AUTH_FILTER__
       dns_lookup_family: V4_ONLY
       connect_timeout: 5s
       lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http_protocol_options: {}
       load_assignment:
         cluster_name: s3_upstream
         endpoints:
@@ -63,6 +68,11 @@ __AUTH_FILTER__
       dns_lookup_family: V4_ONLY
       connect_timeout: 5s
       lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http_protocol_options: {}
       load_assignment:
         cluster_name: jwks_cluster
         endpoints:

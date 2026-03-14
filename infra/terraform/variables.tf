@@ -10,7 +10,7 @@ variable "stack_name" {
 }
 
 variable "environment" {
-  description = "Environment tag and Cedar template value for {{env}} substitutions."
+  description = "Environment tag for stack naming and operational labeling."
   type        = string
   default     = "dev"
 }
@@ -33,10 +33,10 @@ variable "raja_admin_key" {
   sensitive   = true
 }
 
-variable "taj_cache_ttl_seconds" {
-  description = "TTL (seconds) for cached TAJ decisions in the RALE authorizer table."
-  type        = number
-  default     = 300
+variable "raja_default_principal_username" {
+  description = "Optional IAM username used to pre-populate the admin UI with the first configured principal."
+  type        = string
+  default     = ""
 }
 
 variable "rale_storage" {
@@ -119,4 +119,34 @@ variable "registry_accessor_arns" {
   description = "IAM principal ARNs (users, roles) granted read/write access to the RAJEE registry bucket. Add Quilt platform roles or developer users here."
   type        = list(string)
   default     = []
+}
+
+variable "datazone_domain_name" {
+  description = "Amazon DataZone domain name for the RAJA package-grant POC."
+  type        = string
+  default     = "raja-poc"
+}
+
+variable "datazone_owner_project_name" {
+  description = "Amazon DataZone project that owns RAJA package assets."
+  type        = string
+  default     = "raja-owner"
+}
+
+variable "datazone_users_project_name" {
+  description = "Amazon DataZone project for standard user principals."
+  type        = string
+  default     = "raja-users"
+}
+
+variable "datazone_guests_project_name" {
+  description = "Amazon DataZone project for guest (read-only public) principals."
+  type        = string
+  default     = "raja-guests"
+}
+
+variable "datazone_package_asset_type" {
+  description = "Custom Amazon DataZone asset type name used for Quilt package listings."
+  type        = string
+  default     = "QuiltPackage"
 }

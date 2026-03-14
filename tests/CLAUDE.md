@@ -274,8 +274,6 @@ Integration tests require **deployed AWS infrastructure** and test the full stac
 export POLICY_STORE_ID="..."
 export RAJA_API_URL="..."
 export AWS_REGION="us-east-1"
-export PRINCIPAL_TABLE="..."
-
 # Seed test data
 ./poe seed-test-data
 

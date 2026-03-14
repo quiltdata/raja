@@ -74,7 +74,7 @@ def update_pyproject_version(new_version: str) -> None:
     pyproject_path = get_pyproject_path()
 
     # Read the file
-    with open(pyproject_path, "r") as f:
+    with open(pyproject_path) as f:
         content = f.read()
 
     # Replace the version line
@@ -150,7 +150,7 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
 
     # Check git status
     check_git_status()
-    branch = check_on_branch()
+    check_on_branch()
 
     # Handle existing tag
     if tag_exists(tag):
@@ -158,16 +158,16 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
             print(f"⚠ Tag {tag} already exists - deleting for recreation")
             print(f"\n→ Deleting local tag {tag}...")
             run_command(["git", "tag", "-d", tag])
-            print(f"✓ Local tag deleted")
+            print("✓ Local tag deleted")
 
             print(f"\n→ Deleting remote tag {tag}...")
             run_command(["git", "push", "origin", f":refs/tags/{tag}"])
-            print(f"✓ Remote tag deleted")
+            print("✓ Remote tag deleted")
         else:
             print(f"✗ Tag {tag} already exists")
             print("\nExisting tags:")
             run_command(["git", "tag", "-l", "v*"])
-            print(f"\nUse --recreate to delete and recreate the tag")
+            print("\nUse --recreate to delete and recreate the tag")
             sys.exit(1)
 
     # Run quality checks unless skipped
@@ -184,7 +184,7 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
 
     # Push tag
     print(f"\n→ Pushing tag {tag} to origin...")
-    result = run_command(["git", "push", "origin", tag])
+    run_command(["git", "push", "origin", tag])
     print(f"✓ Tag {tag} pushed to origin")
 
     print(f"\n{'='*60}")
@@ -195,8 +195,8 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
     print("  2. Quality checks and tests will run")
     print("  3. Package will be built and published to PyPI")
     print("  4. Release assets will be uploaded to GitHub")
-    print(f"\nView the release workflow at:")
-    print(f"  https://github.com/quiltdata/raja/actions")
+    print("\nView the release workflow at:")
+    print("  https://github.com/quiltdata/raja/actions")
 
 
 def bump_and_commit(bump_type: str = "patch") -> None:
@@ -242,10 +242,10 @@ def bump_and_commit(bump_type: str = "patch") -> None:
     print(f"\n{'='*60}")
     print(f"✓ Version bumped to {new_version} and committed!")
     print(f"{'='*60}")
-    print(f"\nNext steps:")
-    print(f"  1. Review the commit: git show")
-    print(f"  2. Push to remote: git push")
-    print(f"  3. Create release tag: ./poe tag")
+    print("\nNext steps:")
+    print("  1. Review the commit: git show")
+    print("  2. Push to remote: git push")
+    print("  3. Create release tag: ./poe tag")
 
 
 def show_version() -> None:

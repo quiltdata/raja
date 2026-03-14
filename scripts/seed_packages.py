@@ -10,6 +10,9 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
+from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
+from scripts.tf_outputs import get_tf_output
+
 SEED_FILES: dict[str, bytes] = {
     "data.csv": b"col1,col2,col3\nalpha,1,true\nbeta,2,false\ngamma,3,true\n",
     "README.md": (
@@ -22,11 +25,30 @@ SEED_FILES: dict[str, bytes] = {
 
 
 def _get_region() -> str:
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
     if not region:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
     return region
+
+
+def _hydrate_datazone_env() -> None:
+    mapping = {
+        "DATAZONE_DOMAIN_ID": "datazone_domain_id",
+        "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
+        "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
+        "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
+    }
+    for env_key, output_key in mapping.items():
+        if os.environ.get(env_key):
+            continue
+        value = get_tf_output(output_key)
+        if value:
+            os.environ[env_key] = value
 
 
 def _get_account_id() -> str:
@@ -114,13 +136,7 @@ def _push_package(
 
 def _ensure_registry_workflow_config(s3: object, registry_bucket: str, dry_run: bool) -> None:
     key = ".quilt/workflows/config.yml"
-    body = (
-        b"version: '1'\n"
-        b"is_workflow_required: false\n"
-        b"workflows:\n"
-        b"  noop:\n"
-        b"    name: No-op\n"
-    )
+    body = b"version: '1'\nis_workflow_required: false\nworkflows:\n  noop:\n    name: No-op\n"
     if dry_run:
         print(f"  [DRY-RUN] Would ensure s3://{registry_bucket}/{key}")
         return
@@ -154,6 +170,7 @@ def main() -> None:
 
     region = _get_region()
     account_id = _get_account_id()
+    _hydrate_datazone_env()
 
     test_bucket = test_bucket_override or f"raja-poc-test-{account_id}-{region}"
     registry_bucket = registry_bucket_override or f"raja-poc-registry-{account_id}-{region}"
@@ -201,6 +218,54 @@ def main() -> None:
         uri = f"quilt+s3://{registry_bucket}#package=demo/package-grant@{top_hash}"
         uri_file = Path(__file__).resolve().parents[1] / ".rale-test-uri"
         uri_file.write_text(uri + "\n")
+
+        if datazone_enabled():
+            # Prefer DATAZONE_TEST_PRINCIPAL, fall back to first RAJA_USERS entry (as IAM ARN)
+            principal = os.environ.get("DATAZONE_TEST_PRINCIPAL", "").strip()
+            if not principal:
+                raw_users = os.environ.get("RAJA_USERS", "").strip()
+                first_user = raw_users.split(",")[0].strip() if raw_users else ""
+                if first_user:
+                    account_id = _get_account_id()
+                    principal = f"arn:aws:iam::{account_id}:user/{first_user}"
+            if not principal:
+                print(
+                    "  Skipped DataZone grant bootstrap "
+                    "(set DATAZONE_TEST_PRINCIPAL or RAJA_USERS to enable)",
+                    file=sys.stderr,
+                )
+            else:
+                config = DataZoneConfig.from_env()
+                service = DataZoneService(
+                    client=boto3.client("datazone", region_name=region),
+                    config=config,
+                )
+                project_ids = [
+                    p
+                    for p in [
+                        config.owner_project_id,
+                        config.users_project_id,
+                        config.guests_project_id,
+                    ]
+                    if p
+                ]
+                project_id = service.find_project_for_principal(principal, project_ids=project_ids)
+                if project_id:
+                    try:
+                        listing_id = service.ensure_project_package_grant(
+                            project_id=project_id,
+                            quilt_uri=uri,
+                        )
+                        print(f"  DataZone listing: {listing_id}")
+                        print(f"  Granted principal: {principal}")
+                    except DataZoneError as exc:
+                        print(f"✗ Failed to sync DataZone package grant: {exc}", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    print(
+                        "  Skipped DataZone grant bootstrap "
+                        f"(missing project mapping for principal {principal})"
+                    )
 
         print("✓ Package seeded successfully")
         print("  Name:     demo/package-grant")

@@ -16,7 +16,7 @@ load_dotenv()
 
 DEFAULT_SERVER_URL = ""
 DEFAULT_RAJEE_ENDPOINT = ""
-DEFAULT_PRINCIPAL = 'User::"demo-user"'
+DEFAULT_PRINCIPAL = ""
 DEFAULT_TF_DIR = "infra/terraform"
 
 

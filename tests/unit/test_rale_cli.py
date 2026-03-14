@@ -60,7 +60,7 @@ def test_validate_config_reports_required_values() -> None:
         registry="",
         rajee_endpoint="",
         admin_key="",
-        principal="User::demo-user",
+        principal="test-user",
         tf_dir="infra/terraform",
     )
 

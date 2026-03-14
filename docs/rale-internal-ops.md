@@ -47,9 +47,6 @@ If RALE mode is not enabled, Envoy uses the existing RAJEE JWT+scope Lua authori
 
 - Verify ECS task definition environment includes RALE URLs.
 - Verify `raja-standalone-rale-authorizer` and `raja-standalone-rale-router` are healthy.
-- Verify DynamoDB tables:
-  - TAJ cache table (short TTL)
-  - Manifest cache table (no TTL)
 - If requests return `401 Jwt is missing`, confirm new Envoy task revision is active and stable.
 
 ## Current Terraform Outputs (used by ops/tests)
@@ -58,5 +55,3 @@ If RALE mode is not enabled, Envoy uses the existing RAJEE JWT+scope Lua authori
 - `RaleAuthorizerUrl`
 - `RaleRouterArn`
 - `RaleRouterUrl`
-- `ManifestCacheTable`
-- `TajCacheTable`

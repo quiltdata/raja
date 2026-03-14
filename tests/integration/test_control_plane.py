@@ -1,67 +1,28 @@
 import pytest
 
-from .helpers import request_json
+from .helpers import request_json, require_raja_users
 
 
 @pytest.mark.integration
-def test_control_plane_policies_loaded_to_avp():
-    """Verify that policies have been loaded to AVP."""
+def test_control_plane_lists_datazone_package_listings():
+    """Verify that DataZone-backed package listings are visible via /policies."""
     status, body = request_json("GET", "/policies")
     assert status == 200
     policies = body.get("policies", [])
-    assert len(policies) >= 1, "No policies found in AVP. Run ./poe load-policies first."
+    assert len(policies) >= 1, (
+        "No DataZone package listings found. Run python scripts/seed_packages.py"
+    )
 
 
 @pytest.mark.integration
 def test_control_plane_lists_principals():
+    """Verify that seeded IAM users appear in /principals."""
     status, body = request_json("GET", "/principals")
     assert status == 200
-    principals = {item.get("principal") for item in body.get("principals", [])}
-    assert {"test-user"}.issubset(principals)
-
-
-@pytest.mark.integration
-def test_control_plane_lists_policies():
-    status, body = request_json("GET", "/policies")
-    assert status == 200
-    assert len(body.get("policies", [])) >= 1
-
-
-@pytest.mark.integration
-def test_control_plane_audit_log_entries():
-    request_json("POST", "/compile")
-    token_status, _ = request_json("POST", "/token", {"principal": "test-user"})
-    assert token_status == 200
-
-    status, body = request_json(
-        "GET",
-        "/audit",
-        query={"principal": "test-user", "limit": "10"},
+    seeded_arns = set(require_raja_users())
+    present = {item.get("principal") for item in body.get("principals", [])}
+    missing = seeded_arns - present
+    assert not missing, (
+        f"Expected IAM user principal(s) not found in DataZone projects: {missing}\n"
+        "Run: python scripts/seed_test_data.py"
     )
-    assert status == 200
-    entries = body.get("entries", [])
-    assert any(entry.get("principal") == "test-user" for entry in entries)
-    for entry in entries[:1]:
-        for field in [
-            "timestamp",
-            "principal",
-            "action",
-            "resource",
-            "decision",
-            "policy_store_id",
-            "request_id",
-        ]:
-            assert field in entry
-
-
-@pytest.mark.integration
-def test_control_plane_audit_logs_denied_token_requests():
-    request_json("POST", "/token", {"principal": "unknown-user"})
-    status, body = request_json(
-        "GET",
-        "/audit",
-        query={"principal": "unknown-user", "limit": "10"},
-    )
-    assert status == 200
-    entries = body.get("entries", [])
-    assert any(entry.get("decision") == "DENY" for entry in entries)

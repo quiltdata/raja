@@ -491,7 +491,7 @@ All exceptions should be caught and handled by calling code.
 
 - O(m) - Linear in policy complexity
 - One-time operation per policy
-- Results cached in DynamoDB (when using AWS infrastructure)
+- Results can be persisted by the control plane when using AWS infrastructure
 
 ## Best Practices
 

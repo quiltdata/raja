@@ -354,13 +354,13 @@ result = compile_policy(policy)
 
 - **Single policy:** ~10-50ms (Cedar CLI subprocess overhead)
 - **100 policies:** ~1-5s (can be parallelized)
-- **With caching:** ~1ms (DynamoDB lookup in production)
+- **With pre-compiled artifacts:** runtime enforcement remains constant-time
 
 ### Optimization Tips
 
 1. **Batch compile:** Compile multiple policies together
 2. **Pre-compile:** Compile at deployment, not runtime
-3. **Cache results:** Store compiled scopes in DynamoDB
+3. **Persist artifacts:** Store compiled scopes in a control-plane-owned backing service
 4. **Use pre-built binary:** Avoid Cargo overhead
 
 ## What's Next?

@@ -63,7 +63,7 @@ RAJA follows a **defense-in-depth** testing strategy with multiple layers that s
 
 **Coverage:**
 - Token security through Envoy (expired, invalid sig, malformed)
-- Policy compilation (Cedar → scopes → DynamoDB)
+- Policy compilation (Cedar → scopes)
 - Scope enforcement through Envoy proxy
 - Request parsing through S3 proxy
 - Cross-component consistency

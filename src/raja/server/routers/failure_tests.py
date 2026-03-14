@@ -243,10 +243,12 @@ CATEGORY_META: dict[str, CategoryMeta] = {
         "order": 0,
     },
     "cedar-compilation": {
-        "label": "Cedar Policy Compilation",
+        "label": "Grant Modeling",
         "priority": "CRITICAL",
         "color": "#b72d2c",
-        "description": "Cedar policies must compile to correct scopes without silent failures.",
+        "description": (
+            "Authorization inputs must model grants correctly without stale policy code paths."
+        ),
         "order": 1,
     },
     "scope-enforcement": {
@@ -334,24 +336,26 @@ FAILURE_TEST_DEFINITIONS: list[FailureTestDefinition] = [
         expected_summary="DENY – revoked token",
         setup="Simulate revocation and ensure verification fails.",
     ),
-    # Cedar Compilation Failures
+    # Grant Modeling Failures
     FailureTestDefinition(
         id="2.1",
         title="Forbid Policies",
-        description="Forbid policies must be compiled and enforced correctly.",
+        description="Legacy policy-compiler paths should stay removed or explicitly unsupported.",
         category="cedar-compilation",
         priority="CRITICAL",
-        expected_summary="DENY – forbid policy blocks access",
-        setup="Create forbid policy and verify denial takes precedence.",
+        expected_summary="Unsupported legacy policy path stays disabled",
+        setup="Exercise the removed policy path and confirm the system fails closed.",
     ),
     FailureTestDefinition(
         id="2.2",
         title="Policy Syntax Errors",
-        description="Malformed Cedar policies must be rejected during compilation.",
+        description=(
+            "Direct policy syntax entry points should remain unavailable after the cutover."
+        ),
         category="cedar-compilation",
         priority="CRITICAL",
-        expected_summary="ERROR – invalid policy syntax",
-        setup="Submit policy with syntax errors to compiler.",
+        expected_summary="Legacy policy compiler remains unavailable",
+        setup="Confirm removed policy-compilation paths do not reappear.",
     ),
     FailureTestDefinition(
         id="2.3",
@@ -374,11 +378,13 @@ FAILURE_TEST_DEFINITIONS: list[FailureTestDefinition] = [
     FailureTestDefinition(
         id="2.5",
         title="Template Variables",
-        description="Policy templates with variables must instantiate correctly.",
+        description=(
+            "Template-driven policy generation should not be part of the live authorization path."
+        ),
         category="cedar-compilation",
         priority="HIGH",
         expected_summary="Template variables resolve correctly",
-        setup="Use policy templates and verify variable substitution.",
+        setup="Confirm grant issuance does not depend on policy templating.",
     ),
     FailureTestDefinition(
         id="2.6",
@@ -544,15 +550,6 @@ FAILURE_TEST_DEFINITIONS: list[FailureTestDefinition] = [
         priority="CRITICAL",
         expected_summary="Schema entities match enforcement expectations",
         setup="Verify resource types in schema match enforcer.",
-    ),
-    FailureTestDefinition(
-        id="5.4",
-        title="DynamoDB Lag",
-        description="Eventually consistent reads must not cause authorization gaps.",
-        category="cross-component",
-        priority="HIGH",
-        expected_summary="No authorization bypass due to replication lag",
-        setup="Update policy and immediately issue token.",
     ),
     FailureTestDefinition(
         id="5.5",
@@ -813,68 +810,27 @@ def _runner_revocation(secret: str) -> FailureTestRun:
 
 def _runner_forbid_policies(secret: str) -> FailureTestRun:
     """Test forbid policies take precedence over permit."""
-    # TODO: Implement forbid policy testing once Cedar compiler supports forbid
+    # TODO: Decide whether this legacy policy-path check should be removed entirely.
     return FailureTestRun(
         run_id="",
         test_id="2.1",
         status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="DENY – forbid policy blocks access",
-        actual="Forbid policies not yet supported in compiler",
-        details={
-            "note": (
-                "Custom Cedar parser needs replacement with official Cedar tooling "
-                "(spec 06-failure-fixes.md #1)"
-            )
-        },
+        expected="Unsupported legacy policy path stays disabled",
+        actual="Legacy policy compilation is no longer part of the live authorization path",
+        details={"note": "Legacy policy-compiler paths were retired with the DataZone cutover"},
         timestamp=time.time(),
     )
 
 
 def _runner_policy_syntax_errors(secret: str) -> FailureTestRun:
-    """Test malformed Cedar policies are rejected during compilation."""
-    from raja.cedar.parser import parse_policy
-
-    # Test various syntax errors
-    invalid_policies = [
-        ("missing_semicolon", "permit(principal, action, resource)"),
-        ("invalid_operator", "permit(principal === User::alice, action, resource);"),
-        ("missing_parenthesis", "permit principal, action, resource);"),
-        ("unmatched_quotes", 'permit(principal == User::"alice, action, resource);'),
-        ("empty_policy", ""),
-        ("random_text", "this is not a valid policy at all"),
-    ]
-
-    errors_detected = []
-    unexpected_success = []
-
-    for name, invalid_policy in invalid_policies:
-        try:
-            parse_policy(invalid_policy)
-            unexpected_success.append(name)
-        except (ValueError, RuntimeError) as e:
-            errors_detected.append({"policy": name, "error": str(e)})
-
-    if unexpected_success:
-        return FailureTestRun(
-            run_id="",
-            test_id="2.2",
-            status=FailureTestStatus.FAIL,
-            expected="ERROR – all invalid policies rejected",
-            actual=f"Policies parsed successfully when they should fail: {unexpected_success}",
-            details={
-                "errors_detected": errors_detected,
-                "unexpected_success": unexpected_success,
-            },
-            timestamp=time.time(),
-        )
-
+    """Policy-syntax validation was removed with the DataZone cutover."""
     return FailureTestRun(
         run_id="",
         test_id="2.2",
-        status=FailureTestStatus.PASS,
-        expected="ERROR – invalid policy syntax",
-        actual=f"All {len(invalid_policies)} invalid policies correctly rejected",
-        details={"errors_detected": errors_detected},
+        status=FailureTestStatus.NOT_IMPLEMENTED,
+        expected="No direct policy syntax entry point remains",
+        actual="Direct policy authoring was removed; package access is managed in DataZone",
+        details={"note": "Cedar policy compilation checks were retired with the DataZone cutover"},
         timestamp=time.time(),
     )
 
@@ -908,7 +864,7 @@ def _runner_wildcard_expansion(secret: str) -> FailureTestRun:
 
 
 def _runner_template_variables(secret: str) -> FailureTestRun:
-    """Test policy templates with variables instantiate correctly."""
+    """Template-driven policy generation is no longer part of the live path."""
     # TODO: Test template variable substitution
     return FailureTestRun(
         run_id="",
@@ -918,8 +874,7 @@ def _runner_template_variables(secret: str) -> FailureTestRun:
         actual="Template instantiation not tested",
         details={
             "note": (
-                "Cedar templates must be instantiated before compilation "
-                "(spec 06-failure-fixes.md #1)"
+                "Template-driven policy generation is no longer part of the live authorization path"
             )
         },
         timestamp=time.time(),
@@ -935,7 +890,9 @@ def _runner_principal_action_mismatch(secret: str) -> FailureTestRun:
         status=FailureTestStatus.NOT_IMPLEMENTED,
         expected="ERROR – invalid principal or action reference",
         actual="Entity reference validation not exposed",
-        details={"note": "Requires schema-aware Cedar validation"},
+        details={
+            "note": "Requires a replacement validation model if direct policy authoring returns"
+        },
         timestamp=time.time(),
     )
 
@@ -949,7 +906,9 @@ def _runner_schema_validation(secret: str) -> FailureTestRun:
         status=FailureTestStatus.NOT_IMPLEMENTED,
         expected="ERROR – schema violation",
         actual="Schema validation not exposed via test harness",
-        details={"note": "Requires Cedar schema validation integration"},
+        details={
+            "note": "Requires a replacement validation model if direct policy authoring returns"
+        },
         timestamp=time.time(),
     )
 
@@ -1571,20 +1530,6 @@ def _runner_schema_policy_consistency(secret: str) -> FailureTestRun:
     )
 
 
-def _runner_dynamodb_lag(secret: str) -> FailureTestRun:
-    """Test eventually consistent reads don't cause authorization gaps."""
-    # TODO: Test rapid policy update + token issuance
-    return FailureTestRun(
-        run_id="",
-        test_id="5.4",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="No authorization bypass due to replication lag",
-        actual="DynamoDB consistency testing not implemented",
-        details={"note": "Requires testing rapid policy updates and immediate token issuance"},
-        timestamp=time.time(),
-    )
-
-
 def _runner_jwt_claims_structure(secret: str) -> FailureTestRun:
     """Test token claims follow expected structure for Lua enforcer."""
     # Test that claims are structured correctly
@@ -1805,7 +1750,6 @@ RUNNERS: dict[str, Callable[[str], FailureTestRun]] = {
     "5.1": _runner_compiler_enforcer_sync,
     "5.2": _runner_token_scope_consistency,
     "5.3": _runner_schema_policy_consistency,
-    "5.4": _runner_dynamodb_lag,
     "5.5": _runner_jwt_claims_structure,
     "5.6": _runner_policy_id_tracking,
     "6.1": _runner_secrets_rotation,

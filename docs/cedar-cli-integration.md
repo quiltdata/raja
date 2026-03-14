@@ -372,7 +372,7 @@ GitHub Actions automatically:
 
 - **Parsing:** ~10-50ms per policy (subprocess overhead)
 - **Validation:** ~50-100ms per policy with schema
-- **Caching:** Results cached in DynamoDB for production use
+- **Persistence:** Compiled results can be stored by the control plane for production use
 
 ### Optimization Strategies
 

@@ -115,7 +115,7 @@ def matches_pattern(value: str, pattern: str) -> bool:
         True
         >>> matches_pattern("s3:GetObject", "s3:GetObject")
         True
-        >>> matches_pattern("s3:GetObject", "dynamodb:*")
+        >>> matches_pattern("s3:GetObject", "ec2:*")
         False
     """
     if pattern == "*":

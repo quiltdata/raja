@@ -3,14 +3,39 @@ output "api_url" {
   value       = "${aws_api_gateway_stage.prod.invoke_url}/"
 }
 
-output "policy_store_id" {
-  description = "Amazon Verified Permissions policy store ID."
-  value       = aws_verifiedpermissions_policy_store.raja.policy_store_id
+output "datazone_domain_id" {
+  description = "Amazon DataZone domain identifier."
+  value       = aws_datazone_domain.raja.id
 }
 
-output "policy_store_arn" {
-  description = "Amazon Verified Permissions policy store ARN."
-  value       = aws_verifiedpermissions_policy_store.raja.arn
+output "datazone_portal_url" {
+  description = "Amazon DataZone portal URL."
+  value       = aws_datazone_domain.raja.portal_url
+}
+
+output "datazone_owner_project_id" {
+  description = "Amazon DataZone owner project identifier for RAJA package listings."
+  value       = aws_datazone_project.owner.id
+}
+
+output "datazone_users_project_id" {
+  description = "Amazon DataZone project identifier for standard user principals."
+  value       = aws_datazone_project.users.id
+}
+
+output "datazone_guests_project_id" {
+  description = "Amazon DataZone project identifier for guest principals."
+  value       = aws_datazone_project.guests.id
+}
+
+output "datazone_package_asset_type" {
+  description = "Amazon DataZone asset type name for RAJA package listings."
+  value       = aws_datazone_asset_type.quilt_package.name
+}
+
+output "datazone_package_asset_type_revision" {
+  description = "Amazon DataZone asset type revision for RAJA package listings."
+  value       = aws_datazone_asset_type.quilt_package.revision
 }
 
 output "control_plane_lambda_arn" {
@@ -18,20 +43,6 @@ output "control_plane_lambda_arn" {
   value       = aws_lambda_function.control_plane.arn
 }
 
-output "mappings_table_name" {
-  description = "Policy scope mappings DynamoDB table."
-  value       = aws_dynamodb_table.policy_scope_mappings.name
-}
-
-output "principal_table_name" {
-  description = "Principal scopes DynamoDB table."
-  value       = aws_dynamodb_table.principal_scopes.name
-}
-
-output "audit_table_name" {
-  description = "Audit log DynamoDB table."
-  value       = aws_dynamodb_table.audit_log.name
-}
 
 output "jwt_secret_arn" {
   description = "JWT signing secret ARN."

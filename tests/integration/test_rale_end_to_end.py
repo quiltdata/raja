@@ -17,6 +17,7 @@ from .helpers import (
     require_rajee_endpoint,
     require_rale_router_url,
     require_rale_test_quilt_uri,
+    require_test_principal,
 )
 
 
@@ -41,7 +42,7 @@ def test_rale_authorizer_mints_taj_for_real_package() -> None:
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)
 
-    principal = "test-user"
+    principal = require_test_principal()
     usl_path = f"/{parts['registry']}/{parts['package_name']}/data.csv"
     encoded_usl_path = quote(usl_path, safe="/@")
 
@@ -64,7 +65,7 @@ def test_rale_router_fetches_real_s3_object() -> None:
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)
 
-    principal = "test-user"
+    principal = require_test_principal()
     jwt_secret = fetch_jwks_secret()
     manifest_hash = parts["hash"]
     package_name = parts["package_name"]
@@ -103,7 +104,7 @@ def test_rale_complete_flow_no_preseeding() -> None:
     """Full roundtrip without pre-seeding: authorizer -> router -> exact seeded bytes."""
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)
-    principal = "test-user"
+    principal = require_test_principal()
     logical_key = "README.md"
 
     usl_path = f"/{parts['registry']}/{parts['package_name']}/{logical_key}"

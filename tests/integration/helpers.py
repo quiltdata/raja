@@ -2,11 +2,13 @@ import base64
 import json
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 from urllib.parse import urlsplit
 
+import boto3
 import pytest
 
 OUTPUT_FILES = (
@@ -238,20 +240,6 @@ def parse_rale_test_quilt_uri(uri: str) -> dict[str, str]:
     }
 
 
-def require_taj_cache_table() -> str:
-    pytest.fail(
-        "TAJ cache table support was removed from RALE.\n"
-        "Use real package-backed integration tests with RALE_TEST_QUILT_URI instead."
-    )
-
-
-def require_manifest_cache_table() -> str:
-    pytest.fail(
-        "Manifest cache table support was removed from RALE.\n"
-        "Use real package-backed integration tests with RALE_TEST_QUILT_URI instead."
-    )
-
-
 def is_rale_routing_enabled() -> bool:
     authorizer = os.environ.get("RALE_AUTHORIZER_URL")
     router = os.environ.get("RALE_ROUTER_URL")
@@ -316,6 +304,37 @@ def request_url(
     return status, response_headers, payload
 
 
+@lru_cache(maxsize=1)
+def _get_aws_account_id() -> str:
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    return str(boto3.client("sts", region_name=region).get_caller_identity()["Account"])
+
+
+def _user_to_arn(username: str) -> str:
+    account_id = os.environ.get("RAJA_USER_ACCOUNT_ID") or _get_aws_account_id()
+    return f"arn:aws:iam::{account_id}:user/{username}"
+
+
+def require_raja_users() -> list[str]:
+    """Return IAM ARNs for all RAJA_USERS (fails the test if unset)."""
+    raw = os.environ.get("RAJA_USERS", "").strip()
+    if not raw:
+        pytest.fail("RAJA_USERS is not set — cannot identify test principals")
+    usernames = [u.strip() for u in raw.split(",") if u.strip()]
+    if not usernames:
+        pytest.fail("RAJA_USERS contains no valid usernames")
+    return [_user_to_arn(u) for u in usernames]
+
+
+def require_test_principal() -> str:
+    """Return the IAM ARN of the first RAJA_USERS entry (owner tier)."""
+    # Allow explicit override for flexibility
+    override = os.environ.get("RAJA_TEST_PRINCIPAL", "").strip()
+    if override:
+        return override
+    return require_raja_users()[0]
+
+
 def issue_token(principal: str) -> tuple[str, list[str]]:
     status, body = request_json("POST", "/token", {"principal": principal})
     assert status == 200, body
@@ -325,7 +344,7 @@ def issue_token(principal: str) -> tuple[str, list[str]]:
     return token, scopes
 
 
-def issue_rajee_token(principal: str = "test-user") -> tuple[str, list[str]]:
+def issue_rajee_token(principal: str) -> tuple[str, list[str]]:
     """Issue a RAJEE token via the control plane (signed by JWKS secret)."""
     status, body = request_json(
         "POST",

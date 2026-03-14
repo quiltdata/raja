@@ -1,10 +1,7 @@
-"""
-Integration tests for RAJEE bucket access via the RALE routing stack.
-"""
+"""Integration tests for RAJEE bucket access via the RALE routing stack."""
 
 import json
 import time
-import uuid
 from urllib.parse import quote
 
 import boto3
@@ -12,14 +9,17 @@ import jwt as pyjwt
 import pytest
 from botocore.exceptions import ClientError
 
+from scripts.seed_packages import SEED_FILES
+
 from .helpers import (
     fetch_jwks_secret,
+    parse_rale_test_quilt_uri,
     request_url,
-    require_manifest_cache_table,
     require_rajee_endpoint,
     require_rajee_test_bucket,
     require_rale_router_url,
-    require_taj_cache_table,
+    require_rale_test_quilt_uri,
+    require_test_principal,
 )
 
 
@@ -35,41 +35,30 @@ def test_rajee_test_bucket_exists() -> None:
 
 @pytest.mark.integration
 def test_rale_router_retrieves_object_from_test_bucket() -> None:
-    """RALE router fetches an S3 object via manifest translation using a valid TAJ."""
-    bucket = require_rajee_test_bucket()
-    registry = "registry"
-    package_name = "demo/bucket-test"
-    manifest_hash = uuid.uuid4().hex
-    logical_key = f"rale-bucket-test/{uuid.uuid4().hex}.txt"
-    expected_body = b"rale-bucket-retrieval-test"
+    """RALE router fetches the seeded object via a valid TAJ."""
+    uri = require_rale_test_quilt_uri()
+    parts = parse_rale_test_quilt_uri(uri)
+    logical_key = "data.csv"
+    expected_body = SEED_FILES[logical_key]
 
-    source_key = f"rale-integration/{uuid.uuid4().hex}.txt"
-    boto3.client("s3").put_object(Bucket=bucket, Key=source_key, Body=expected_body)
-
-    boto3.resource("dynamodb").Table(require_manifest_cache_table()).put_item(
-        Item={
-            "manifest_hash": manifest_hash,
-            "entries": {logical_key: [{"bucket": bucket, "key": source_key}]},
-        }
-    )
-
-    jwt_secret = fetch_jwks_secret()
     now = int(time.time())
     taj = pyjwt.encode(
         {
-            "sub": "test-user",
-            "grants": [f"s3:GetObject/{registry}/{package_name}@{manifest_hash}/"],
-            "manifest_hash": manifest_hash,
-            "package_name": package_name,
-            "registry": registry,
+            "sub": require_test_principal(),
+            "grants": [
+                f"s3:GetObject/{parts['registry']}/{parts['package_name']}@{parts['hash']}/"
+            ],
+            "manifest_hash": parts["hash"],
+            "package_name": parts["package_name"],
+            "registry": parts["registry"],
             "iat": now,
             "exp": now + 3600,
         },
-        jwt_secret,
+        fetch_jwks_secret(),
         algorithm="HS256",
     )
 
-    usl_path = f"/{registry}/{package_name}@{manifest_hash}/{logical_key}"
+    usl_path = f"/{parts['registry']}/{parts['package_name']}@{parts['hash']}/{logical_key}"
     status, _, body = request_url(
         "GET",
         f"{require_rale_router_url()}{quote(usl_path, safe='/@')}",
@@ -81,45 +70,24 @@ def test_rale_router_retrieves_object_from_test_bucket() -> None:
 
 @pytest.mark.integration
 def test_rale_authorizer_returns_taj_for_authorized_principal() -> None:
-    """RALE authorizer returns a cached TAJ when the principal has an entry in the cache."""
-    registry = "registry"
-    package_name = "demo/auth-test"
-    manifest_hash = uuid.uuid4().hex
-    logical_key = f"file-{uuid.uuid4().hex}.txt"
-    principal = "test-user"
+    """RALE authorizer returns a fresh TAJ for a DataZone-authorized principal."""
+    uri = require_rale_test_quilt_uri()
+    parts = parse_rale_test_quilt_uri(uri)
+    principal = require_test_principal()
 
-    jwt_secret = fetch_jwks_secret()
-    now = int(time.time())
-    taj = pyjwt.encode(
-        {
-            "sub": principal,
-            "grants": [f"s3:GetObject/{registry}/{package_name}@{manifest_hash}/"],
-            "manifest_hash": manifest_hash,
-            "package_name": package_name,
-            "registry": registry,
-            "iat": now,
-            "exp": now + 3600,
-        },
-        jwt_secret,
-        algorithm="HS256",
-    )
-
-    boto3.resource("dynamodb").Table(require_taj_cache_table()).put_item(
-        Item={
-            "cache_key": f"{principal}#{manifest_hash}",
-            "taj": taj,
-            "decision": "ALLOW",
-            "ttl": now + 300,
-        }
-    )
-
-    usl_path = f"/{registry}/{package_name}@{manifest_hash}/{logical_key}"
+    usl_path = f"/{parts['registry']}/{parts['package_name']}/data.csv"
     status, _, body = request_url(
         "GET",
         f"{require_rajee_endpoint()}{quote(usl_path, safe='/@')}",
         headers={"x-raja-principal": principal},
     )
     assert status == 200, body.decode("utf-8", errors="replace")
-    payload = json.loads(body.decode("utf-8"))
-    assert payload.get("token") == taj
-    assert payload.get("cached") is True
+    response = json.loads(body.decode("utf-8"))
+    payload = pyjwt.decode(
+        response["token"],
+        fetch_jwks_secret(),
+        algorithms=["HS256"],
+        options={"verify_aud": False},
+    )
+    assert payload.get("sub") == principal
+    assert response.get("cached") is False
