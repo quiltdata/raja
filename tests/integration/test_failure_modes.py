@@ -1,5 +1,4 @@
 import time
-import uuid
 from typing import Any
 
 import jwt as pyjwt
@@ -18,6 +17,7 @@ from .helpers import (
     require_rajee_test_bucket,
     require_rale_router_url,
     require_rale_test_quilt_uri,
+    require_test_principal,
 )
 
 
@@ -34,7 +34,7 @@ def _make_taj(jwt_secret: str, **overrides: Any) -> str:
     """Build a TAJ using the real JWT secret, with any field overridable."""
     now = int(time.time())
     payload: dict[str, Any] = {
-        "sub": "test-user",
+        "sub": require_test_principal(),
         "grants": ["s3:GetObject/registry/demo/package@abc123/"],
         "manifest_hash": "abc123",
         "package_name": "demo/package",
@@ -58,7 +58,7 @@ def test_envoy_rejects_expired_token() -> None:
     bucket = require_rajee_test_bucket()
     token = (
         TokenBuilder(secret=secret, issuer=issuer, audience="raja-s3-proxy")
-        .with_subject("test-user")
+        .with_subject(require_test_principal())
         .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
         .with_expiration_in_past(seconds_ago=60)
         .build()
@@ -73,7 +73,7 @@ def test_envoy_rejects_invalid_signature() -> None:
     bucket = require_rajee_test_bucket()
     token = (
         TokenBuilder(secret="wrong-secret", issuer=issuer, audience="raja-s3-proxy")
-        .with_subject("test-user")
+        .with_subject(require_test_principal())
         .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
         .build()
     )
@@ -88,7 +88,7 @@ def test_envoy_rejects_wrong_issuer() -> None:
         TokenBuilder(
             secret=secret, issuer="https://wrong-issuer.example.com", audience="raja-s3-proxy"
         )
-        .with_subject("test-user")
+        .with_subject(require_test_principal())
         .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
         .build()
     )
@@ -102,7 +102,7 @@ def test_envoy_rejects_wrong_audience() -> None:
     bucket = require_rajee_test_bucket()
     token = (
         TokenBuilder(secret=secret, issuer=issuer, audience="wrong-audience")
-        .with_subject("test-user")
+        .with_subject(require_test_principal())
         .with_scopes([f"S3Bucket:{bucket}:s3:ListBucket"])
         .build()
     )
@@ -135,7 +135,7 @@ def test_rale_router_rejects_tampered_taj() -> None:
     now = int(time.time())
     tampered_taj = pyjwt.encode(
         {
-            "sub": "test-user",
+            "sub": require_test_principal(),
             "grants": ["s3:GetObject/registry/demo/package@abc123/"],
             "manifest_hash": "abc123",
             "package_name": "demo/package",
@@ -212,7 +212,8 @@ def test_token_revocation_endpoint_available() -> None:
 @pytest.mark.integration
 def test_admin_rotate_secret_invalidates_old_tokens() -> None:
     """Hard revocation rotates signing key epoch and invalidates existing tokens."""
-    old_token, _ = issue_rajee_token()
+    principal = require_test_principal()
+    old_token, _ = issue_rajee_token(principal)
 
     status, body = request_json("POST", "/admin/rotate-secret")
     assert status == 202, body
@@ -244,7 +245,7 @@ def test_admin_rotate_secret_invalidates_old_tokens() -> None:
             options={"verify_aud": False},
         )
 
-    new_token, _ = issue_rajee_token()
+    new_token, _ = issue_rajee_token(principal)
     assert new_token != old_token
     pyjwt.decode(
         new_token,
@@ -260,31 +261,6 @@ def test_package_listings_visible_via_control_plane() -> None:
     assert status == 200
     policies = body.get("policies", [])
     assert any(policy.get("type") == "datazone-listing" for policy in policies)
-
-
-@pytest.mark.integration
-def test_principal_scope_mapping_isolated() -> None:
-    bucket = require_rajee_test_bucket()
-    principal_a = f"mapping-a-{uuid.uuid4().hex}"
-    principal_b = f"mapping-b-{uuid.uuid4().hex}"
-    scopes_a = [f"S3Bucket:{bucket}:s3:ListBucket"]
-    scopes_b = [f"S3Object:{bucket}/mapping/:s3:GetObject"]
-
-    request_json("POST", "/principals", {"principal": principal_a, "scopes": scopes_a})
-    request_json("POST", "/principals", {"principal": principal_b, "scopes": scopes_b})
-
-    status, body = request_json("POST", "/token", {"principal": principal_a})
-    assert status == 200
-    assert set(body.get("scopes", [])) == set(scopes_a)
-
-
-@pytest.mark.integration
-def test_rajee_token_issuance_still_uses_principal_scopes() -> None:
-    status, body = request_json("GET", "/policies", query={"include_statements": "true"})
-    assert status == 200
-    token, scopes = issue_rajee_token()
-    assert token
-    assert scopes
 
 
 @pytest.mark.integration

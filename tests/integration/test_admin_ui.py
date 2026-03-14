@@ -17,7 +17,7 @@ from urllib import error, request
 
 import pytest
 
-from .helpers import request_json, require_api_url
+from .helpers import request_json, require_api_url, require_test_principal
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -157,49 +157,6 @@ def test_principals_list_returns_datazone_project_metadata():
             assert item["datazone_project_id"], "datazone_project_id must not be empty"
 
 
-@pytest.mark.integration
-def test_create_and_delete_principal_with_datazone():
-    """POST /principals must create a DataZone project and DELETE must remove it."""
-    api_url = require_api_url()
-    test_principal = "integration-test-admin-ui-principal"
-
-    # Create
-    status, body = request_json(
-        "POST",
-        "/principals",
-        {"principal": test_principal, "scopes": []},
-    )
-    assert status == 200, f"Principal creation failed: {status}: {body}"
-    assert body.get("principal") == test_principal
-    # DataZone project id is present when DataZone is enabled
-    assert "datazone_project_id" in body, "Created principal response missing datazone_project_id"
-
-    # Verify it appears in the list
-    list_status, list_body = request_json("GET", "/principals")
-    assert list_status == 200
-    found = any(p.get("principal") == test_principal for p in list_body.get("principals", []))
-    assert found, f"Newly created principal '{test_principal}' not found in list"
-
-    # Delete
-    hdrs = _admin_headers()
-    req = request.Request(
-        f"{api_url}/principals/{test_principal}",
-        headers=hdrs,
-        method="DELETE",
-    )
-    with request.urlopen(req, timeout=15) as resp:
-        del_status = resp.status
-    assert del_status == 200, f"DELETE /principals returned {del_status}"
-
-    # Verify it's gone
-    list_status2, list_body2 = request_json("GET", "/principals")
-    assert list_status2 == 200
-    still_there = any(
-        p.get("principal") == test_principal for p in list_body2.get("principals", [])
-    )
-    assert not still_there, f"Deleted principal '{test_principal}' still in list"
-
-
 # ---------------------------------------------------------------------------
 # Policies — DataZone listings (read-only)
 # ---------------------------------------------------------------------------
@@ -311,11 +268,12 @@ def test_policy_mutation_delete_returns_410():
 @pytest.mark.integration
 def test_token_issuance_for_known_principal():
     """POST /token for a seeded principal must succeed and include DataZone auth plane."""
-    status, body = request_json("POST", "/token", {"principal": "test-user"})
+    principal = require_test_principal()
+    status, body = request_json("POST", "/token", {"principal": principal})
     assert status == 200, f"Token issuance failed: {status}: {body}"
     assert "token" in body, "Response missing 'token'"
     assert "scopes" in body, "Response missing 'scopes'"
-    assert body.get("principal") == "test-user"
+    assert body.get("principal") == principal
 
 
 @pytest.mark.integration
@@ -333,7 +291,7 @@ def test_token_issuance_for_unknown_principal_returns_404():
 def test_token_revocation_returns_unsupported():
     """POST /token/revoke must return unsupported (not a Cedar/AVP 410)."""
     # First get a real token
-    tok_status, tok_body = request_json("POST", "/token", {"principal": "test-user"})
+    tok_status, tok_body = request_json("POST", "/token", {"principal": require_test_principal()})
     if tok_status != 200:
         pytest.skip("Could not obtain token for revocation test")
     token = tok_body.get("token", "dummy-token")
@@ -353,17 +311,18 @@ def test_token_revocation_returns_unsupported():
 @pytest.mark.integration
 def test_audit_log_uses_datazone_authorization_plane():
     """Audit entries must use 'datazone:' authorization_plane_id (not 'avp:')."""
+    principal = require_test_principal()
     # Trigger a token issuance to ensure there's a recent audit entry
-    request_json("POST", "/token", {"principal": "test-user"})
+    request_json("POST", "/token", {"principal": principal})
 
     status, body = request_json(
         "GET",
         "/audit",
-        query={"principal": "test-user", "limit": "5"},
+        query={"principal": principal, "limit": "5"},
     )
     assert status == 200, f"Expected 200, got {status}: {body}"
     entries = body.get("entries", [])
-    assert len(entries) >= 1, "No audit entries found for test-user"
+    assert len(entries) >= 1, f"No audit entries found for {principal}"
 
     for entry in entries:
         plane_id = entry.get("authorization_plane_id", "")

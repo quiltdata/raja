@@ -111,6 +111,9 @@ class DataZoneService:
         listing = self.find_package_listing(quilt_uri)
         if listing is None:
             return False
+        # The owner/producer project has inherent access — no subscription needed.
+        if listing.owner_project_id == project_id:
+            return True
         return self._has_listing_grant(project_id=project_id, listing_id=listing.listing_id)
 
     def ensure_package_listing(self, quilt_uri: str) -> DataZonePackageListing:
@@ -190,6 +193,9 @@ class DataZoneService:
 
     def ensure_project_package_grant(self, *, project_id: str, quilt_uri: str) -> str:
         listing = self.ensure_package_listing(quilt_uri)
+        # Owner project is the producer — no subscription required.
+        if listing.owner_project_id == project_id:
+            return listing.listing_id
         if self._has_listing_grant(project_id=project_id, listing_id=listing.listing_id):
             return listing.listing_id
 

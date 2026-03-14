@@ -13,11 +13,21 @@ from .state import SessionState
 
 
 def _principal_id(principal: str) -> str:
+    """Return the principal identifier to send to the RALE authorizer.
+
+    IAM ARNs (arn:aws:...) and plain usernames are passed through unchanged.
+    Legacy Cedar-style entities (e.g. User::"alice") are unwrapped to "alice".
+    """
     value = principal.strip()
     if not value:
         return value
+    # Cedar entity with quoted id: User::"alice" → alice
     if '::"' in value and value.endswith('"'):
         return value.rsplit('::"', 1)[1][:-1]
+    # IAM ARN — pass through as-is
+    if value.startswith("arn:"):
+        return value
+    # Cedar entity without quotes: User::alice → alice
     if "::" in value:
         return value.split("::", 1)[1].strip('"')
     return value

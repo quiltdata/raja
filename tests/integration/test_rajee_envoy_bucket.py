@@ -19,6 +19,7 @@ from .helpers import (
     require_rajee_test_bucket,
     require_rale_router_url,
     require_rale_test_quilt_uri,
+    require_test_principal,
 )
 
 
@@ -43,7 +44,7 @@ def test_rale_router_retrieves_object_from_test_bucket() -> None:
     now = int(time.time())
     taj = pyjwt.encode(
         {
-            "sub": "test-user",
+            "sub": require_test_principal(),
             "grants": [
                 f"s3:GetObject/{parts['registry']}/{parts['package_name']}@{parts['hash']}/"
             ],
@@ -72,7 +73,7 @@ def test_rale_authorizer_returns_taj_for_authorized_principal() -> None:
     """RALE authorizer returns a fresh TAJ for a DataZone-authorized principal."""
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)
-    principal = "test-user"
+    principal = require_test_principal()
 
     usl_path = f"/{parts['registry']}/{parts['package_name']}/data.csv"
     status, _, body = request_url(

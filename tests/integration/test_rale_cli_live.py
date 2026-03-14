@@ -17,6 +17,7 @@ from .helpers import (
     require_rale_authorizer_url,
     require_rale_router_url,
     require_rale_test_quilt_uri,
+    require_test_principal,
 )
 
 
@@ -47,7 +48,7 @@ def test_rale_authorize_mints_live_taj() -> None:
         registry=f"s3://{parts['registry']}",
         rajee_endpoint=require_rajee_endpoint(),
         admin_key=admin_key,
-        principal="test-user",
+        principal=require_test_principal(),
         tf_dir="infra/terraform",
         rale_authorizer_url=require_rale_authorizer_url(),
     )
@@ -57,7 +58,7 @@ def test_rale_authorize_mints_live_taj() -> None:
 
     assert state.taj
     assert state.taj_claims is not None
-    assert state.taj_claims.get("sub") == "test-user"
+    assert state.taj_claims.get("sub") == require_test_principal()
 
 
 @pytest.mark.integration
@@ -79,7 +80,7 @@ def test_rale_fetch_live_object() -> None:
         registry=f"s3://{parts['registry']}",
         rajee_endpoint=require_rajee_endpoint(),
         admin_key=admin_key,
-        principal="test-user",
+        principal=require_test_principal(),
         tf_dir="infra/terraform",
         rale_authorizer_url=require_rale_authorizer_url(),
         rale_router_url=require_rale_router_url(),

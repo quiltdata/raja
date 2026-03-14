@@ -1,6 +1,6 @@
 import pytest
 
-from .helpers import request_json
+from .helpers import request_json, require_raja_users, require_test_principal
 
 
 @pytest.mark.integration
@@ -16,25 +16,32 @@ def test_control_plane_lists_datazone_package_listings():
 
 @pytest.mark.integration
 def test_control_plane_lists_principals():
+    """Verify that seeded IAM users appear in /principals."""
     status, body = request_json("GET", "/principals")
     assert status == 200
-    principals = {item.get("principal") for item in body.get("principals", [])}
-    assert {"test-user"}.issubset(principals)
+    seeded_arns = set(require_raja_users())
+    present = {item.get("principal") for item in body.get("principals", [])}
+    missing = seeded_arns - present
+    assert not missing, (
+        f"Expected IAM user principal(s) not found in DynamoDB: {missing}\n"
+        "Run: python scripts/seed_test_data.py"
+    )
 
 
 @pytest.mark.integration
 def test_control_plane_audit_log_entries():
-    token_status, _ = request_json("POST", "/token", {"principal": "test-user"})
+    principal = require_test_principal()
+    token_status, _ = request_json("POST", "/token", {"principal": principal})
     assert token_status == 200
 
     status, body = request_json(
         "GET",
         "/audit",
-        query={"principal": "test-user", "limit": "10"},
+        query={"principal": principal, "limit": "10"},
     )
     assert status == 200
     entries = body.get("entries", [])
-    assert any(entry.get("principal") == "test-user" for entry in entries)
+    assert any(entry.get("principal") == principal for entry in entries)
     for entry in entries[:1]:
         for field in [
             "timestamp",
@@ -51,11 +58,12 @@ def test_control_plane_audit_log_entries():
 
 @pytest.mark.integration
 def test_control_plane_audit_logs_denied_token_requests():
-    request_json("POST", "/token", {"principal": "unknown-user"})
+    unknown = "arn:aws:iam::000000000000:user/nobody"
+    request_json("POST", "/token", {"principal": unknown})
     status, body = request_json(
         "GET",
         "/audit",
-        query={"principal": "unknown-user", "limit": "10"},
+        query={"principal": unknown, "limit": "10"},
     )
     assert status == 200
     entries = body.get("entries", [])

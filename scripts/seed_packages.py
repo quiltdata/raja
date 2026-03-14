@@ -238,32 +238,46 @@ def main() -> None:
         uri_file.write_text(uri + "\n")
 
         if datazone_enabled():
-            principal = os.environ.get("DATAZONE_TEST_PRINCIPAL", "test-user")
-            principal_table = _get_principal_table()
-            if principal_table:
-                project_id = _load_project_id(principal_table, principal, region)
-            else:
-                project_id = None
-            if project_id:
-                try:
-                    service = DataZoneService(
-                        client=boto3.client("datazone", region_name=region),
-                        config=DataZoneConfig.from_env(),
-                    )
-                    listing_id = service.ensure_project_package_grant(
-                        project_id=project_id,
-                        quilt_uri=uri,
-                    )
-                    print(f"  DataZone listing: {listing_id}")
-                    print(f"  Granted principal: {principal}")
-                except DataZoneError as exc:
-                    print(f"✗ Failed to sync DataZone package grant: {exc}", file=sys.stderr)
-                    sys.exit(1)
-            else:
+            # Prefer DATAZONE_TEST_PRINCIPAL, fall back to first RAJA_USERS entry (as IAM ARN)
+            principal = os.environ.get("DATAZONE_TEST_PRINCIPAL", "").strip()
+            if not principal:
+                raw_users = os.environ.get("RAJA_USERS", "").strip()
+                first_user = raw_users.split(",")[0].strip() if raw_users else ""
+                if first_user:
+                    account_id = _get_account_id()
+                    principal = f"arn:aws:iam::{account_id}:user/{first_user}"
+            if not principal:
                 print(
                     "  Skipped DataZone grant bootstrap "
-                    f"(missing project mapping for principal {principal})"
+                    "(set DATAZONE_TEST_PRINCIPAL or RAJA_USERS to enable)",
+                    file=sys.stderr,
                 )
+            else:
+                principal_table = _get_principal_table()
+                if principal_table:
+                    project_id = _load_project_id(principal_table, principal, region)
+                else:
+                    project_id = None
+                if project_id:
+                    try:
+                        service = DataZoneService(
+                            client=boto3.client("datazone", region_name=region),
+                            config=DataZoneConfig.from_env(),
+                        )
+                        listing_id = service.ensure_project_package_grant(
+                            project_id=project_id,
+                            quilt_uri=uri,
+                        )
+                        print(f"  DataZone listing: {listing_id}")
+                        print(f"  Granted principal: {principal}")
+                    except DataZoneError as exc:
+                        print(f"✗ Failed to sync DataZone package grant: {exc}", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    print(
+                        "  Skipped DataZone grant bootstrap "
+                        f"(missing project mapping for principal {principal})"
+                    )
 
         print("✓ Package seeded successfully")
         print("  Name:     demo/package-grant")
