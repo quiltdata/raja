@@ -14,7 +14,6 @@ It provisions:
 - Control plane Lambda and shared RAJA Lambda layer
 - RALE Lambdas (`rale_authorizer`, `rale_router`) with Function URLs
 - API Gateway (`/` and `/{proxy+}` via Lambda proxy integration)
-- DynamoDB tables (`policy_scope_mappings`, `principal_scopes`, `audit_log`, `manifest_cache`, `taj_cache`)
 - Secrets Manager secrets for JWT signing and harness signing
 - RAJEE networking (VPC, public/private subnets, IGW, NAT)
 - ECS/Fargate Envoy service with autoscaling and ALB

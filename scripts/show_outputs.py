@@ -65,7 +65,7 @@ def main() -> None:
 
     outputs: dict[str, str] = json.loads(_OUTPUTS_PATH.read_text())
 
-    admin_key = os.environ.get("RAJA_ADMIN_KEY") or os.environ.get("TF_VAR_raja_admin_key", "")
+    admin_key = os.environ.get("RAJA_ADMIN_KEY", "")
 
     width = 72
     print()

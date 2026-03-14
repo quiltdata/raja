@@ -33,12 +33,6 @@ variable "raja_admin_key" {
   sensitive   = true
 }
 
-variable "taj_cache_ttl_seconds" {
-  description = "TTL (seconds) for cached TAJ decisions in the RALE authorizer table."
-  type        = number
-  default     = 300
-}
-
 variable "rale_storage" {
   description = "Storage scheme used when constructing quilt URIs for RALE package manifests."
   type        = string

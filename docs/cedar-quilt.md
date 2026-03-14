@@ -152,7 +152,7 @@ Clients use **[boto3](https://boto3.amazonaws.com/MVP/documentation/api/latest/i
 **Key characteristics:**
 
 - **True S3 compatibility**: All boto3 operations work natively (GET, PUT, DELETE, LIST, multipart uploads, etc.)
-- **Zero policy evaluation**: RAJEE performs only JWT validation + prefix matching (no AVP, no DynamoDB lookups)
+- **Zero policy evaluation**: RAJEE performs only JWT validation + prefix matching (no AVP or cache lookups)
 - **Streaming**: No size limits (unlike Lambda-based approaches)
 - **Transparent proxy**: Envoy forwards requests unmodified; S3 handles all operation complexity
 

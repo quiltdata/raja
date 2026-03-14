@@ -28,7 +28,7 @@ def test_matches_pattern_prefix():
     """Test prefix pattern matching."""
     assert matches_pattern("s3:GetObject", "s3:*")
     assert matches_pattern("s3:PutObject", "s3:*")
-    assert not matches_pattern("dynamodb:GetItem", "s3:*")
+    assert not matches_pattern("ec2:DescribeInstances", "s3:*")
 
 
 def test_matches_pattern_suffix():

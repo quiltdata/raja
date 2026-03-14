@@ -552,15 +552,6 @@ FAILURE_TEST_DEFINITIONS: list[FailureTestDefinition] = [
         setup="Verify resource types in schema match enforcer.",
     ),
     FailureTestDefinition(
-        id="5.4",
-        title="DynamoDB Lag",
-        description="Eventually consistent reads must not cause authorization gaps.",
-        category="cross-component",
-        priority="HIGH",
-        expected_summary="No authorization bypass due to replication lag",
-        setup="Update policy and immediately issue token.",
-    ),
-    FailureTestDefinition(
         id="5.5",
         title="JWT Claims Structure",
         description="Token claims must follow expected structure for Lua enforcer.",
@@ -1539,20 +1530,6 @@ def _runner_schema_policy_consistency(secret: str) -> FailureTestRun:
     )
 
 
-def _runner_dynamodb_lag(secret: str) -> FailureTestRun:
-    """Test eventually consistent reads don't cause authorization gaps."""
-    # TODO: Test rapid policy update + token issuance
-    return FailureTestRun(
-        run_id="",
-        test_id="5.4",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="No authorization bypass due to replication lag",
-        actual="DynamoDB consistency testing not implemented",
-        details={"note": "Requires testing rapid policy updates and immediate token issuance"},
-        timestamp=time.time(),
-    )
-
-
 def _runner_jwt_claims_structure(secret: str) -> FailureTestRun:
     """Test token claims follow expected structure for Lua enforcer."""
     # Test that claims are structured correctly
@@ -1773,7 +1750,6 @@ RUNNERS: dict[str, Callable[[str], FailureTestRun]] = {
     "5.1": _runner_compiler_enforcer_sync,
     "5.2": _runner_token_scope_consistency,
     "5.3": _runner_schema_policy_consistency,
-    "5.4": _runner_dynamodb_lag,
     "5.5": _runner_jwt_claims_structure,
     "5.6": _runner_policy_id_tracking,
     "6.1": _runner_secrets_rotation,

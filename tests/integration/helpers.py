@@ -240,20 +240,6 @@ def parse_rale_test_quilt_uri(uri: str) -> dict[str, str]:
     }
 
 
-def require_taj_cache_table() -> str:
-    pytest.fail(
-        "TAJ cache table support was removed from RALE.\n"
-        "Use real package-backed integration tests with RALE_TEST_QUILT_URI instead."
-    )
-
-
-def require_manifest_cache_table() -> str:
-    pytest.fail(
-        "Manifest cache table support was removed from RALE.\n"
-        "Use real package-backed integration tests with RALE_TEST_QUILT_URI instead."
-    )
-
-
 def is_rale_routing_enabled() -> bool:
     authorizer = os.environ.get("RALE_AUTHORIZER_URL")
     router = os.environ.get("RALE_ROUTER_URL")

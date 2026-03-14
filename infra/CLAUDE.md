@@ -24,15 +24,6 @@ The infrastructure is **optional** — the core `raja` library can be used stand
          │
          ▼
 ┌────────────────────────────────┐
-│         DynamoDB Tables        │
-│  - PolicyScopeMappings         │
-│  - PrincipalScopes             │
-│  - ManifestCache (RALE)        │
-│  - TajCache (RALE)             │
-└────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────┐
 │    Secrets Manager             │
 │  - JWT Signing Key             │
 └────────────────────────────────┘
@@ -75,9 +66,6 @@ infra/
 | --- | --- |
 | `aws_api_gateway_rest_api` | REST API for control plane |
 | `aws_lambda_function.control_plane` | FastAPI control plane |
-| `aws_dynamodb_table.policy_scope_mappings` | Policy → scopes |
-| `aws_dynamodb_table.principal_scopes` | Principal → scopes |
-| `aws_dynamodb_table.audit_log` | Audit trail |
 | `aws_secretsmanager_secret.jwt` | JWT signing key |
 | `aws_verifiedpermissions_policy_store` | Cedar policy store + schema |
 
@@ -87,8 +75,6 @@ infra/
 | --- | --- |
 | `aws_lambda_function.rale_authorizer` | Issues TAJ tokens (cached) |
 | `aws_lambda_function.rale_router` | Resolves USL → S3, streams object |
-| `aws_dynamodb_table.manifest_cache` | Package manifest cache |
-| `aws_dynamodb_table.taj_cache` | TAJ decision cache |
 | `aws_lb.rajee` | ALB for Envoy proxy |
 | `aws_ecs_service` | Fargate Envoy service |
 | `aws_ecr_repository.envoy` | Envoy Docker image registry |

@@ -45,11 +45,6 @@ Authorization can be **compiled** once and **enforced** efficiently:
          │
          ▼
 ┌─────────────────┐
-│    DynamoDB     │  (Store principal → scopes)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
 │  Token Service  │  (Issue JWTs with scopes)
 └────────┬────────┘
          │
@@ -302,8 +297,6 @@ pytest -m hypothesis tests/  # Property-based validation tests
 ### Environment Variables (Lambda)
 
 - `POLICY_STORE_ID` - AVP policy store identifier
-- `MAPPINGS_TABLE` - DynamoDB table for policy-to-scope mappings
-- `PRINCIPAL_TABLE` - DynamoDB table for principal-to-scope mappings
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT signing key
 
 ### Poe Tasks
