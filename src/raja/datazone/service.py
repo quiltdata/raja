@@ -166,6 +166,130 @@ class DataZoneService:
             time.sleep(2)
         raise DataZoneError(f"timed out waiting for DataZone listing for {parsed.package_name}")
 
+    def find_project_for_principal(
+        self,
+        principal: str,
+        *,
+        project_ids: list[str],
+    ) -> str | None:
+        """Return the first project_id where principal is a member, or None.
+
+        Checks projects in order — pass highest-privilege first so the most
+        permissive match is returned when a user belongs to multiple projects.
+        """
+        for project_id in project_ids:
+            if project_id and self._is_project_member(project_id=project_id, principal=principal):
+                return project_id
+        return None
+
+    def _get_iam_arn_for_user_id(self, user_id: str) -> str | None:
+        """Resolve a DataZone internal user ID to an IAM ARN via GetUserProfile."""
+        try:
+            resp = self._client.get_user_profile(
+                domainIdentifier=self._config.domain_id,
+                userIdentifier=user_id,
+                type="IAM",
+            )
+            arn: str | None = resp.get("details", {}).get("iam", {}).get("arn")
+            return arn
+        except (ClientError, BotoCoreError):
+            return None
+
+    def _get_user_id_for_principal(self, principal: str) -> str | None:
+        """Resolve an IAM ARN to a DataZone internal user ID via GetUserProfile."""
+        try:
+            resp = self._client.get_user_profile(
+                domainIdentifier=self._config.domain_id,
+                userIdentifier=principal,
+                type="IAM",
+            )
+            user_id: str | None = resp.get("id")
+            return user_id
+        except (ClientError, BotoCoreError):
+            return None
+
+    def list_project_members(self, project_id: str) -> list[str]:
+        """Return IAM ARNs of all members of the given DataZone project."""
+        next_token: str | None = None
+        user_ids: list[str] = []
+        while True:
+            kwargs: dict[str, Any] = {
+                "domainIdentifier": self._config.domain_id,
+                "projectIdentifier": project_id,
+                "maxResults": 50,
+            }
+            if next_token:
+                kwargs["nextToken"] = next_token
+            try:
+                response = self._client.list_project_memberships(**kwargs)
+            except (ClientError, BotoCoreError) as exc:
+                raise DataZoneError(f"failed to list memberships for project {project_id}") from exc
+            for member in response.get("members", []):
+                uid = member.get("memberDetails", {}).get("user", {}).get("userId", "")
+                if uid:
+                    user_ids.append(uid)
+            next_token = response.get("nextToken")
+            if not next_token:
+                break
+
+        # Resolve DataZone user IDs to IAM ARNs
+        arns: list[str] = []
+        for uid in user_ids:
+            arn = self._get_iam_arn_for_user_id(uid)
+            if arn:
+                arns.append(arn)
+        return arns
+
+    def _is_project_member(self, *, project_id: str, principal: str) -> bool:
+        """Return True if principal (IAM ARN) is a member of the given project."""
+        # Resolve the IAM ARN to a DataZone user ID once, then check membership.
+        dz_user_id = self._get_user_id_for_principal(principal)
+        if dz_user_id is None:
+            return False
+
+        next_token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {
+                "domainIdentifier": self._config.domain_id,
+                "projectIdentifier": project_id,
+                "maxResults": 50,
+            }
+            if next_token:
+                kwargs["nextToken"] = next_token
+            try:
+                response = self._client.list_project_memberships(**kwargs)
+            except (ClientError, BotoCoreError) as exc:
+                raise DataZoneError(f"failed to list memberships for project {project_id}") from exc
+            for member in response.get("members", []):
+                user_id = member.get("memberDetails", {}).get("user", {}).get("userId", "")
+                if user_id == dz_user_id:
+                    return True
+            next_token = response.get("nextToken")
+            if not next_token:
+                return False
+
+    def delete_project_membership(
+        self,
+        *,
+        project_id: str,
+        user_identifier: str,
+    ) -> None:
+        """Remove an IAM user from a DataZone project membership (idempotent)."""
+        try:
+            self._client.delete_project_membership(
+                domainIdentifier=self._config.domain_id,
+                projectIdentifier=project_id,
+                member={"userIdentifier": user_identifier},
+            )
+        except (ClientError, BotoCoreError) as exc:
+            error_code = ""
+            if isinstance(exc, ClientError):
+                error_code = exc.response.get("Error", {}).get("Code", "")
+            if error_code not in {"ResourceNotFoundException", "ValidationException"}:
+                raise DataZoneError(
+                    f"failed to remove {user_identifier} from project {project_id}"
+                ) from exc
+
     def ensure_project_membership(
         self,
         *,

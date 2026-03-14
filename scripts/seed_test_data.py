@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed real IAM users into DynamoDB and DataZone projects for integration testing.
+"""Seed real IAM users into DataZone projects for integration testing.
 
 Users are read from RAJA_USERS (comma-separated usernames) and assigned to the
 three DataZone project tiers:
@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any
 
 import boto3
-from botocore.exceptions import ClientError
 
 from raja.datazone import DataZoneConfig, DataZoneService, datazone_enabled
 from scripts.tf_outputs import get_tf_output
@@ -50,17 +48,6 @@ def _get_region() -> str:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
     return region
-
-
-def _get_principal_table() -> str:
-    table_name = os.environ.get("PRINCIPAL_TABLE") or get_tf_output("principal_table_name")
-    if not table_name:
-        print(
-            "✗ PRINCIPAL_TABLE not set and infra/tf-outputs.json is missing principal_table_name",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    return table_name
 
 
 def _hydrate_datazone_env() -> None:
@@ -123,46 +110,38 @@ def main() -> None:
 
     region = _get_region()
     _hydrate_datazone_env()
-    table_name = _get_principal_table()
     usernames = _get_raja_users()
     account_id = _get_account_id(region)
 
     print(f"{'=' * 60}")
     print(f"Seeding {len(usernames)} RAJA user(s) from account {account_id}")
-    print(f"Table:  {table_name}")
     print(f"Region: {region}")
     if dry_run:
         print("Mode:   DRY-RUN (no changes will be made)")
     print(f"{'=' * 60}\n")
 
-    dynamodb = boto3.resource("dynamodb", region_name=region)
-    table = dynamodb.Table(table_name)
+    if not datazone_enabled():
+        print("✗ DataZone is not enabled (DATAZONE_DOMAIN_ID not set)", file=sys.stderr)
+        sys.exit(1)
 
-    datazone_config: DataZoneConfig | None = None
-    datazone_service: DataZoneService | None = None
-    if datazone_enabled():
-        try:
-            datazone_config = DataZoneConfig.from_env()
-            datazone_client = boto3.client("datazone", region_name=region)
-            datazone_service = DataZoneService(client=datazone_client, config=datazone_config)
-            print(f"DataZone domain: {datazone_config.domain_id}\n")
-        except Exception as e:
-            print(f"✗ Failed to initialise DataZone: {e}", file=sys.stderr)
-            sys.exit(1)
+    try:
+        datazone_config = DataZoneConfig.from_env()
+        datazone_client = boto3.client("datazone", region_name=region)
+        datazone_service = DataZoneService(client=datazone_client, config=datazone_config)
+        print(f"DataZone domain: {datazone_config.domain_id}\n")
+    except Exception as e:
+        print(f"✗ Failed to initialise DataZone: {e}", file=sys.stderr)
+        sys.exit(1)
 
     success_count = 0
     fail_count = 0
 
     for idx, username in enumerate(usernames):
         tier = min(idx, len(_TIER_SCOPES) - 1)
-        scopes = _TIER_SCOPES[tier]
         arn = _user_to_arn(username, account_id)
         designation = _TIER_DESIGNATION[tier]
         tier_name = ["owner", "users", "guests"][tier]
-
-        project_id = ""
-        if datazone_config is not None:
-            project_id = _tier_project_id(tier, datazone_config)
+        project_id = _tier_project_id(tier, datazone_config)
 
         print(
             f"[{idx + 1}/{len(usernames)}] {username}"
@@ -171,35 +150,26 @@ def main() -> None:
         )
 
         if dry_run:
-            print(f"  [DRY-RUN] Would seed: {arn} → scopes={scopes}, project={project_id}")
+            print(f"  [DRY-RUN] Would add: {arn} → project={project_id} as {designation}")
             success_count += 1
             continue
 
-        try:
-            item: dict[str, Any] = {"principal": arn, "scopes": scopes}
-            if project_id:
-                item["datazone_project_id"] = project_id
-            table.put_item(Item=item)
-            print(f"  ✓ DynamoDB: seeded {arn}")
-        except ClientError as e:
-            print(f"  ✗ DynamoDB: failed to seed {arn}: {e}", file=sys.stderr)
+        if not project_id:
+            print(f"  ⚠ No project ID for tier {tier_name}, skipping", file=sys.stderr)
             fail_count += 1
             continue
 
-        if datazone_service is not None and project_id:
-            try:
-                datazone_service.ensure_project_membership(
-                    project_id=project_id,
-                    user_identifier=arn,
-                    designation=designation,
-                )
-                print(f"  ✓ DataZone: added {arn} to project {project_id} as {designation}")
-            except Exception as e:
-                print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
-                fail_count += 1
-                continue
-
-        success_count += 1
+        try:
+            datazone_service.ensure_project_membership(
+                project_id=project_id,
+                user_identifier=arn,
+                designation=designation,
+            )
+            print(f"  ✓ DataZone: added {arn} to project {project_id} as {designation}")
+            success_count += 1
+        except Exception as e:
+            print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
+            fail_count += 1
 
     print(f"\n{'=' * 60}")
     if dry_run:

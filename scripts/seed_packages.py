@@ -36,10 +36,6 @@ def _get_region() -> str:
     return region
 
 
-def _get_principal_table() -> str:
-    return os.environ.get("PRINCIPAL_TABLE") or get_tf_output("principal_table_name") or ""
-
-
 def _hydrate_datazone_env() -> None:
     mapping = {
         "DATAZONE_DOMAIN_ID": "datazone_domain_id",
@@ -155,20 +151,6 @@ def _ensure_registry_workflow_config(s3: object, registry_bucket: str, dry_run: 
             raise
 
 
-def _load_project_id(table_name: str, principal: str, region: str) -> str | None:
-    item = (
-        boto3.resource("dynamodb", region_name=region)
-        .Table(table_name)
-        .get_item(Key={"principal": principal})
-        .get("Item")
-        or {}
-    )
-    project_id = item.get("datazone_project_id")
-    if isinstance(project_id, str) and project_id:
-        return project_id
-    return None
-
-
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
 
@@ -253,17 +235,23 @@ def main() -> None:
                     file=sys.stderr,
                 )
             else:
-                principal_table = _get_principal_table()
-                if principal_table:
-                    project_id = _load_project_id(principal_table, principal, region)
-                else:
-                    project_id = None
+                config = DataZoneConfig.from_env()
+                service = DataZoneService(
+                    client=boto3.client("datazone", region_name=region),
+                    config=config,
+                )
+                project_ids = [
+                    p
+                    for p in [
+                        config.owner_project_id,
+                        config.users_project_id,
+                        config.guests_project_id,
+                    ]
+                    if p
+                ]
+                project_id = service.find_project_for_principal(principal, project_ids=project_ids)
                 if project_id:
                     try:
-                        service = DataZoneService(
-                            client=boto3.client("datazone", region_name=region),
-                            config=DataZoneConfig.from_env(),
-                        )
                         listing_id = service.ensure_project_package_grant(
                             project_id=project_id,
                             quilt_uri=uri,

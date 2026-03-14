@@ -22,8 +22,8 @@ Authorization can be **compiled** once and **enforced** efficiently:
    - Full type hints and Pydantic models
 
 2. **AWS Infrastructure** (`infra/`)
-   - CDK-based deployment
-   - API Gateway + Lambda + DynamoDB + AVP
+   - Terraform-based deployment
+   - API Gateway + Lambda + supporting AWS services
    - Optional: Use library without AWS
 
 3. **Comprehensive Testing** (`tests/`)
@@ -73,11 +73,10 @@ raja/
 │       ├── parser.py      # Parse Cedar policy strings
 │       └── schema.py      # Cedar schema validation
 │
-├── infra/                 # AWS CDK infrastructure
-│   └── raja_poc/
-│       ├── app.py         # CDK app entry point
-│       ├── stacks/        # CloudFormation stacks
-│       └── constructs/    # Reusable CDK constructs
+├── infra/                 # AWS infrastructure and deployment assets
+│   ├── terraform/         # Terraform root module
+│   ├── envoy/             # Envoy image assets
+│   └── layers/            # Shared Lambda layer requirements
 │
 ├── lambda_handlers/       # Lambda function handlers
 │   ├── compiler/          # Policy compiler
@@ -157,7 +156,7 @@ uv pip install -e .
 
 ### AWS Deployment
 
-Deployment uses **Terraform** (`infra/terraform/`). CDK (`infra/raja_poc/`) is deprecated.
+Deployment uses **Terraform** (`infra/terraform/`).
 
 ```bash
 # Deploy full RAJA stack (Terraform)

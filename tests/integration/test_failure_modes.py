@@ -217,23 +217,7 @@ def test_admin_rotate_secret_invalidates_old_tokens() -> None:
 
     status, body = request_json("POST", "/admin/rotate-secret")
     assert status == 202, body
-    operation_id = body.get("operation_id")
-    assert isinstance(operation_id, str) and operation_id
-
-    final_status: str | None = None
-    final_body: dict[str, Any] = {}
-    for _ in range(30):
-        op_status, op_body = request_json("GET", f"/admin/rotate-secret/{operation_id}")
-        assert op_status == 200, op_body
-        state = op_body.get("status")
-        if isinstance(state, str):
-            final_status = state
-            final_body = op_body
-        if state in {"SUCCEEDED", "FAILED"}:
-            break
-        time.sleep(1)
-
-    assert final_status == "SUCCEEDED", final_body
+    assert body.get("status") == "SUCCEEDED", body
 
     # Old signatures must fail after cutover; newly issued tokens must pass.
     current_secret = fetch_jwks_secret()

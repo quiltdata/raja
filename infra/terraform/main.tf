@@ -14,7 +14,7 @@ locals {
   rale_router_source_dir       = "${local.repo_root}/lambda_handlers/rale_router"
   rale_router_requirements     = "${local.rale_router_source_dir}/requirements.txt"
   raja_source_dir              = "${local.repo_root}/src/raja"
-  layer_requirements           = "${local.repo_root}/infra/raja_poc/layers/raja/requirements.txt"
+  layer_requirements           = "${local.repo_root}/infra/layers/raja/requirements.txt"
   build_dir                 = "${path.module}/build"
   control_plane_build_dir   = "${local.build_dir}/control_plane"
   rale_authorizer_build_dir = "${local.build_dir}/rale_authorizer"
@@ -40,7 +40,7 @@ locals {
   )))
   lambda_pip_platform = var.lambda_architecture == "arm64" ? "aarch64-manylinux2014" : "x86_64-manylinux2014"
 
-  envoy_source_dir = "${local.repo_root}/infra/raja_poc/assets/envoy"
+  envoy_source_dir = "${local.repo_root}/infra/envoy"
   envoy_source_hash = sha256(join("", [
     for source_file in fileset(local.envoy_source_dir, "**") : filesha256("${local.envoy_source_dir}/${source_file}")
     if !endswith(source_file, ".pyc")
@@ -252,38 +252,6 @@ resource "aws_datazone_asset_type" "quilt_package" {
   description               = "RAJA Quilt package access unit"
 }
 
-resource "aws_dynamodb_table" "principal_scopes" {
-  name         = "${var.stack_name}-principal-scopes"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "principal"
-
-  attribute {
-    name = "principal"
-    type = "S"
-  }
-}
-
-resource "aws_dynamodb_table" "audit_log" {
-  name         = "${var.stack_name}-audit-log"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "pk"
-  range_key    = "event_id"
-
-  attribute {
-    name = "pk"
-    type = "S"
-  }
-
-  attribute {
-    name = "event_id"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "ttl"
-    enabled        = true
-  }
-}
 
 resource "random_password" "jwt_secret" {
   length  = 48
@@ -336,23 +304,6 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:BatchWriteItem",
-          "dynamodb:Query",
-          "dynamodb:Scan"
-        ]
-        Resource = [
-          aws_dynamodb_table.principal_scopes.arn,
-          aws_dynamodb_table.audit_log.arn,
-          "${aws_dynamodb_table.audit_log.arn}/index/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
           "secretsmanager:GetSecretValue",
           "secretsmanager:PutSecretValue"
         ]
@@ -380,14 +331,27 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
         Effect = "Allow"
         Action = [
           "datazone:AcceptSubscriptionRequest",
+          "datazone:CreateAsset",
+          "datazone:CreateListingChangeSet",
           "datazone:CreateProject",
+          "datazone:CreateProjectMembership",
           "datazone:CreateSubscriptionRequest",
+          "datazone:DeleteProjectMembership",
+          "datazone:GetUserProfile",
+          "datazone:ListProjectMemberships",
           "datazone:ListProjects",
           "datazone:ListSubscriptionRequests",
           "datazone:SearchListings",
           "datazone:Search"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:GetUser"
+        ]
+        Resource = "arn:aws:iam::*:user/*"
       },
     ]
   })
@@ -423,8 +387,6 @@ resource "aws_lambda_function" "control_plane" {
       DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
-      PRINCIPAL_TABLE                      = aws_dynamodb_table.principal_scopes.name
-      AUDIT_TABLE                          = aws_dynamodb_table.audit_log.name
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
       JWT_SECRET_VERSION                   = aws_secretsmanager_secret_version.jwt_value.version_id
       TOKEN_TTL                            = tostring(var.token_ttl)
@@ -475,6 +437,8 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
       {
         Effect = "Allow"
         Action = [
+          "datazone:GetUserProfile",
+          "datazone:ListProjectMemberships",
           "datazone:ListSubscriptionRequests",
           "datazone:SearchListings"
         ]
@@ -483,11 +447,9 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:GetItem"
+          "iam:GetUser"
         ]
-        Resource = [
-          aws_dynamodb_table.principal_scopes.arn
-        ]
+        Resource = "arn:aws:iam::*:user/*"
       },
       {
         Effect = "Allow"
@@ -530,9 +492,11 @@ resource "aws_lambda_function" "rale_authorizer" {
   environment {
     variables = {
       DATAZONE_DOMAIN_ID                   = aws_datazone_domain.raja.id
+      DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
+      DATAZONE_USERS_PROJECT_ID            = aws_datazone_project.users.id
+      DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
-      PRINCIPAL_TABLE                      = aws_dynamodb_table.principal_scopes.name
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
       JWT_SECRET_VERSION                   = aws_secretsmanager_secret_version.jwt_value.version_id
       TOKEN_TTL                            = tostring(var.token_ttl)

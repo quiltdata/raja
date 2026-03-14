@@ -3,7 +3,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPOSE_FILE="$PROJECT_ROOT/infra/raja_poc/assets/envoy/docker-compose.local.yml"
+COMPOSE_FILE="$PROJECT_ROOT/infra/envoy/docker-compose.local.yml"
 
 cd "$PROJECT_ROOT"
 

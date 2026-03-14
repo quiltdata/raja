@@ -1,15 +1,13 @@
 const select = (id) => document.getElementById(id);
 const ADMIN_KEY_STORAGE_KEY = "raja_admin_key";
 const DEFAULT_VIEW = "overview";
-const VIEW_IDS = ["overview", "authority", "token", "enforce", "failures", "incident", "audit", "about"];
+const VIEW_IDS = ["overview", "authority", "token", "enforce", "failures", "incident", "about"];
 // Base URL for API calls — strips fragment and trailing slash so paths like
 // "/health" work correctly even when served under an API Gateway stage prefix.
 const API_BASE = window.location.href.split("#")[0].replace(/\/+$/, "");
 
 const state = {
   loadedViews: new Set(),
-  rotateOperationId: null,
-  rotatePollTimer: null,
 };
 
 function getAdminKey() {
@@ -473,16 +471,6 @@ function renderRotationTimeline(statusPayload) {
   }
 }
 
-function buildAuditQuery(params) {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== "" && value !== null && value !== undefined) {
-      query.set(key, String(value));
-    }
-  }
-  return query.toString();
-}
-
 function routeTo(hash) {
   const view = VIEW_IDS.includes(hash) ? hash : DEFAULT_VIEW;
 
@@ -515,9 +503,6 @@ function routeTo(hash) {
     }
     if (view === "failures") {
       loadFailureTests();
-    }
-    if (view === "audit") {
-      loadAudit();
     }
   }
 }
@@ -553,48 +538,6 @@ async function loadIncidentPrincipals() {
     opt.value = item.principal;
     opt.textContent = item.principal;
     selector.appendChild(opt);
-  }
-}
-
-async function loadAudit() {
-  const body = select("audit-table-body");
-  if (!body) {
-    return;
-  }
-  body.innerHTML = "<tr><td colspan=\"5\">Loading...</td></tr>";
-
-  const result = await apiFetch("/audit", { method: "GET" });
-  if (!result.ok) {
-    body.innerHTML = `<tr><td colspan=\"5\">Failed to load audit: ${escapeHtml(formatJson(result.data))}</td></tr>`;
-    return;
-  }
-
-  renderAuditRows(result.data.entries || []);
-}
-
-function renderAuditRows(entries) {
-  const body = select("audit-table-body");
-  if (!body) {
-    return;
-  }
-  body.innerHTML = "";
-
-  if (!entries.length) {
-    body.innerHTML = "<tr><td colspan=\"5\">No audit entries found.</td></tr>";
-    return;
-  }
-
-  for (const entry of entries) {
-    const tr = document.createElement("tr");
-    const time = formatTimestamp(entry.timestamp || entry.time || entry.created_at);
-    tr.innerHTML = `
-      <td>${escapeHtml(time || "-")}</td>
-      <td>${escapeHtml(entry.principal || "-")}</td>
-      <td>${escapeHtml(entry.action || "-")}</td>
-      <td>${escapeHtml(entry.resource || "-")}</td>
-      <td>${escapeHtml(entry.decision || "-")}</td>
-    `;
-    body.appendChild(tr);
   }
 }
 
@@ -801,73 +744,14 @@ function setupEvents() {
         return;
       }
 
-      state.rotateOperationId = result.data.operation_id;
+      renderRotationTimeline(result.data);
       if (output) {
-        output.textContent = `operation_id: ${state.rotateOperationId}`;
+        output.textContent = formatJson(result.data);
       }
-
-      await pollRotationStatus();
-    });
-  }
-
-  const auditForm = select("audit-filter-form");
-  if (auditForm) {
-    auditForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const query = buildAuditQuery({
-        principal: select("audit-principal")?.value?.trim() || "",
-        action: select("audit-action")?.value?.trim() || "",
-        resource: select("audit-resource")?.value?.trim() || "",
-        start_time: select("audit-start-time")?.value || "",
-        end_time: select("audit-end-time")?.value || "",
-      });
-
-      const endpoint = query ? `/audit?${query}` : "/audit";
-      const result = await apiFetch(endpoint, { method: "GET" });
-      if (!result.ok) {
-        renderAuditRows([]);
-        return;
-      }
-      renderAuditRows(result.data.entries || []);
     });
   }
 
   window.addEventListener("hashchange", () => routeTo(currentHashView()));
-}
-
-async function pollRotationStatus() {
-  if (!state.rotateOperationId) {
-    return;
-  }
-
-  const result = await apiFetch(
-    `/admin/rotate-secret/${encodeURIComponent(state.rotateOperationId)}`,
-    { method: "GET" }
-  );
-
-  if (!result.ok) {
-    renderRotationTimeline({ status: "FAILED", phase: "failed", error: "status polling failed" });
-    return;
-  }
-
-  renderRotationTimeline(result.data);
-  const output = select("incident-hard-result");
-  if (output) {
-    output.textContent = formatJson(result.data);
-  }
-
-  if (state.rotatePollTimer) {
-    window.clearTimeout(state.rotatePollTimer);
-    state.rotatePollTimer = null;
-  }
-
-  if (result.data.status === "SUCCEEDED" || result.data.status === "FAILED") {
-    return;
-  }
-
-  state.rotatePollTimer = window.setTimeout(() => {
-    pollRotationStatus();
-  }, 2000);
 }
 
 const failureState = {

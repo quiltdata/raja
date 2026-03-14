@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from raja.server import audit, dependencies
+from raja.server import dependencies
 from raja.server.logging_config import get_logger
 from raja.token import create_token_with_package_grant
 
@@ -33,7 +32,6 @@ def probe_rajee(
     payload: RajeeProbeRequest,
     _: None = Depends(dependencies.require_admin_auth),
     secret: str = Depends(dependencies.get_jwt_secret),
-    audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Mint a real short-lived TAJ and send it to a live RAJEE endpoint.
 
@@ -68,7 +66,6 @@ def probe_rajee(
             "usl": payload.usl,
             "endpoint": payload.rajee_endpoint,
         }
-        decision = "SUCCESS"
     except httpx.RequestError as exc:
         result = {
             "status_code": None,
@@ -80,21 +77,6 @@ def probe_rajee(
             "usl": payload.usl,
             "endpoint": payload.rajee_endpoint,
         }
-        decision = "ERROR"
-
-    try:
-        audit_table.put_item(
-            Item=audit.build_audit_item(
-                principal=payload.principal,
-                action="probe.rajee",
-                resource=payload.usl,
-                decision=decision,
-                authorization_plane_id=None,
-                request_id=str(uuid.uuid4()),
-            )
-        )
-    except Exception as exc:
-        logger.warning("audit_log_write_failed", error=str(exc))
 
     return result
 

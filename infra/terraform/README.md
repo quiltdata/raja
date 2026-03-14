@@ -38,7 +38,7 @@ Set `aws_region` in `terraform.tfvars` or via `TF_VAR_aws_region`.
 By default, Terraform auto-builds and pushes Envoy during apply (`build_envoy_image=true`), using:
 
 - `envoy_image_tag` if provided
-- otherwise a content-hash tag derived from `infra/raja_poc/assets/envoy/*`
+- otherwise a content-hash tag derived from `infra/envoy/*`
 
 You can still build manually:
 

@@ -43,15 +43,6 @@ output "control_plane_lambda_arn" {
   value       = aws_lambda_function.control_plane.arn
 }
 
-output "principal_table_name" {
-  description = "Principal scopes DynamoDB table."
-  value       = aws_dynamodb_table.principal_scopes.name
-}
-
-output "audit_table_name" {
-  description = "Audit log DynamoDB table."
-  value       = aws_dynamodb_table.audit_log.name
-}
 
 output "jwt_secret_arn" {
   description = "JWT signing secret ARN."

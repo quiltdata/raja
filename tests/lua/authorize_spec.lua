@@ -5,7 +5,7 @@ describe("S3 Request Parsing", function()
   local parse_s3_request
 
   before_each(function()
-    package.path = package.path .. ";infra/raja_poc/assets/envoy/?.lua"
+    package.path = package.path .. ";infra/envoy/?.lua"
     local auth = require("authorize_lib")
     parse_s3_request = auth.parse_s3_request
   end)
@@ -185,7 +185,7 @@ describe("Authorization Logic", function()
   local authorize
 
   before_each(function()
-    package.path = package.path .. ";infra/raja_poc/assets/envoy/?.lua"
+    package.path = package.path .. ";infra/envoy/?.lua"
     local auth = require("authorize_lib")
     authorize = auth.authorize
   end)
@@ -288,7 +288,7 @@ describe("Query String Parsing", function()
   local parse_query_string
 
   before_each(function()
-    package.path = package.path .. ";infra/raja_poc/assets/envoy/?.lua"
+    package.path = package.path .. ";infra/envoy/?.lua"
     local auth = require("authorize_lib")
     parse_query_string = auth.parse_query_string
   end)

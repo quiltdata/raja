@@ -1,4 +1,4 @@
-"""Control plane router for policy compilation, token issuance, and principal management."""
+"""Control plane router for token issuance and principal management."""
 
 from __future__ import annotations
 
@@ -25,9 +25,8 @@ from raja.datazone import (
 )
 from raja.exceptions import TokenInvalidError
 from raja.package_map import parse_s3_path
-from raja.quilt_uri import parse_quilt_uri, validate_quilt_uri
+from raja.quilt_uri import validate_quilt_uri
 from raja.server import dependencies
-from raja.server.audit import build_audit_item
 from raja.server.logging_config import get_logger
 from raja.token import (
     create_token_with_package_grant,
@@ -38,7 +37,6 @@ from raja.token import (
 logger = get_logger(__name__)
 
 
-# Local model definitions to avoid circular import
 class TokenRequest(BaseModel):
     """Request model for token issuance."""
 
@@ -112,11 +110,9 @@ class PolicyUpdateRequest(BaseModel):
 
 DATAZONE_DOMAIN_ID = os.environ.get("DATAZONE_DOMAIN_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
-ROTATION_PK = "ROTATE_SECRET"
 
 
 def _require_env(value: str | None, name: str) -> str:
-    """Ensure environment variable is set."""
     if not value:
         raise RuntimeError(f"{name} is required")
     return value
@@ -134,47 +130,91 @@ def _now() -> int:
     return int(time.time())
 
 
-def _rotation_ttl() -> int:
-    return _now() + 7 * 86400
+def _authorization_plane_id() -> str:
+    return f"datazone:{_require_env(DATAZONE_DOMAIN_ID, 'DATAZONE_DOMAIN_ID')}"
 
 
-def _put_rotation_operation(
-    table: Any,
-    *,
-    operation_id: str,
-    status: str,
-    phase: str,
-    version_id: str | None = None,
-    error: str | None = None,
-) -> None:
-    item: dict[str, Any] = {
-        "pk": ROTATION_PK,
-        "event_id": operation_id,
-        "status": status,
-        "phase": phase,
-        "updated_at": _now(),
-        "ttl": _rotation_ttl(),
-    }
-    if version_id:
-        item["version_id"] = version_id
-    if error:
-        item["error"] = error
-    table.put_item(Item=item)
+def _datazone_service(client: Any) -> DataZoneService:
+    return DataZoneService(client=client, config=DataZoneConfig.from_env())
 
 
-def _resolve_rotation_targets() -> list[str]:
-    control_plane_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get(
-        "CONTROL_PLANE_FUNCTION_NAME"
-    )
-    authorizer_name = os.environ.get("RALE_AUTHORIZER_FUNCTION_NAME")
-    router_name = os.environ.get("RALE_ROUTER_FUNCTION_NAME")
-    if not control_plane_name or not authorizer_name or not router_name:
-        raise RuntimeError(
-            "rotation targets are not configured "
-            "(AWS_LAMBDA_FUNCTION_NAME/CONTROL_PLANE_FUNCTION_NAME, "
-            "RALE_AUTHORIZER_FUNCTION_NAME, RALE_ROUTER_FUNCTION_NAME)"
+def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
+    """Return non-empty project IDs in privilege order (owner first)."""
+    return [
+        p for p in [config.owner_project_id, config.users_project_id, config.guests_project_id] if p
+    ]
+
+
+def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
+    """Derive scopes from which DataZone project the principal belongs to."""
+    if project_id == config.owner_project_id:
+        raw = os.environ.get("RAJA_OWNER_SCOPES", "*:*:*")
+    elif project_id == config.users_project_id:
+        raw = os.environ.get("RAJA_USERS_SCOPES", "S3Object:*:*")
+    else:
+        raw = os.environ.get("RAJA_GUESTS_SCOPES", "S3Object:*:s3:GetObject")
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def _derive_principal_scopes(datazone_client: Any, principal: str) -> list[str] | None:
+    """Look up which DataZone project the principal belongs to and return scopes.
+
+    Returns None if principal is not a member of any configured project.
+    """
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone_client)
+        project_id = service.find_project_for_principal(
+            principal, project_ids=_ordered_project_ids(config)
         )
-    return [control_plane_name, authorizer_name, router_name]
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if project_id is None:
+        return None
+    return _scopes_for_project(project_id, config)
+
+
+def _authorize_package_with_datazone(
+    datazone: Any,
+    principal: str,
+    quilt_uri: str,
+) -> bool:
+    """Returns True if principal's DataZone project has a grant for the package."""
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        project_id = service.find_project_for_principal(
+            principal, project_ids=_ordered_project_ids(config)
+        )
+        if project_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"DataZone project not found for principal: {principal}",
+            )
+        return service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+router = APIRouter(prefix="", tags=["control-plane"])
+_ENTITY_RE = re.compile(r'^(?P<type>.+)::"(?P<id>[^"]+)"$')
+
+
+def _extract_quilt_uri(resource: str) -> str:
+    try:
+        resource_type, resource_id = _parse_entity(resource)
+        if resource_type != "Package":
+            raise ValueError("resource must be a Package entity")
+        return validate_quilt_uri(resource_id)
+    except ValueError:
+        return validate_quilt_uri(resource)
+
+
+def _parse_entity(entity: str) -> tuple[str, str]:
+    match = _ENTITY_RE.match(entity.strip())
+    if not match:
+        raise ValueError('entity must be in the form Type::"id"')
+    return match.group("type"), match.group("id")
 
 
 def _load_secret(
@@ -235,6 +275,21 @@ def _recycle_function(lambda_client: Any, *, function_name: str) -> None:
         )
 
 
+def _resolve_rotation_targets() -> list[str]:
+    control_plane_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get(
+        "CONTROL_PLANE_FUNCTION_NAME"
+    )
+    authorizer_name = os.environ.get("RALE_AUTHORIZER_FUNCTION_NAME")
+    router_name = os.environ.get("RALE_ROUTER_FUNCTION_NAME")
+    if not control_plane_name or not authorizer_name or not router_name:
+        raise RuntimeError(
+            "rotation targets are not configured "
+            "(AWS_LAMBDA_FUNCTION_NAME/CONTROL_PLANE_FUNCTION_NAME, "
+            "RALE_AUTHORIZER_FUNCTION_NAME, RALE_ROUTER_FUNCTION_NAME)"
+        )
+    return [control_plane_name, authorizer_name, router_name]
+
+
 def _run_rotation_probes(old_secret: str, new_secret: str) -> None:
     old_token = create_token(
         subject="rotation-probe",
@@ -290,121 +345,21 @@ def _perform_secret_rotation() -> str:
     return new_version
 
 
-def _authorization_plane_id() -> str:
-    return f"datazone:{_require_env(DATAZONE_DOMAIN_ID, 'DATAZONE_DOMAIN_ID')}"
-
-
-router = APIRouter(prefix="", tags=["control-plane"])
-_ENTITY_RE = re.compile(r'^(?P<type>.+)::"(?P<id>[^"]+)"$')
-
-
-def _extract_quilt_uri(resource: str) -> str:
-    try:
-        resource_type, resource_id = _parse_entity(resource)
-        if resource_type != "Package":
-            raise ValueError("resource must be a Package entity")
-        return validate_quilt_uri(resource_id)
-    except ValueError:
-        return validate_quilt_uri(resource)
-
-
-def _parse_entity(entity: str) -> tuple[str, str]:
-    match = _ENTITY_RE.match(entity.strip())
-    if not match:
-        raise ValueError('entity must be in the form Type::"id"')
-    return match.group("type"), match.group("id")
-
-
-def _build_package_entity(quilt_uri: str) -> dict[str, Any]:
-    parsed = parse_quilt_uri(quilt_uri)
-    return {
-        "identifier": {"entityType": "Raja::Package", "entityId": quilt_uri},
-        "attributes": {
-            "registry": {"string": parsed.registry},
-            "packageName": {"string": parsed.package_name},
-            "hash": {"string": parsed.hash},
-        },
-    }
-
-
-def _build_entity_reference(entity: str) -> dict[str, str]:
-    match = _ENTITY_RE.match(entity.strip())
-    if match:
-        entity_type = match.group("type")
-        if "::" not in entity_type:
-            entity_type = f"Raja::{entity_type}"
-        return {"entityType": entity_type, "entityId": match.group("id")}
-    if "::" in entity:
-        entity_type, entity_id = entity.split("::", 1)
-        if entity_type and entity_id:
-            if "::" not in entity_type:
-                entity_type = f"Raja::{entity_type}"
-            return {"entityType": entity_type, "entityId": entity_id}
-    raise ValueError('entity must be in the form Type::"id"')
-
-
-def _datazone_service(client: Any) -> DataZoneService:
-    return DataZoneService(client=client, config=DataZoneConfig.from_env())
-
-
-def _principal_project_id(table: Any, principal: str) -> str:
-    response = table.get_item(Key={"principal": principal})
-    item = response.get("Item") or {}
-    project_id = item.get("datazone_project_id")
-    if isinstance(project_id, str) and project_id:
-        return project_id
-    raise HTTPException(
-        status_code=404,
-        detail=f"DataZone project not found for principal: {principal}",
-    )
-
-
-def _authorize_package_with_datazone(
-    datazone: Any,
-    table: Any,
-    principal: str,
-    quilt_uri: str,
-) -> bool:
-    try:
-        service = _datazone_service(datazone)
-        project_id = _principal_project_id(table, principal)
-        return service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
-    except DataZoneError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
 @router.post("/token")
 def issue_token(
     request: Request,
     payload: TokenRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    table: Any = Depends(dependencies.get_principal_table),
-    audit_table: Any = Depends(dependencies.get_audit_table),
+    datazone: Any = Depends(dependencies.get_datazone_client),
     secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     logger.info("token_requested", principal=payload.principal)
 
-    authorization_plane_id = _authorization_plane_id()
-    response = table.get_item(Key={"principal": payload.principal})
-    item = response.get("Item")
-    if not item:
+    scopes = _derive_principal_scopes(datazone, payload.principal)
+    if scopes is None:
         logger.warning("token_request_principal_not_found", principal=payload.principal)
-        try:
-            audit_table.put_item(
-                Item=build_audit_item(
-                    principal=payload.principal,
-                    action="token.issue",
-                    resource=payload.principal,
-                    decision="DENY",
-                    authorization_plane_id=authorization_plane_id,
-                    request_id=_get_request_id(request),
-                )
-            )
-        except Exception as exc:
-            logger.warning("audit_log_write_failed", error=str(exc))
         raise HTTPException(status_code=404, detail=f"Principal not found: {payload.principal}")
 
-    scopes = item.get("scopes", [])
     token_type = payload.token_type.lower()
 
     if token_type == "rajee":
@@ -434,20 +389,6 @@ def issue_token(
         ttl=TOKEN_TTL,
     )
 
-    try:
-        audit_table.put_item(
-            Item=build_audit_item(
-                principal=payload.principal,
-                action="token.issue",
-                resource=payload.principal,
-                decision="SUCCESS",
-                authorization_plane_id=authorization_plane_id,
-                request_id=_get_request_id(request),
-            )
-        )
-    except Exception as exc:
-        logger.warning("audit_log_write_failed", error=str(exc))
-
     return {"token": token, "principal": payload.principal, "scopes": scopes}
 
 
@@ -456,9 +397,7 @@ def issue_package_token(
     request: Request,
     payload: PackageTokenRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    table: Any = Depends(dependencies.get_principal_table),
     datazone: Any = Depends(dependencies.get_datazone_client),
-    audit_table: Any = Depends(dependencies.get_audit_table),
     secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     logger.info("package_token_requested", principal=payload.principal)
@@ -472,24 +411,11 @@ def issue_package_token(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        allowed = _authorize_package_with_datazone(datazone, table, payload.principal, quilt_uri)
+        allowed = _authorize_package_with_datazone(datazone, payload.principal, quilt_uri)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if not allowed:
-        try:
-            audit_table.put_item(
-                Item=build_audit_item(
-                    principal=payload.principal,
-                    action="token.issue.package",
-                    resource=quilt_uri,
-                    decision="DENY",
-                    authorization_plane_id=_authorization_plane_id(),
-                    request_id=_get_request_id(request),
-                )
-            )
-        except Exception as exc:
-            logger.warning("audit_log_write_failed", error=str(exc))
         raise HTTPException(status_code=403, detail="package access denied")
 
     token = create_token_with_package_grant(
@@ -500,20 +426,6 @@ def issue_package_token(
         secret=secret,
     )
 
-    try:
-        audit_table.put_item(
-            Item=build_audit_item(
-                principal=payload.principal,
-                action="token.issue.package",
-                resource=quilt_uri,
-                decision="SUCCESS",
-                authorization_plane_id=_authorization_plane_id(),
-                request_id=_get_request_id(request),
-            )
-        )
-    except Exception as exc:
-        logger.warning("audit_log_write_failed", error=str(exc))
-
     return {"token": token, "principal": payload.principal, "quilt_uri": quilt_uri, "mode": "read"}
 
 
@@ -522,9 +434,7 @@ def issue_translation_token(
     request: Request,
     payload: TranslationTokenRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    table: Any = Depends(dependencies.get_principal_table),
     datazone: Any = Depends(dependencies.get_datazone_client),
-    audit_table: Any = Depends(dependencies.get_audit_table),
     secret: str = Depends(dependencies.get_jwt_secret),
 ) -> dict[str, Any]:
     logger.info("translation_token_requested", principal=payload.principal)
@@ -538,24 +448,11 @@ def issue_translation_token(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        allowed = _authorize_package_with_datazone(datazone, table, payload.principal, quilt_uri)
+        allowed = _authorize_package_with_datazone(datazone, payload.principal, quilt_uri)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if not allowed:
-        try:
-            audit_table.put_item(
-                Item=build_audit_item(
-                    principal=payload.principal,
-                    action="token.issue.translation",
-                    resource=quilt_uri,
-                    decision="DENY",
-                    authorization_plane_id=_authorization_plane_id(),
-                    request_id=_get_request_id(request),
-                )
-            )
-        except Exception as exc:
-            logger.warning("audit_log_write_failed", error=str(exc))
         raise HTTPException(status_code=403, detail="package access denied")
 
     token = create_token_with_package_map(
@@ -567,20 +464,6 @@ def issue_translation_token(
         logical_bucket=payload.logical_bucket,
         logical_key=payload.logical_key,
     )
-
-    try:
-        audit_table.put_item(
-            Item=build_audit_item(
-                principal=payload.principal,
-                action="token.issue.translation",
-                resource=quilt_uri,
-                decision="SUCCESS",
-                authorization_plane_id=_authorization_plane_id(),
-                request_id=_get_request_id(request),
-            )
-        )
-    except Exception as exc:
-        logger.warning("audit_log_write_failed", error=str(exc))
 
     return {
         "token": token,
@@ -605,73 +488,44 @@ def revoke_token(
 @router.post("/admin/rotate-secret", status_code=202)
 def rotate_secret(
     _: None = Depends(dependencies.require_admin_auth),
-    audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, str]:
     operation_id = str(uuid.uuid4())
-    _put_rotation_operation(
-        audit_table,
-        operation_id=operation_id,
-        status="PENDING",
-        phase="starting",
-    )
     try:
-        _put_rotation_operation(
-            audit_table,
-            operation_id=operation_id,
-            status="PENDING",
-            phase="rotating",
-        )
-        version_id = _perform_secret_rotation()
-        _put_rotation_operation(
-            audit_table,
-            operation_id=operation_id,
-            status="SUCCEEDED",
-            phase="completed",
-            version_id=version_id,
-        )
+        _perform_secret_rotation()
         return {"operation_id": operation_id, "status": "SUCCEEDED"}
     except (RuntimeError, ClientError, BotoCoreError, ValueError) as exc:
-        _put_rotation_operation(
-            audit_table,
-            operation_id=operation_id,
-            status="FAILED",
-            phase="failed",
-            error=str(exc),
-        )
+        logger.warning("secret_rotation_failed", error=str(exc))
         return {"operation_id": operation_id, "status": "FAILED"}
-
-
-@router.get("/admin/rotate-secret/{operation_id}")
-def get_rotate_secret_status(
-    operation_id: str,
-    _: None = Depends(dependencies.require_admin_auth),
-    audit_table: Any = Depends(dependencies.get_audit_table),
-) -> dict[str, Any]:
-    item = audit_table.get_item(Key={"pk": ROTATION_PK, "event_id": operation_id}).get("Item")
-    if not item:
-        raise HTTPException(status_code=404, detail="rotation operation not found")
-    return {
-        "operation_id": operation_id,
-        "status": item.get("status", "UNKNOWN"),
-        "phase": item.get("phase", "unknown"),
-        "version": item.get("version_id"),
-        "error": item.get("error") or None,
-        "updated_at": item.get("updated_at"),
-    }
 
 
 @router.get("/principals")
 def list_principals(
     limit: int | None = Query(default=None, ge=1),
     _: None = Depends(dependencies.require_admin_auth),
-    table: Any = Depends(dependencies.get_principal_table),
+    datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
     logger.debug("principals_list_requested", limit=limit)
-    scan_kwargs: dict[str, Any] = {}
-    if limit:
-        scan_kwargs["Limit"] = limit
-    response = table.scan(**scan_kwargs)
-    principals = response.get("Items", [])
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        principals: list[dict[str, Any]] = []
+        for project_id in _ordered_project_ids(config):
+            members = service.list_project_members(project_id)
+            scopes = _scopes_for_project(project_id, config)
+            for user_id in members:
+                if limit and len(principals) >= limit:
+                    break
+                principals.append(
+                    {
+                        "principal": user_id,
+                        "datazone_project_id": project_id,
+                        "scopes": scopes,
+                    }
+                )
+            if limit and len(principals) >= limit:
+                break
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principals_listed", count=len(principals))
     return {"principals": principals}
 
@@ -680,31 +534,36 @@ def list_principals(
 def create_principal(
     request: PrincipalRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    table: Any = Depends(dependencies.get_principal_table),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
-    """Create or update principal with scopes."""
+    """Add a principal to the appropriate DataZone project based on their scopes."""
     logger.info(
         "principal_create_requested",
         principal=request.principal,
         scopes_count=len(request.scopes),
     )
-    item: dict[str, Any] = {
-        "principal": request.principal,
-        "scopes": request.scopes,
-        "updated_at": int(time.time()),
-    }
-    if datazone_enabled():
-        config = DataZoneConfig.from_env()
-        item["datazone_project_id"] = project_id_for_scopes(request.scopes, config)
+    if not datazone_enabled():
+        raise HTTPException(status_code=503, detail="DataZone is not configured")
 
-    table.put_item(Item=item)
+    config = DataZoneConfig.from_env()
+    project_id = project_id_for_scopes(request.scopes, config)
+    if not project_id:
+        raise HTTPException(status_code=400, detail="No DataZone project configured for scopes")
+
+    try:
+        service = _datazone_service(datazone)
+        service.ensure_project_membership(
+            project_id=project_id,
+            user_identifier=request.principal,
+        )
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     logger.info("principal_created", principal=request.principal)
     return {
         "principal": request.principal,
-        "scopes": request.scopes,
-        "datazone_project_id": item.get("datazone_project_id"),
+        "scopes": _scopes_for_project(project_id, config),
+        "datazone_project_id": project_id,
     }
 
 
@@ -712,11 +571,21 @@ def create_principal(
 def delete_principal(
     principal: str,
     _: None = Depends(dependencies.require_admin_auth),
-    table: Any = Depends(dependencies.get_principal_table),
+    datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, str]:
-    """Delete a principal and their scopes."""
+    """Remove a principal from their DataZone project."""
     logger.info("principal_delete_requested", principal=principal)
-    table.delete_item(Key={"principal": principal})
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        project_id = service.find_project_for_principal(
+            principal, project_ids=_ordered_project_ids(config)
+        )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail=f"Principal not found: {principal}")
+        service.delete_project_membership(project_id=project_id, user_identifier=principal)
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principal_deleted", principal=principal)
     return {"message": f"Principal {principal} deleted"}
 
@@ -761,20 +630,8 @@ def create_policy(
     request: Request,
     payload: PolicyCreateRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Policy mutation is disabled in the DataZone POC."""
-    authorization_plane_id = _authorization_plane_id()
-    audit_table.put_item(
-        Item=build_audit_item(
-            principal="admin",
-            action="policy.create",
-            resource=payload.statement,
-            decision="UNSUPPORTED",
-            authorization_plane_id=authorization_plane_id,
-            request_id=_get_request_id(request),
-        )
-    )
     raise HTTPException(
         status_code=410,
         detail="Direct listing mutation is not supported; manage package grants through DataZone",
@@ -802,20 +659,8 @@ def update_policy(
     request: Request,
     payload: PolicyUpdateRequest,
     _: None = Depends(dependencies.require_admin_auth),
-    audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Policy mutation is disabled in the DataZone POC."""
-    authorization_plane_id = _authorization_plane_id()
-    audit_table.put_item(
-        Item=build_audit_item(
-            principal="admin",
-            action="policy.update",
-            resource=payload.statement,
-            decision="UNSUPPORTED",
-            authorization_plane_id=authorization_plane_id,
-            request_id=_get_request_id(request),
-        )
-    )
     raise HTTPException(
         status_code=410,
         detail="Direct listing mutation is not supported; manage package grants through DataZone",
@@ -827,20 +672,8 @@ def delete_policy(
     policy_id: str,
     request: Request,
     _: None = Depends(dependencies.require_admin_auth),
-    audit_table: Any = Depends(dependencies.get_audit_table),
 ) -> dict[str, Any]:
     """Policy mutation is disabled in the DataZone POC."""
-    authorization_plane_id = _authorization_plane_id()
-    audit_table.put_item(
-        Item=build_audit_item(
-            principal="admin",
-            action="policy.delete",
-            resource=policy_id,
-            decision="UNSUPPORTED",
-            authorization_plane_id=authorization_plane_id,
-            request_id=_get_request_id(request),
-        )
-    )
     raise HTTPException(
         status_code=410,
         detail="Direct listing mutation is not supported; manage package grants through DataZone",

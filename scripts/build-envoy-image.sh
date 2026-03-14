@@ -44,10 +44,10 @@ compute_image_tag() {
     local -a files
     shopt -s nullglob
     files=(
-        "infra/raja_poc/assets/envoy/Dockerfile"
-        infra/raja_poc/assets/envoy/*.sh
-        infra/raja_poc/assets/envoy/*.lua
-        infra/raja_poc/assets/envoy/*.tmpl
+        "infra/envoy/Dockerfile"
+        infra/envoy/*.sh
+        infra/envoy/*.lua
+        infra/envoy/*.tmpl
     )
     local hash
     if [ ${#files[@]} -eq 0 ]; then
@@ -117,7 +117,7 @@ fi
 # Build image
 echo ""
 echo "Building image with tag: ${IMAGE_TAG}"
-BUILD_CMD="docker build -f infra/raja_poc/assets/envoy/Dockerfile -t raja-envoy:${IMAGE_TAG} ."
+BUILD_CMD="docker build -f infra/envoy/Dockerfile -t raja-envoy:${IMAGE_TAG} ."
 
 if [ -n "$PLATFORM" ]; then
     BUILD_CMD="$BUILD_CMD --platform $PLATFORM"

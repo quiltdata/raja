@@ -104,33 +104,15 @@ def _resolve_latest_hash_via_quilt3(registry: str, package_name: str) -> str:
     return str(package.top_hash)
 
 
-def _build_entity_reference(entity: str) -> dict[str, str]:
-    if "::" in entity:
-        entity_type, entity_id = entity.split("::", 1)
-        if entity_type and entity_id:
-            return {"entityType": entity_type, "entityId": entity_id}
-    return {"entityType": "Raja::User", "entityId": entity}
-
-
 def _build_package_uri(storage: str, registry: str, package_name: str, manifest_hash: str) -> str:
     return f"quilt+{storage}://{registry}#package={package_name}@{manifest_hash}"
 
 
-def _get_project_id(table_name: str, principal: str, region: str) -> str | None:
-    table = boto3.resource("dynamodb", region_name=region).Table(table_name)
-    item = table.get_item(Key={"principal": principal}).get("Item") or {}
-    project_id = item.get("datazone_project_id")
-    if isinstance(project_id, str) and project_id:
-        return project_id
-    return None
-
-
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
-    principal_table = os.environ.get("PRINCIPAL_TABLE")
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
     jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    if not principal_table or not jwt_secret_arn or not region:
+    if not jwt_secret_arn or not region:
         return _response(500, {"error": "missing required environment variables"})
 
     try:
@@ -157,15 +139,29 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
     except ValueError as exc:
         return _response(400, {"error": f"invalid package URI: {exc}"})
 
-    project_id = _get_project_id(principal_table, principal, region)
+    try:
+        config = DataZoneConfig.from_env()
+        service = DataZoneService(
+            client=boto3.client("datazone", region_name=region),
+            config=config,
+        )
+        project_ids = [
+            p
+            for p in [
+                config.owner_project_id,
+                config.users_project_id,
+                config.guests_project_id,
+            ]
+            if p
+        ]
+        project_id = service.find_project_for_principal(principal, project_ids=project_ids)
+    except DataZoneError:
+        return _response(503, {"error": "authorization service unavailable"})
+
     if not project_id:
         return _response(403, {"decision": "DENY", "error": "principal project not found"})
 
     try:
-        service = DataZoneService(
-            client=boto3.client("datazone", region_name=region),
-            config=DataZoneConfig.from_env(),
-        )
         allowed = service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
     except DataZoneError:
         return _response(503, {"error": "authorization service unavailable"})
