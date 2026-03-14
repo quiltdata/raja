@@ -391,6 +391,7 @@ resource "aws_lambda_function" "control_plane" {
       JWT_SECRET_VERSION                   = aws_secretsmanager_secret_version.jwt_value.version_id
       TOKEN_TTL                            = tostring(var.token_ttl)
       RAJA_ADMIN_KEY                       = var.raja_admin_key
+      RAJA_DEFAULT_PRINCIPAL               = var.raja_default_principal_username != "" ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/${var.raja_default_principal_username}" : ""
       RALE_AUTHORIZER_FUNCTION_NAME        = local.rale_authorizer_lambda_name
       RALE_ROUTER_FUNCTION_NAME            = local.rale_router_lambda_name
       AWS_ACCOUNT_ID                       = data.aws_caller_identity.current.account_id

@@ -25,6 +25,7 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 # required admin key used by protected control-plane endpoints
 cat > .env <<'ENV'
 RAJA_ADMIN_KEY=change-me-admin-key
+RAJA_USERS=ernest-staging,kevin-staging,simon-staging
 ENV
 
 ./poe deploy
@@ -47,6 +48,7 @@ open "$API_URL"
 
 - Browse to `/` for the Admin UI.
 - Enter the same `RAJA_ADMIN_KEY` you used for deploy.
+- The Token and Enforcement forms default to the first `RAJA_USERS` entry from `.env`.
 
 Quick API check:
 
@@ -80,16 +82,26 @@ PY
 )"
 
 # create a principal with test-bucket permissions
+export DEMO_PRINCIPAL="$(python - <<'PY'
+import os
+import boto3
+
+users = [u.strip() for u in os.environ["RAJA_USERS"].split(",") if u.strip()]
+account_id = boto3.client("sts").get_caller_identity()["Account"]
+print(f"arn:aws:iam::{account_id}:user/{users[0]}")
+PY
+)"
+
 curl -sS -X POST "$API_URL/principals" \
   -H "Authorization: Bearer $RAJA_ADMIN_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"principal\":\"User::demo\",\"scopes\":[\"S3Object:${TEST_BUCKET}/*:s3:GetObject\",\"S3Object:${TEST_BUCKET}/*:s3:PutObject\",\"S3Bucket:${TEST_BUCKET}:s3:ListBucket\"]}"
+  -d "{\"principal\":\"${DEMO_PRINCIPAL}\",\"scopes\":[\"S3Object:${TEST_BUCKET}/*:s3:GetObject\",\"S3Object:${TEST_BUCKET}/*:s3:PutObject\",\"S3Bucket:${TEST_BUCKET}:s3:ListBucket\"]}"
 
 # mint a RAJEE token for that principal
 export RAJEE_TOKEN="$(curl -sS -X POST "$API_URL/token" \
   -H "Authorization: Bearer $RAJA_ADMIN_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"principal":"User::demo","token_type":"rajee"}' | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
+  -d "{\"principal\":\"${DEMO_PRINCIPAL}\",\"token_type\":\"rajee\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
 ```
 
 ```python

@@ -69,4 +69,7 @@ def health() -> dict[str, Any]:
     rajee_endpoint = dependencies.os.environ.get("RAJEE_ENDPOINT")
     if rajee_endpoint:
         config["rajee_endpoint"] = rajee_endpoint
+    default_principal = dependencies.os.environ.get("RAJA_DEFAULT_PRINCIPAL", "").strip()
+    if default_principal:
+        config["default_principal"] = default_principal
     return {"status": status, "dependencies": dependency_checks, "config": config}

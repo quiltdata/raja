@@ -34,6 +34,19 @@ def test_health_endpoint():
     assert "dependencies" in payload
 
 
+def test_health_exposes_default_principal_when_configured() -> None:
+    client = TestClient(app)
+    with patch.dict(
+        "os.environ",
+        {"RAJA_DEFAULT_PRINCIPAL": "arn:aws:iam::123456789012:user/demo-owner"},
+        clear=False,
+    ):
+        response = client.get("/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["config"]["default_principal"] == "arn:aws:iam::123456789012:user/demo-owner"
+
+
 def test_create_policy_returns_gone() -> None:
     client = TestClient(app)
     response = client.post(
@@ -132,3 +145,10 @@ def test_static_assets_are_served():
     for path in ("/static/admin.css", "/static/admin.js"):
         response = client.get(path)
         assert response.status_code == 200, f"{path} returned {response.status_code}"
+
+
+def test_admin_js_has_no_hardcoded_demo_principal() -> None:
+    client = TestClient(app)
+    response = client.get("/static/admin.js")
+    assert response.status_code == 200
+    assert '"User::demo"' not in response.text

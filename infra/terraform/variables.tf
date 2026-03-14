@@ -33,6 +33,12 @@ variable "raja_admin_key" {
   sensitive   = true
 }
 
+variable "raja_default_principal_username" {
+  description = "Optional IAM username used to pre-populate the admin UI with the first configured principal."
+  type        = string
+  default     = ""
+}
+
 variable "rale_storage" {
   description = "Storage scheme used when constructing quilt URIs for RALE package manifests."
   type        = string

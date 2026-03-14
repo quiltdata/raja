@@ -8,6 +8,7 @@ const API_BASE = window.location.href.split("#")[0].replace(/\/+$/, "");
 
 const state = {
   loadedViews: new Set(),
+  defaultPrincipal: "",
 };
 
 function getAdminKey() {
@@ -161,6 +162,26 @@ function getHealthDependencies(healthData) {
   return dependencies && typeof dependencies === "object" ? dependencies : {};
 }
 
+function applyDefaultPrincipal(principal) {
+  const normalized = typeof principal === "string" ? principal.trim() : "";
+  if (!normalized) {
+    return;
+  }
+
+  state.defaultPrincipal = normalized;
+
+  for (const id of ["token-principal", "probe-principal", "audit-principal"]) {
+    const input = select(id);
+    if (!input) {
+      continue;
+    }
+    input.placeholder = normalized;
+    if (!input.value.trim()) {
+      input.value = normalized;
+    }
+  }
+}
+
 async function loadHealth() {
   const chipDot = select("header-health-dot");
   const chipText = select("header-health-text");
@@ -230,6 +251,9 @@ async function loadHealth() {
       probeEndpoint.value = config.rajee_endpoint;
     }
   }
+  if (config.default_principal) {
+    applyDefaultPrincipal(config.default_principal);
+  }
 }
 
 function escapeHtml(text) {
@@ -267,6 +291,9 @@ async function loadAuthorityView() {
   if (principalsBody) {
     principalsBody.innerHTML = "";
     const items = principals.ok ? principals.data.principals || [] : [];
+    if (items.length) {
+      applyDefaultPrincipal(items[0].principal || "");
+    }
     if (!items.length) {
       principalsBody.innerHTML = "<tr><td colspan=\"3\">No principals found.</td></tr>";
     } else {
@@ -533,6 +560,8 @@ async function loadIncidentPrincipals() {
     return;
   }
 
+  applyDefaultPrincipal(principals[0].principal || "");
+
   for (const item of principals) {
     const opt = document.createElement("option");
     opt.value = item.principal;
@@ -565,8 +594,13 @@ function setupEvents() {
   if (tokenForm) {
     tokenForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const principal = select("token-principal")?.value?.trim() || "User::demo";
+      const principal = select("token-principal")?.value?.trim() || state.defaultPrincipal || "";
       const tokenType = select("token-type")?.value || "raja";
+
+      if (!principal) {
+        setStatusBanner("token-mint-status", "Principal required.", "invalid");
+        return;
+      }
 
       const result = await apiFetch("/token", {
         method: "POST",
@@ -653,7 +687,7 @@ function setupEvents() {
       event.preventDefault();
 
       const endpoint = select("probe-endpoint")?.value?.trim() || "";
-      const principal = select("probe-principal")?.value?.trim() || "";
+      const principal = select("probe-principal")?.value?.trim() || state.defaultPrincipal || "";
       const usl = select("probe-usl")?.value?.trim() || "";
 
       const health = await apiFetch(`/probe/rajee/health?endpoint=${encodeURIComponent(endpoint)}`, {

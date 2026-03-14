@@ -114,6 +114,16 @@ def test_health_datazone_dependency_is_ok():
     assert datazone_status == "ok", f"DataZone dependency is not healthy: {datazone_status}"
 
 
+@pytest.mark.integration
+def test_health_exposes_default_principal_config():
+    """GET /health should expose the first configured RAJA test principal for the admin UI."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/health")
+    assert status == 200
+    data = json.loads(body)
+    assert data.get("config", {}).get("default_principal") == require_test_principal()
+
+
 # ---------------------------------------------------------------------------
 # JWKS (public)
 # ---------------------------------------------------------------------------
