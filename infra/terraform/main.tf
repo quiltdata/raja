@@ -342,6 +342,8 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
           "datazone:CreateProjectMembership",
           "datazone:CreateSubscriptionRequest",
           "datazone:DeleteProjectMembership",
+          "datazone:GetAssetType",
+          "datazone:GetDomain",
           "datazone:GetUserProfile",
           "datazone:ListProjectMemberships",
           "datazone:ListProjects",

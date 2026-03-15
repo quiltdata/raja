@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+import httpx
+
 from .state import ResolvedConfig, RunMode
 
 
@@ -111,6 +113,25 @@ def _extract_tf_value(raw: Any) -> str | None:
     return None
 
 
+def _load_default_principal_from_server(server_url: str) -> str:
+    if not server_url:
+        return ""
+    target = f"{server_url.rstrip('/')}/health"
+    try:
+        response = httpx.get(target, timeout=5.0)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        return ""
+    principal = config.get("default_principal")
+    return principal.strip() if isinstance(principal, str) else ""
+
+
 def load_terraform_outputs(tf_dir: str) -> dict[str, Any]:
     terraform = shutil.which("terraform")
     if terraform is None:
@@ -197,6 +218,10 @@ def resolve_config(
         or os.getenv("RAJA_PRINCIPAL")
         or file_values.get("RAJA_PRINCIPAL")
         or file_values.get("principal")
+        or os.getenv("RAJA_DEFAULT_PRINCIPAL")
+        or file_values.get("RAJA_DEFAULT_PRINCIPAL")
+        or file_values.get("default_principal")
+        or _load_default_principal_from_server(server_url)
         or DEFAULT_PRINCIPAL
     )
 

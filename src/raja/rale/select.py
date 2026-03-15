@@ -33,8 +33,10 @@ def _select_index(*, count: int, mode: RunMode, label: str) -> int:
 
 def _sorted_packages_for_principal(packages: list[str], principal: str) -> list[str]:
     preferred: dict[str, int] = {}
-    if principal == DEFAULT_PRINCIPAL:
+    if "demo/package-grant" in packages:
         preferred["demo/package-grant"] = 0
+    if principal == DEFAULT_PRINCIPAL and "demo/e2e" in packages:
+        preferred["demo/e2e"] = 1
 
     return sorted(packages, key=lambda package: (preferred.get(package, 1), package))
 

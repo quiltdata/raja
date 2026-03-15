@@ -16,7 +16,7 @@ def test_sorted_packages_for_other_principals_stays_alphabetical() -> None:
     packages = ["zeta/example", "demo/package-grant", "demo/e2e"]
 
     assert _sorted_packages_for_principal(packages, "alice") == [
-        "demo/e2e",
         "demo/package-grant",
+        "demo/e2e",
         "zeta/example",
     ]

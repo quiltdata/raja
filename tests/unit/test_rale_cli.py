@@ -54,6 +54,31 @@ def test_resolve_config_priority_env_over_file(
     assert resolved.principal == "User::env"
 
 
+def test_resolve_config_falls_back_to_server_default_principal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RAJA_SERVER_URL", "http://env-server")
+    monkeypatch.setenv("RAJA_REGISTRY", "env-registry")
+    monkeypatch.setenv("RAJEE_ENDPOINT", "http://env-rajee")
+    monkeypatch.setenv("RAJA_ADMIN_KEY", "env-admin")
+    monkeypatch.setenv("RAJA_TF_DIR", str(tmp_path / "missing-tf-dir"))
+    monkeypatch.delenv("RAJA_PRINCIPAL", raising=False)
+    monkeypatch.delenv("RAJA_DEFAULT_PRINCIPAL", raising=False)
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"config": {"default_principal": "arn:aws:iam::123456789012:user/tester"}}
+
+    monkeypatch.setattr("raja.rale.config.httpx.get", lambda *args, **kwargs: _Response())
+
+    resolved, _ = resolve_config()
+
+    assert resolved.principal == "arn:aws:iam::123456789012:user/tester"
+
+
 def test_validate_config_reports_required_values() -> None:
     missing = ResolvedConfig(
         server_url="",

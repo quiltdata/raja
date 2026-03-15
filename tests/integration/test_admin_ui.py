@@ -145,6 +145,35 @@ def test_jwks_is_public_and_valid():
 
 
 # ---------------------------------------------------------------------------
+# Admin structure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_admin_structure_reports_datazone_rows_without_errors():
+    """GET /admin/structure must expose healthy DataZone structure rows."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/admin/structure", headers=_admin_headers())
+    assert status == 200, f"Expected 200, got {status}"
+    data = json.loads(body)
+
+    datazone = data.get("datazone", {})
+    domain = datazone.get("domain", {})
+    owner_project = datazone.get("owner_project", {})
+    asset_type = datazone.get("asset_type", {})
+
+    assert domain.get("status") == "ok", f"Domain row unhealthy: {domain}"
+    assert domain.get("id"), f"Domain row missing id: {domain}"
+    assert domain.get("portal_url"), f"Domain row missing portal URL: {domain}"
+
+    assert owner_project.get("status") == "ok", f"Owner project row unhealthy: {owner_project}"
+    assert owner_project.get("id"), f"Owner project row missing id: {owner_project}"
+
+    assert asset_type.get("status") == "ok", f"Asset type row unhealthy: {asset_type}"
+    assert asset_type.get("name") == "QuiltPackage", f"Unexpected asset type row: {asset_type}"
+
+
+# ---------------------------------------------------------------------------
 # Principals — DataZone project metadata
 # ---------------------------------------------------------------------------
 

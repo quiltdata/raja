@@ -98,6 +98,11 @@ textarea {
   align-items: center;
 }
 
+.key-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .icon-button,
 button,
 input,
@@ -147,6 +152,7 @@ button:disabled {
 .auth-lock {
   width: 0.95rem;
   height: 0.95rem;
+  flex: 0 0 auto;
   border-radius: 999px;
   display: inline-block;
   background: #b0a99e;
@@ -166,6 +172,8 @@ button:disabled {
   align-items: center;
   gap: 0.55rem;
   justify-content: center;
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--ink);
@@ -324,6 +332,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  min-width: 0;
 }
 
 .status-row strong {
@@ -332,17 +341,20 @@ button:disabled {
 
 .status-row-meta {
   color: var(--muted);
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .badge {
   align-self: start;
+  max-width: 100%;
   border-radius: 999px;
   padding: 0.28rem 0.55rem;
   font-size: 0.72rem;
   font-family: "Avenir Next Condensed", "Franklin Gothic Medium", sans-serif;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .badge.ok {

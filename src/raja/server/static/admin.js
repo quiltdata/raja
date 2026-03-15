@@ -91,6 +91,22 @@ function statusKindFromValue(value) {
   return "warn";
 }
 
+function statusBadgeText(value) {
+  const kind = statusKindFromValue(value);
+  if (kind === "ok") return "OK";
+  if (kind === "error") return "Error";
+  return "Warn";
+}
+
+function statusDetailText(value) {
+  if (!value) return "";
+  const raw = String(value);
+  const lower = raw.toLowerCase();
+  if (lower === "ok" || lower === "warn") return "";
+  if (lower.startsWith("error:")) return raw.slice(6).trim();
+  return raw;
+}
+
 async function parseResponse(response) {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
@@ -194,17 +210,19 @@ function renderStatusRows() {
   datazoneRows.innerHTML = datazoneItems
     .map((item) => {
       const statusKind = statusKindFromValue(item.status);
+      const statusDetail = statusDetailText(item.status);
       const label = item.href
         ? `<a href="${escapeHtml(item.href)}" target="_blank" rel="noopener">${escapeHtml(item.label)}</a>`
         : escapeHtml(item.label);
+      const metaParts = [item.meta, statusDetail].filter(Boolean);
       return `
         <div class="status-row">
           <div class="status-row-main">
             <strong>${label}</strong>
             <div>${escapeHtml(item.value)}</div>
-            <div class="status-row-meta">${escapeHtml(item.meta)}</div>
+            <div class="status-row-meta">${escapeHtml(metaParts.join(" · "))}</div>
           </div>
-          <span class="badge ${statusKind}">${escapeHtml(String(item.status))}</span>
+          <span class="badge ${statusKind}">${escapeHtml(statusBadgeText(item.status))}</span>
         </div>
       `;
     })
@@ -214,7 +232,13 @@ function renderStatusRows() {
     .map((item) => {
       const status = item.health?.status || "warn";
       const statusKind = statusKindFromValue(status);
-      const meta = [item.url, item.health?.status_code ? `HTTP ${item.health.status_code}` : "", item.kids?.length ? `KIDs: ${item.kids.join(", ")}` : "", item.health?.detail || ""]
+      const meta = [
+        item.url,
+        item.health?.status_code ? `HTTP ${item.health.status_code}` : "",
+        item.kids?.length ? `KIDs: ${item.kids.join(", ")}` : "",
+        item.health?.detail || "",
+        statusDetailText(status),
+      ]
         .filter(Boolean)
         .join(" · ");
       const value = item.url
@@ -226,7 +250,7 @@ function renderStatusRows() {
             <strong>${value}</strong>
             <div class="status-row-meta">${escapeHtml(meta || "No detail returned")}</div>
           </div>
-          <span class="badge ${statusKind}">${escapeHtml(String(status))}</span>
+          <span class="badge ${statusKind}">${escapeHtml(statusBadgeText(status))}</span>
         </div>
       `;
     })

@@ -693,7 +693,6 @@ def get_admin_structure(
     try:
         asset_type_response = datazone.get_asset_type(
             domainIdentifier=config.domain_id,
-            owningProjectIdentifier=config.owner_project_id,
             identifier=config.asset_type_name,
             revision=config.asset_type_revision,
         )

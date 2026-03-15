@@ -316,6 +316,61 @@ def test_list_policies_skips_missing_policy_id():
     assert len(response["policies"]) == 1
 
 
+def test_get_admin_structure_reads_domain_and_asset_type() -> None:
+    request = MagicMock()
+    request.base_url = "https://api.example.com/"
+    datazone = MagicMock()
+    datazone.get_domain.return_value = {"name": "demo-domain"}
+    datazone.get_asset_type.return_value = {"name": "QuiltPackage", "revision": "2"}
+
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        config = MagicMock()
+        config.domain_id = "dzd-123"
+        config.owner_project_id = "proj-owner"
+        config.users_project_id = "proj-users"
+        config.guests_project_id = "proj-guests"
+        config.asset_type_name = "QuiltPackage"
+        config.asset_type_revision = "2"
+        mock_config_cls.from_env.return_value = config
+        with patch.dict(
+            "os.environ",
+            {"AWS_REGION": "us-east-1"},
+            clear=False,
+        ):
+            with patch.object(
+                control_plane,
+                "_resolve_runtime_config",
+                return_value={
+                    "registry": "s3://demo-registry",
+                    "rajee_endpoint": "https://rajee.example.com",
+                    "rale_authorizer_url": "https://authorizer.example.com",
+                    "rale_router_url": "https://router.example.com",
+                },
+            ):
+                with patch.object(
+                    control_plane, "get_jwks", return_value={"keys": [{"kid": "kid-1"}]}
+                ):
+                    with patch.object(
+                        control_plane,
+                        "_probe_endpoint",
+                        return_value={"reachable": True, "status": "ok"},
+                    ):
+                        response = control_plane.get_admin_structure(
+                            request=request,
+                            datazone=datazone,
+                            secret="secret",
+                        )
+
+    datazone.get_domain.assert_called_once_with(identifier="dzd-123")
+    datazone.get_asset_type.assert_called_once_with(
+        domainIdentifier="dzd-123",
+        identifier="QuiltPackage",
+        revision="2",
+    )
+    assert response["datazone"]["domain"]["status"] == "ok"
+    assert response["datazone"]["asset_type"]["status"] == "ok"
+
+
 def test_get_jwks():
     """Test JWKS endpoint returns correct format."""
     response = control_plane.get_jwks(secret="test-secret")
