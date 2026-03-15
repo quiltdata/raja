@@ -217,7 +217,7 @@ resource "aws_iam_role_policy_attachment" "datazone_domain_execution" {
 
 resource "aws_datazone_domain" "raja" {
   name                  = var.datazone_domain_name
-  description           = "RAJA package authorization POC"
+  description           = "Software-defined authorization for Quilt packages: Cedar policies compile to JWT scopes, DataZone enforces access via subscription grants"
   domain_execution_role = aws_iam_role.datazone_domain_execution.arn
   skip_deletion_check   = true
 
@@ -227,21 +227,21 @@ resource "aws_datazone_domain" "raja" {
 resource "aws_datazone_project" "owner" {
   domain_identifier   = aws_datazone_domain.raja.id
   name                = var.datazone_owner_project_name
-  description         = "Owns RAJA-managed package listings"
+  description         = "Publishes QuiltPackage asset listings; RAJA control plane creates listings here and accepts subscriber requests on behalf of principals"
   skip_deletion_check = true
 }
 
 resource "aws_datazone_project" "users" {
   domain_identifier   = aws_datazone_domain.raja.id
   name                = var.datazone_users_project_name
-  description         = "RAJA standard user principals"
+  description         = "Subscriber project for authenticated principals; RAJA auto-creates per-principal sub-projects under this domain"
   skip_deletion_check = true
 }
 
 resource "aws_datazone_project" "guests" {
   domain_identifier   = aws_datazone_domain.raja.id
   name                = var.datazone_guests_project_name
-  description         = "RAJA guest (read-only public) principals"
+  description         = "Subscriber project for unauthenticated/public read-only access; subscriptions are auto-approved"
   skip_deletion_check = true
 }
 
@@ -249,7 +249,7 @@ resource "aws_datazone_asset_type" "quilt_package" {
   domain_identifier         = aws_datazone_domain.raja.id
   owning_project_identifier = aws_datazone_project.owner.id
   name                      = var.datazone_package_asset_type
-  description               = "RAJA Quilt package access unit"
+  description               = "One Quilt package (bucket + logical key); listed by raja-owner so principals can request JWT-scoped read/write access"
 }
 
 
