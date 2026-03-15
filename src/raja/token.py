@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, cast
+from typing import Any
 
 import jwt
 import structlog
@@ -385,7 +385,7 @@ def decode_token(token_str: str) -> dict[str, Any]:
             options={"verify_signature": False, "verify_exp": False},
             algorithms=["HS256"],
         )
-        return cast(dict[str, Any], payload)
+        return payload
     except jwt.InvalidTokenError as exc:
         logger.warning("token_decode_failed", error=str(exc))
         raise TokenInvalidError(f"failed to decode token: {exc}") from exc
