@@ -70,10 +70,11 @@ visibly to the others.
 
 ### Principals table
 
-Columns: Principal ID | DataZone project name | project ID | scope count | last token issued
+Columns: Principal ID | DataZone project name | project ID | derived scope count | last token issued
 
-Each row is expandable to show the scopes stored in DynamoDB. A "Delete" action in each row maps
-directly to the soft-revocation concept. An "Add principal" form at the top calls `POST /principals`.
+Each row is expandable to show the scopes derived live from the principal's current DataZone
+project membership. A "Delete" action in each row maps directly to the soft-revocation concept.
+An "Add principal" form at the top calls `POST /principals`.
 
 ### Package listings table
 
@@ -82,15 +83,20 @@ Columns: Package name (Quilt URI) | listing ID | owner project | asset type | su
 Derived from DataZone listings. Read-only (listings are created by the seed scripts, not the UI).
 Each row links out to the DataZone listing in the console.
 
-### Grants table
+### Access table
 
-The cross-product view: which principal (project) has an ACCEPTED subscription to which listing.
-This is the actual authorization state — the thing RAJ reads at mint time.
+The cross-project access view: who can read which package, and why. This is the actual
+authorization surface the user needs to reason about at mint time.
 
-Columns: Principal | Package | Grant status | Subscription ID
+Columns: Principal project | Package | Access mode | Source | Subscription ID
 
-Rows with `ACCEPTED` are green. `PENDING` or absent rows are amber or empty. This makes the
-authorization graph concrete and scannable.
+`Access mode` is either `OWNED` or `GRANTED`.
+
+- `OWNED` means the project owns the listing and therefore has inherent access
+- `GRANTED` means the project has an ACCEPTED subscription to a foreign listing
+
+This is better than "Grants" because it shows the full access picture without forcing the user to
+know which cases happen to require a DataZone subscription object underneath.
 
 ---
 
@@ -101,14 +107,15 @@ panels.
 
 ### The RALE Flow
 
-A step-by-step walkthrough of the RALE CLI flow, in the browser:
+A step-by-step walkthrough of the RALE system, in the browser. The goal is not CLI parity; the
+goal is to teach the control flow in the clearest possible order.
 
 #### Step 1 — Select
 
 - Dropdown of packages pulled live from the actual Quilt registry configured in the deployment
 - On selection, lists the real files in that package with their actual sizes
 - File picker produces the USL, displayed in a read-only field
-- Maps to `run_select` in the CLI
+- This teaches the difference between package-level authorization and file-level retrieval
 
 #### Step 2 — Authorize
 
@@ -118,17 +125,19 @@ A step-by-step walkthrough of the RALE CLI flow, in the browser:
   `package_name`, `registry`, `iat`, `exp` — each annotated with a one-line explanation of
   what the claim means and why it is there
 - On 403: shows the denial reason and which DataZone grant is missing
-- Maps to `run_authorize` in the CLI
+- This is the conceptual hinge of the whole UI: DataZone access becomes a concrete, inspectable
+  token
 
-#### Step 3 — Fetch
+#### Step 3 — Deliver
 
 - "Fetch via RALE Router" sends the TAJ in `x-rale-taj` to the router
 - Shows response status, byte count, and a content preview
-- Shows the diagnostic headers the router emitted
-- Maps to `run_fetch` in the CLI
+- Shows the routing diagnostics needed to explain what happened
+- If the router or RAJEE path is unreachable, the UI says that plainly instead of hiding it behind
+  implementation detail
 
-Each step is unlocked only after the previous step completes — this mirrors the CLI's sequential
-phases and makes the dependency explicit. A "Reset" button at any point starts over.
+Each step is unlocked only after the previous step completes because the pedagogy matters more than
+strict endpoint symmetry. A "Reset" button at any point starts over.
 
 ### Failure Tests
 
@@ -163,13 +172,13 @@ The persistent header shrinks to just three things:
 2. **System health summary** — single color dot + text: "All systems live" / "1 component
    unreachable" / "Auth error" — clicking it scrolls to the Domain Structure column
 3. **Current principal** — a dropdown of known principals; selecting one pre-fills it across all
-   three columns (the RALE flow, the grants table filter, the soft-revocation dropdown)
+   three columns (the RALE flow, the access table filter, the soft-revocation dropdown)
 
 The active principal is the binding thread across all three columns. The dropdown is populated
-exclusively from `GET /principals` — the live DynamoDB table that holds the real IAM ARNs seeded
-from `RAJA_USERS`. Selecting one filters column 2 to show only that principal's DataZone project
-and grants, and pre-fills column 3's RALE flow principal field. No example values, no placeholders:
-if a principal is not in the live control-plane response it does not appear here.
+exclusively from `GET /principals` — a live control-plane view of current DataZone project
+memberships. Selecting one filters column 2 to show only that principal's DataZone project and
+access relationships, and pre-fills column 3's RALE flow principal field. No example values, no
+placeholders: if a principal is not in the live control-plane response it does not appear here.
 
 ---
 
@@ -194,8 +203,8 @@ design.
 | --- | --- |
 | Eight disconnected tabs | Three columns reflecting the actual mental model |
 | No DataZone surface | Domain, projects, listings, grants all first-class |
-| No test data management | Principals/packages/grants as managed tables |
-| RALE flow spread across Enforcement + manual CLI | Integrated step-by-step RALE runner |
+| No test data management | Principals/packages/access as managed tables |
+| RALE flow spread across Enforcement + manual CLI | Integrated step-by-step RALE teaching flow |
 | Failure tests isolated from execution | Failure tests adjacent to the flow they test |
 | Principal must be typed repeatedly | Global principal selector syncs all panels |
 | Token section divorced from its effect | Authorize step shows claims annotated in context |
