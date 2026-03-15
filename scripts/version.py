@@ -69,6 +69,26 @@ def bump_version(version: str, bump_type: str) -> str:
         sys.exit(1)
 
 
+def parse_bump_type(args: list[str]) -> str:
+    """Parse bump type args and reject ambiguous invocations.
+
+    Expected forms:
+      [] -> "patch"
+      ["patch"|"minor"|"major"] -> that value
+
+    Anything else is ambiguous and should fail fast instead of silently
+    accepting the first token.
+    """
+    if not args:
+        return "patch"
+    if len(args) == 1 and args[0] in ["major", "minor", "patch"]:
+        return args[0]
+
+    print(f"✗ Invalid bump arguments: {' '.join(args)}")
+    print("  Usage: python scripts/version.py bump [patch|minor|major]")
+    sys.exit(1)
+
+
 def update_pyproject_version(new_version: str) -> None:
     """Update version in pyproject.toml."""
     pyproject_path = get_pyproject_path()
@@ -278,11 +298,7 @@ def main() -> None:
     if command == "show":
         show_version()
     elif command == "bump":
-        bump_type = sys.argv[2] if len(sys.argv) > 2 else "patch"
-        if bump_type not in ["major", "minor", "patch"]:
-            print(f"✗ Invalid bump type: {bump_type}")
-            print("  Valid types: major, minor, patch")
-            sys.exit(1)
+        bump_type = parse_bump_type(sys.argv[2:])
         bump_and_commit(bump_type)
     elif command == "tag":
         create_tag()

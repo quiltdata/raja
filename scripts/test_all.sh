@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "==> Running Python unit tests"
-pytest tests/unit/ -v
+uv run --extra test python -m pytest tests/unit/ -v
 
 echo "==> Running Lua tests"
 if ! command -v busted >/dev/null 2>&1; then

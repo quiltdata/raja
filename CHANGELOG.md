@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Admin UI next-generation flow**: Completed the three-column admin UX from [`specs/49-domain-ux/01-admin-ng.md`](/Users/ernest/GitHub/raja/specs/49-domain-ux/01-admin-ng.md), including Domain Structure, Test Data, and Live Execution coverage exercised by `./poe test-all`
+
+### Fixed
+
+- **Strict typing for RALE support modules**: Removed stale optional-import ignores and simplified JWT decode typing so `./poe check` and `./poe test-all` pass cleanly again
+
 ## [0.9.0] - 2026-03-12
 
 ### Added

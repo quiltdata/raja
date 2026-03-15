@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Seed real IAM users into DataZone projects for integration testing.
 
-Users are read from RAJA_USERS (comma-separated usernames) and assigned to the
-three DataZone project tiers:
-  - Tier 0 (owner):  first user  → owner_project  (scopes: ["*:*:*"])
-  - Tier 1 (users):  second user → users_project  (scopes: ["Package:*:write"])
-  - Tier 2 (guests): remaining   → guests_project (scopes: ["Package:*:read"])
+Users are read from two env vars:
 
-At least 3 users are needed to cover all tiers; a warning is printed if fewer
-are provided.
+  RAJA_USERS  — comma-separated usernames assigned to tiers by position:
+    - Tier 0 (owner):  first user  → owner_project  (scopes: ["*:*:*"])
+    - Tier 1 (users):  second user → users_project  (scopes: ["Package:*:write"])
+    - Tier 2 (guests): remaining   → guests_project (scopes: ["Package:*:read"])
+  At least 2 users are needed to cover owner + users tiers.
+
+  RAJA_GUESTS — optional comma-separated usernames all seeded into guests_project
+    as PROJECT_CONTRIBUTOR.  Use this for dedicated read-only/public principals.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import boto3
 from raja.datazone import DataZoneConfig, DataZoneService, datazone_enabled
 from scripts.tf_outputs import get_tf_output
 
-_MIN_USERS = 3
+_MIN_USERS = 2
 
 _TIER_SCOPES: list[list[str]] = [
     ["*:*:*"],              # owner  — wildcard → owner_project
@@ -84,12 +86,18 @@ def _get_raja_users() -> list[str]:
     if len(users) < _MIN_USERS:
         print(
             f"⚠ Warning: only {len(users)} user(s) in RAJA_USERS; "
-            f"need at least {_MIN_USERS} to cover all DataZone project tiers "
-            f"(owner / users / guests). "
+            f"need at least {_MIN_USERS} to cover owner + users tiers. "
             f"Extra tiers will reuse the last user.",
             file=sys.stderr,
         )
     return users
+
+
+def _get_raja_guests() -> list[str]:
+    raw = os.environ.get("RAJA_GUESTS", "").strip()
+    if not raw:
+        return []
+    return [u.strip() for u in raw.split(",") if u.strip()]
 
 
 def _user_to_arn(username: str, account_id: str) -> str:
@@ -111,10 +119,11 @@ def main() -> None:
     region = _get_region()
     _hydrate_datazone_env()
     usernames = _get_raja_users()
+    guests = _get_raja_guests()
     account_id = _get_account_id(region)
 
     print(f"{'=' * 60}")
-    print(f"Seeding {len(usernames)} RAJA user(s) from account {account_id}")
+    print(f"Seeding {len(usernames)} RAJA user(s) + {len(guests)} guest(s) from account {account_id}")
     print(f"Region: {region}")
     if dry_run:
         print("Mode:   DRY-RUN (no changes will be made)")
@@ -171,11 +180,39 @@ def main() -> None:
             print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
             fail_count += 1
 
+    # --- RAJA_GUESTS: seed directly into guests project ---
+    if guests:
+        guests_project_id = datazone_config.guests_project_id
+        print(f"\nSeeding {len(guests)} guest(s) → guests project ({guests_project_id})")
+        for idx, username in enumerate(guests):
+            arn = _user_to_arn(username, account_id)
+            print(f"[{idx + 1}/{len(guests)}] {username}  tier=guests  project={guests_project_id}")
+            if dry_run:
+                print(f"  [DRY-RUN] Would add: {arn} → project={guests_project_id} as PROJECT_CONTRIBUTOR")
+                success_count += 1
+                continue
+            if not guests_project_id:
+                print(f"  ⚠ No guests project ID, skipping", file=sys.stderr)
+                fail_count += 1
+                continue
+            try:
+                datazone_service.ensure_project_membership(
+                    project_id=guests_project_id,
+                    user_identifier=arn,
+                    designation="PROJECT_CONTRIBUTOR",
+                )
+                print(f"  ✓ DataZone: added {arn} to guests project {guests_project_id}")
+                success_count += 1
+            except Exception as e:
+                print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
+                fail_count += 1
+
+    total = len(usernames) + len(guests)
     print(f"\n{'=' * 60}")
     if dry_run:
-        print(f"✓ DRY-RUN: Would seed {len(usernames)} user(s)")
+        print(f"✓ DRY-RUN: Would seed {total} principal(s)")
     else:
-        print(f"✓ Seeded {success_count}/{len(usernames)} user(s) successfully")
+        print(f"✓ Seeded {success_count}/{total} principal(s) successfully")
         if fail_count > 0:
             print(f"✗ Failed: {fail_count}")
     print(f"{'=' * 60}")

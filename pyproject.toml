@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.9.1"
+version = "1.0.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "awscrt>=0.20.0",
     "click>=8.1.0",
     "httpx>=0.27.0",
     "pydantic>=2.7.0",
@@ -34,10 +35,11 @@ aws = [
 ]
 
 test = [
-    "awscrt>=0.20.0",
     "moto>=4.2.0",
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-env>=1.1.5",
+    "pytest-mock>=3.14.0",
 ]
 
 [build-system]
@@ -81,7 +83,7 @@ addopts = [
     "--showlocals",
 ]
 filterwarnings = [
-    "ignore::jwt.warnings.InsecureKeyLengthWarning",
+    "ignore:.*key length.*:UserWarning",
 ]
 markers = [
     "unit: Unit tests (no external dependencies)",
@@ -99,9 +101,9 @@ check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lin
 
 # Testing
 test = { cmd = "bash scripts/test_all.sh", help = "Run all unit tests (Python + Rust + Lua)" }
-test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
-test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
-coverage = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage (alias for test-cov)" }
+test-unit = { cmd = "uv run --extra test python -m pytest tests/unit/ -v", help = "Run unit tests only" }
+test-cov = { cmd = "uv run --extra test python -m pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
+coverage = { cmd = "uv run --extra test python -m pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage (alias for test-cov)" }
 test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name = "action", positional = true, default = "up" }], help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
 # Demo
@@ -130,8 +132,8 @@ bump = { cmd = "python scripts/version.py bump ${part}", args = [{ name = "part"
 tag = { script = "scripts.version:create_tag", help = "Create and push release tag (runs checks first)" }
 
 # Integration test (kept separate as it requires deployed resources)
-test-integration = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; pytest tests/integration/ -v", help = "Run integration tests (requires deployed AWS resources)" }
-test-rale-cli = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; pytest tests/integration/test_rale_cli_live.py -v", help = "Run live RALE CLI integration tests (requires deployed AWS resources)" }
+test-integration = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; uv run --extra test python -m pytest tests/integration/ -v", help = "Run integration tests (requires deployed AWS resources)" }
+test-rale-cli = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; uv run --extra test python -m pytest tests/integration/test_rale_cli_live.py -v", help = "Run live RALE CLI integration tests (requires deployed AWS resources)" }
 test-all = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; poe check && poe test && poe deploy && poe test-integration && poe test-rale-cli", help = "Run linting and tests, deploy, run integration tests, and verify the live RALE CLI flow" }
 
 # Internal tasks (prefixed with _)

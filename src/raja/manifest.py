@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable
+from importlib import import_module
 from typing import Any
 
 from .models import S3Location
@@ -14,7 +15,7 @@ def _load_quilt3() -> Any:
     os.environ.setdefault("XDG_DATA_HOME", "/tmp")
     os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
     try:
-        import quilt3  # type: ignore[import-untyped]
+        quilt3 = import_module("quilt3")
     except Exception as exc:  # pragma: no cover - exercised via callers
         raise RuntimeError("quilt3 is required for package resolution") from exc
     return quilt3

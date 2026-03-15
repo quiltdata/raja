@@ -385,6 +385,8 @@ def decode_token(token_str: str) -> dict[str, Any]:
             options={"verify_signature": False, "verify_exp": False},
             algorithms=["HS256"],
         )
+        if not isinstance(payload, dict):
+            raise TokenInvalidError("decoded token payload is not an object")
         return payload
     except jwt.InvalidTokenError as exc:
         logger.warning("token_decode_failed", error=str(exc))
