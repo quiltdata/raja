@@ -250,6 +250,11 @@ resource "aws_datazone_asset_type" "quilt_package" {
   owning_project_identifier = aws_datazone_project.owner.id
   name                      = var.datazone_package_asset_type
   description               = "One Quilt package (bucket + logical key); listed by raja-owner so principals can request JWT-scoped read/write access"
+
+  lifecycle {
+    ignore_changes = [description]
+    prevent_destroy = true
+  }
 }
 
 
