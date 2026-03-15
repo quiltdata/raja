@@ -13,7 +13,7 @@ from .state import RunMode, SessionState
 
 def _load_quilt3() -> Any:
     try:
-        import quilt3  # type: ignore[import-untyped]
+        import quilt3
     except Exception as exc:
         raise RuntimeError("quilt3 is required for package selection") from exc
     return quilt3

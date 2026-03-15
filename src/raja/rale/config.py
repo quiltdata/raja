@@ -24,7 +24,7 @@ class _LoadDotenv(Protocol):
 
 
 try:
-    from dotenv import load_dotenv as _dotenv_loader
+    from dotenv import load_dotenv as _dotenv_loader  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - exercised in deployed Lambda packaging
     LOAD_DOTENV: _LoadDotenv | None = None
 else:

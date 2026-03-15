@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from rich.console import Console
-    from rich.table import Table
+    from rich.console import Console  # type: ignore[import-not-found]
+    from rich.table import Table  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - exercised only when rich is unavailable
 
     class Table:  # type: ignore[no-redef]

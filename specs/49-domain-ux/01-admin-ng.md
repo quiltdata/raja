@@ -1,5 +1,13 @@
 # Admin UI Next Generation
 
+## Implementation Status
+
+- [x] Domain Structure column implemented in the admin UI and control-plane APIs
+- [x] Test Data column implemented for principals, listings, and access graph visibility
+- [x] Live Execution column implemented for the RALE flow, failure tests, and revocation actions
+- [x] Header and navigation model updated to the three-column design
+- [x] Local and live test workflows updated so `poe test-all` exercises the shipped path successfully
+
 ## Problem with the current design
 
 `admin.html` was designed around a single concern: RAJ token operations. Its eight sidebar tabs

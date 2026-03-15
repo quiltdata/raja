@@ -55,7 +55,9 @@ def get_jwt_secret() -> str:
     if secret_version:
         get_secret_kwargs["VersionId"] = secret_version
     response = client.get_secret_value(**get_secret_kwargs)
-    secret = response["SecretString"]
+    secret = response.get("SecretString")
+    if not isinstance(secret, str) or not secret:
+        raise RuntimeError("Secrets Manager returned an invalid SecretString")
     if _jwt_secret_cache is None:
         _jwt_secret_cache = {}
     _jwt_secret_cache[cache_key] = secret
