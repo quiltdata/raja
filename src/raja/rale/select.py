@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, cast
 
 import click
@@ -13,7 +14,7 @@ from .state import RunMode, SessionState
 
 def _load_quilt3() -> Any:
     try:
-        import quilt3
+        quilt3 = import_module("quilt3")
     except Exception as exc:
         raise RuntimeError("quilt3 is required for package selection") from exc
     return quilt3
