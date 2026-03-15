@@ -80,6 +80,9 @@ addopts = [
     "--strict-config",
     "--showlocals",
 ]
+filterwarnings = [
+    "ignore::jwt.warnings.InsecureKeyLengthWarning",
+]
 markers = [
     "unit: Unit tests (no external dependencies)",
     "integration: tests that require deployed AWS resources",
