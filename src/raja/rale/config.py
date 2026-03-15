@@ -6,13 +6,32 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from dotenv import load_dotenv
+from typing import Any, Protocol
 
 from .state import ResolvedConfig, RunMode
 
-load_dotenv()
+
+class _LoadDotenv(Protocol):
+    def __call__(
+        self,
+        dotenv_path: str | os.PathLike[str] | None = None,
+        stream: Any = None,
+        verbose: bool = False,
+        override: bool = False,
+        interpolate: bool = True,
+        encoding: str | None = "utf-8",
+    ) -> bool: ...
+
+
+try:
+    from dotenv import load_dotenv as _dotenv_loader
+except ImportError:  # pragma: no cover - exercised in deployed Lambda packaging
+    LOAD_DOTENV: _LoadDotenv | None = None
+else:
+    LOAD_DOTENV = _dotenv_loader
+
+if LOAD_DOTENV is not None:
+    LOAD_DOTENV()
 
 DEFAULT_SERVER_URL = ""
 DEFAULT_RAJEE_ENDPOINT = ""

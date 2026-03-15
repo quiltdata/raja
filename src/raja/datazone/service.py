@@ -107,6 +107,28 @@ class DataZoneService:
             )
         return None
 
+    def list_package_listings(self) -> list[DataZonePackageListing]:
+        """Return all DataZone listings matching the configured package asset type."""
+        listings: list[DataZonePackageListing] = []
+        for item in self._search_listings(""):
+            if item.get("entityType") != self._config.asset_type_name:
+                continue
+            listing_id = str(item.get("listingId") or "")
+            asset_id = str(item.get("entityId") or "")
+            if not listing_id or not asset_id:
+                continue
+            listings.append(
+                DataZonePackageListing(
+                    listing_id=listing_id,
+                    listing_revision=str(item.get("listingRevision") or ""),
+                    asset_id=asset_id,
+                    asset_revision=str(item.get("entityRevision") or ""),
+                    name=str(item.get("name") or ""),
+                    owner_project_id=str(item.get("owningProjectId") or ""),
+                )
+            )
+        return listings
+
     def has_package_grant(self, *, project_id: str, quilt_uri: str) -> bool:
         listing = self.find_package_listing(quilt_uri)
         if listing is None:
@@ -388,6 +410,18 @@ class DataZoneService:
                 status="ACCEPTED",
             )
             is not None
+        )
+
+    def find_accepted_subscription(
+        self,
+        *,
+        project_id: str,
+        listing_id: str,
+    ) -> dict[str, Any] | None:
+        return self._find_subscription_request(
+            project_id=project_id,
+            listing_id=listing_id,
+            status="ACCEPTED",
         )
 
     def _find_subscription_request(

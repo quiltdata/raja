@@ -9,8 +9,10 @@ import secrets
 import time
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 import boto3
+import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
@@ -24,13 +26,17 @@ from raja.datazone import (
     project_id_for_scopes,
 )
 from raja.exceptions import TokenInvalidError
+from raja.manifest import _load_quilt3
 from raja.package_map import parse_s3_path
-from raja.quilt_uri import validate_quilt_uri
+from raja.quilt_uri import QuiltUri, parse_quilt_uri, validate_quilt_uri
+from raja.rale.config import resolve_config
 from raja.server import dependencies
 from raja.server.logging_config import get_logger
 from raja.token import (
     create_token_with_package_grant,
     create_token_with_package_map,
+    decode_token,
+    validate_taj_token,
     validate_token,
 )
 
@@ -108,6 +114,16 @@ class PolicyUpdateRequest(BaseModel):
     statement: str
 
 
+class RaleAuthorizeRequest(BaseModel):
+    principal: str
+    usl: str
+
+
+class RaleDeliverRequest(BaseModel):
+    usl: str
+    taj: str
+
+
 DATAZONE_DOMAIN_ID = os.environ.get("DATAZONE_DOMAIN_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 
@@ -156,6 +172,16 @@ def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _project_name(project_id: str, config: DataZoneConfig) -> str:
+    if project_id == config.owner_project_id:
+        return "Owner"
+    if project_id == config.users_project_id:
+        return "Users"
+    if project_id == config.guests_project_id:
+        return "Guests"
+    return project_id
+
+
 def _derive_principal_scopes(datazone_client: Any, principal: str) -> list[str] | None:
     """Look up which DataZone project the principal belongs to and return scopes.
 
@@ -194,6 +220,116 @@ def _authorize_package_with_datazone(
         return service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _console_domain_url(*, region: str, domain_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}"
+    )
+
+
+def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}/browse/{listing_id}"
+    )
+
+
+def _probe_endpoint(
+    url: str,
+    *,
+    ready_path: str | None = None,
+) -> dict[str, Any]:
+    target = url.rstrip("/")
+    if ready_path:
+        target = f"{target}{ready_path}"
+    try:
+        response = httpx.get(target, timeout=5.0, follow_redirects=False)
+    except httpx.RequestError as exc:
+        return {"reachable": False, "status": "error", "detail": str(exc), "url": target}
+
+    ok = response.status_code < 500
+    return {
+        "reachable": ok,
+        "status": "ok" if ok else "error",
+        "status_code": response.status_code,
+        "url": target,
+    }
+
+
+def _resolve_runtime_config() -> dict[str, str]:
+    resolved, _ = resolve_config()
+    return {
+        "registry": resolved.registry,
+        "rajee_endpoint": resolved.rajee_endpoint,
+        "rale_authorizer_url": resolved.rale_authorizer_url,
+        "rale_router_url": resolved.rale_router_url,
+    }
+
+
+def _build_rale_path(usl: str) -> tuple[str, str]:
+    parsed = parse_quilt_uri(usl)
+    if not parsed.path:
+        raise ValueError("USL path is required")
+    pinned_path = f"/{parsed.registry}/{parsed.package_name}@{parsed.hash}/{parsed.path}"
+    unpinned_path = f"/{parsed.registry}/{parsed.package_name}/{parsed.path}"
+    return pinned_path, unpinned_path
+
+
+def _render_claim_annotation(key: str, value: Any) -> dict[str, Any]:
+    explanations = {
+        "sub": "Principal the TAJ was minted for.",
+        "grants": "Concrete S3 grant prefixes derived from the DataZone decision.",
+        "manifest_hash": "Immutable Quilt manifest hash pinned at authorization time.",
+        "package_name": "Package name the TAJ is allowed to access.",
+        "registry": "Registry bucket backing the package.",
+        "iat": "Issue time for the TAJ.",
+        "exp": "Expiry time after which the TAJ must be rejected.",
+    }
+    return {
+        "key": key,
+        "value": value,
+        "explanation": explanations.get(key, "Token claim."),
+    }
+
+
+def _read_registry_packages(registry: str) -> list[str]:
+    quilt3 = _load_quilt3()
+    return sorted(str(name) for name in quilt3.list_packages(registry=registry))
+
+
+def _browse_package_files(registry: str, package_name: str) -> tuple[str, list[dict[str, Any]]]:
+    quilt3 = _load_quilt3()
+    try:
+        package = quilt3.Package.browse(name=package_name, registry=registry)
+    except Exception as exc:
+        raise RuntimeError("Cannot resolve latest hash - check registry access") from exc
+
+    manifest_hash = getattr(package, "top_hash", None)
+    if not isinstance(manifest_hash, str) or not manifest_hash:
+        raise RuntimeError("Cannot resolve latest hash - check registry access")
+
+    entries: list[dict[str, Any]] = []
+    registry_bucket = registry.split("://", 1)[1] if "://" in registry else registry
+    for logical_path, entry in package.walk():
+        size_value = getattr(entry, "size", None)
+        normalized_path = str(logical_path)
+        usl = QuiltUri(
+            storage="s3",
+            registry=registry_bucket,
+            package_name=package_name,
+            hash=manifest_hash,
+            path=normalized_path,
+        ).normalized()
+        entries.append(
+            {
+                "path": normalized_path,
+                "size": size_value if isinstance(size_value, int) else None,
+                "usl": usl,
+            }
+        )
+    return manifest_hash, entries
 
 
 router = APIRouter(prefix="", tags=["control-plane"])
@@ -519,7 +655,10 @@ def list_principals(
                     {
                         "principal": user_id,
                         "datazone_project_id": project_id,
+                        "datazone_project_name": _project_name(project_id, config),
                         "scopes": scopes,
+                        "scope_count": len(scopes),
+                        "last_token_issued": None,
                     }
                 )
             if limit and len(principals) >= limit:
@@ -528,6 +667,333 @@ def list_principals(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principals_listed", count=len(principals))
     return {"principals": principals}
+
+
+@router.get("/admin/structure")
+def get_admin_structure(
+    request: Request,
+    _: None = Depends(dependencies.require_admin_auth),
+    datazone: Any = Depends(dependencies.get_datazone_client),
+    secret: str = Depends(dependencies.get_jwt_secret),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    config = DataZoneConfig.from_env()
+
+    domain_name = config.domain_id
+    domain_status = "warn"
+    try:
+        domain = datazone.get_domain(identifier=config.domain_id)
+        domain_name = str(domain.get("name") or config.domain_id)
+        domain_status = "ok"
+    except Exception as exc:
+        domain_status = f"error: {exc}"
+
+    asset_type_status = "warn"
+    try:
+        asset_type_response = datazone.get_asset_type(
+            domainIdentifier=config.domain_id,
+            owningProjectIdentifier=config.owner_project_id,
+            identifier=config.asset_type_name,
+            revision=config.asset_type_revision,
+        )
+        asset_type_name = str(asset_type_response.get("name") or config.asset_type_name)
+        asset_type_revision = str(asset_type_response.get("revision") or config.asset_type_revision)
+        asset_type_status = "ok"
+    except Exception as exc:
+        asset_type_name = config.asset_type_name
+        asset_type_revision = config.asset_type_revision
+        asset_type_status = f"error: {exc}"
+
+    server_url = str(request.base_url).rstrip("/")
+    jwks = get_jwks(secret=secret)
+
+    return {
+        "datazone": {
+            "domain": {
+                "name": domain_name,
+                "id": config.domain_id,
+                "region": region,
+                "portal_url": _console_domain_url(region=region, domain_id=config.domain_id)
+                if region
+                else "",
+                "status": domain_status,
+            },
+            "owner_project": {
+                "name": _project_name(config.owner_project_id, config),
+                "id": config.owner_project_id,
+                "status": "ok" if config.owner_project_id else "warn",
+            },
+            "asset_type": {
+                "name": asset_type_name,
+                "revision": asset_type_revision,
+                "status": asset_type_status,
+            },
+        },
+        "stack": {
+            "server": {
+                "label": "RAJA server",
+                "url": server_url,
+                "health": _probe_endpoint(f"{server_url}/health"),
+            },
+            "rale_authorizer": {
+                "label": "RALE Authorizer",
+                "url": runtime["rale_authorizer_url"],
+                "health": (
+                    _probe_endpoint(runtime["rale_authorizer_url"])
+                    if runtime["rale_authorizer_url"]
+                    else {"reachable": False, "status": "warn", "detail": "not configured"}
+                ),
+            },
+            "rale_router": {
+                "label": "RALE Router",
+                "url": runtime["rale_router_url"],
+                "health": (
+                    _probe_endpoint(runtime["rale_router_url"])
+                    if runtime["rale_router_url"]
+                    else {"reachable": False, "status": "warn", "detail": "not configured"}
+                ),
+            },
+            "rajee": {
+                "label": "RAJEE",
+                "url": runtime["rajee_endpoint"],
+                "health": (
+                    _probe_endpoint(runtime["rajee_endpoint"], ready_path="/ready")
+                    if runtime["rajee_endpoint"]
+                    else {"reachable": False, "status": "warn", "detail": "not configured"}
+                ),
+            },
+            "jwks": {
+                "label": "JWKS",
+                "url": f"{server_url}/.well-known/jwks.json",
+                "kids": [str(key.get("kid") or "") for key in jwks.get("keys", [])],
+                "health": {"reachable": True, "status": "ok"},
+            },
+        },
+    }
+
+
+@router.get("/admin/access-graph")
+def get_access_graph(
+    principal: str | None = Query(default=None),
+    _: None = Depends(dependencies.require_admin_auth),
+    datazone: Any = Depends(dependencies.get_datazone_client),
+) -> dict[str, Any]:
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        principals_response = list_principals(limit=None, datazone=datazone)
+        principals = principals_response["principals"]
+        if principal:
+            principals = [item for item in principals if item.get("principal") == principal]
+        listings = service.list_package_listings()
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    packages: list[dict[str, Any]] = []
+    access_rows: list[dict[str, Any]] = []
+    project_filter_ids = {str(item["datazone_project_id"]) for item in principals}
+
+    for listing in listings:
+        try:
+            subscriptions = 0
+            for project_id in _ordered_project_ids(config):
+                if project_id == listing.owner_project_id:
+                    continue
+                accepted = service.find_accepted_subscription(
+                    project_id=project_id,
+                    listing_id=listing.listing_id,
+                )
+                if accepted:
+                    subscriptions += 1
+        except DataZoneError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        packages.append(
+            {
+                "listing_id": listing.listing_id,
+                "package_name": listing.name,
+                "owner_project_id": listing.owner_project_id,
+                "owner_project_name": _project_name(listing.owner_project_id, config),
+                "asset_type": config.asset_type_name,
+                "subscriptions": subscriptions,
+                "listing_url": (
+                    _console_listing_url(
+                        region=region,
+                        domain_id=config.domain_id,
+                        listing_id=listing.listing_id,
+                    )
+                    if region
+                    else ""
+                ),
+            }
+        )
+
+        for project_id in _ordered_project_ids(config):
+            if project_filter_ids and project_id not in project_filter_ids:
+                continue
+            if project_id == listing.owner_project_id:
+                access_rows.append(
+                    {
+                        "principal_project_id": project_id,
+                        "principal_project_name": _project_name(project_id, config),
+                        "package_name": listing.name,
+                        "access_mode": "OWNED",
+                        "source": "listing owner",
+                        "subscription_id": None,
+                    }
+                )
+                continue
+            try:
+                subscription = service.find_accepted_subscription(
+                    project_id=project_id,
+                    listing_id=listing.listing_id,
+                )
+            except DataZoneError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            if subscription is None:
+                continue
+            access_rows.append(
+                {
+                    "principal_project_id": project_id,
+                    "principal_project_name": _project_name(project_id, config),
+                    "package_name": listing.name,
+                    "access_mode": "GRANTED",
+                    "source": "accepted subscription",
+                    "subscription_id": str(subscription.get("id") or ""),
+                }
+            )
+
+    return {
+        "principals": principals,
+        "packages": packages,
+        "access": access_rows,
+    }
+
+
+@router.get("/admin/rale/packages")
+def list_rale_packages(
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    registry = runtime["registry"]
+    if not registry:
+        raise HTTPException(status_code=503, detail="RAJA_REGISTRY is not configured")
+    try:
+        packages = _read_registry_packages(registry)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"registry": registry, "packages": packages}
+
+
+@router.get("/admin/rale/package-files")
+def list_rale_package_files(
+    package_name: str = Query(..., min_length=1),
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    registry = runtime["registry"]
+    if not registry:
+        raise HTTPException(status_code=503, detail="RAJA_REGISTRY is not configured")
+    try:
+        manifest_hash, files = _browse_package_files(registry, package_name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "registry": registry,
+        "package_name": package_name,
+        "manifest_hash": manifest_hash,
+        "files": files,
+    }
+
+
+@router.post("/admin/rale/authorize")
+def authorize_rale_request(
+    payload: RaleAuthorizeRequest,
+    _: None = Depends(dependencies.require_admin_auth),
+    secret: str = Depends(dependencies.get_jwt_secret),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    authorizer_url = runtime["rale_authorizer_url"]
+    if not authorizer_url:
+        raise HTTPException(status_code=503, detail="RALE_AUTHORIZER_URL is not configured")
+    try:
+        pinned_path, _unpinned_path = _build_rale_path(payload.usl)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target_url = f"{authorizer_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    try:
+        response = httpx.get(
+            target_url,
+            headers={"x-raja-principal": payload.principal},
+            timeout=20.0,
+        )
+        body = response.json()
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"RALE authorizer unreachable: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="RALE authorizer returned invalid JSON",
+        ) from exc
+
+    result: dict[str, Any] = {
+        "status_code": response.status_code,
+        "url": target_url,
+        "principal": payload.principal,
+        "usl": payload.usl,
+        "body": body,
+    }
+    token_value = body.get("token")
+    if response.status_code == 200 and isinstance(token_value, str):
+        claims = decode_token(token_value)
+        validate_taj_token(token_value, secret)
+        annotated = [
+            _render_claim_annotation(key, claims.get(key))
+            for key in ["sub", "grants", "manifest_hash", "package_name", "registry", "iat", "exp"]
+        ]
+        result["claims"] = claims
+        result["annotated_claims"] = annotated
+    return result
+
+
+@router.post("/admin/rale/deliver")
+def deliver_rale_request(
+    payload: RaleDeliverRequest,
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    router_url = runtime["rale_router_url"]
+    if not router_url:
+        raise HTTPException(status_code=503, detail="RALE_ROUTER_URL is not configured")
+    try:
+        pinned_path, _unpinned_path = _build_rale_path(payload.usl)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target_url = f"{router_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    try:
+        response = httpx.get(target_url, headers={"x-rale-taj": payload.taj}, timeout=20.0)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"RALE router unreachable: {exc}") from exc
+
+    content_type = response.headers.get("content-type", "")
+    preview = response.text[:500] if "text" in content_type or "json" in content_type else ""
+    try:
+        diagnostics = response.json() if "json" in content_type else {}
+    except ValueError:
+        diagnostics = {}
+    return {
+        "status_code": response.status_code,
+        "url": target_url,
+        "byte_count": len(response.content),
+        "content_type": content_type,
+        "preview": preview,
+        "diagnostics": diagnostics,
+        "headers": dict(response.headers.items()),
+    }
 
 
 @router.post("/principals")
