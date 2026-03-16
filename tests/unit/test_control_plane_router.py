@@ -398,6 +398,9 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
         config.owner_project_id = "proj-owner"
         config.users_project_id = "proj-users"
         config.guests_project_id = "proj-guests"
+        config.owner_environment_id = "env-owner"
+        config.users_environment_id = "env-users"
+        config.guests_environment_id = "env-guests"
         config.asset_type_name = "QuiltPackage"
         config.asset_type_revision = "2"
         mock_config_cls.from_env.return_value = config
@@ -438,10 +441,30 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     )
     assert response["datazone"]["domain"]["status"] == "ok"
     assert response["datazone"]["asset_type"]["status"] == "ok"
-    assert response["datazone"]["domain"]["portal_url"] == "https://dzd-123.sagemaker.us-east-1.on.aws"
-    assert response["datazone"]["owner_project"]["portal_url"].endswith("/projects/proj-owner/overview")
-    assert response["datazone"]["users_project"]["portal_url"].endswith("/projects/proj-users/overview")
-    assert response["datazone"]["guests_project"]["portal_url"].endswith("/projects/proj-guests/overview")
+    assert (
+        response["datazone"]["domain"]["portal_url"] == "https://dzd-123.sagemaker.us-east-1.on.aws"
+    )
+    assert response["datazone"]["owner_project"]["portal_url"].endswith(
+        "/projects/proj-owner/overview"
+    )
+    assert response["datazone"]["owner_project"]["environment_id"] == "env-owner"
+    assert response["datazone"]["owner_project"]["environment_url"].endswith(
+        "/environments/env-owner"
+    )
+    assert response["datazone"]["users_project"]["portal_url"].endswith(
+        "/projects/proj-users/overview"
+    )
+    assert response["datazone"]["users_project"]["environment_id"] == "env-users"
+    assert response["datazone"]["users_project"]["environment_url"].endswith(
+        "/environments/env-users"
+    )
+    assert response["datazone"]["guests_project"]["portal_url"].endswith(
+        "/projects/proj-guests/overview"
+    )
+    assert response["datazone"]["guests_project"]["environment_id"] == "env-guests"
+    assert response["datazone"]["guests_project"]["environment_url"].endswith(
+        "/environments/env-guests"
+    )
     assert response["stack"]["server"]["url"] == "https://api.example.com/prod"
     assert response["stack"]["rale_authorizer"]["url"] == "https://authorizer.example.com"
     assert response["stack"]["rale_router"]["url"] == "https://router.example.com"

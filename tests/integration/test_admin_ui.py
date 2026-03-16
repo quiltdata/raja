@@ -75,6 +75,13 @@ def test_admin_ui_html_is_served():
     assert "verifiedpermissions" not in html.lower(), (
         "Admin HTML references Amazon Verified Permissions — should be DataZone"
     )
+    assert 'id="section-projects"' in html, "Project membership section missing from admin UI"
+    assert 'id="section-listings"' in html, "Package listings section missing from admin UI"
+    assert 'id="section-principals"' not in html, "Legacy principals section should be removed"
+    assert 'id="section-access"' not in html, "Legacy access graph section should be removed"
+    assert html.index('id="section-failures"') < html.index('id="section-stack"'), (
+        "Stack health should appear after failure tests in document order"
+    )
 
 
 @pytest.mark.integration
@@ -166,14 +173,61 @@ def test_admin_structure_reports_datazone_rows_without_errors():
     datazone = data.get("datazone", {})
     domain = datazone.get("domain", {})
     owner_project = datazone.get("owner_project", {})
+    users_project = datazone.get("users_project", {})
+    guests_project = datazone.get("guests_project", {})
     asset_type = datazone.get("asset_type", {})
 
     assert domain.get("status") == "ok", f"Domain row unhealthy: {domain}"
     assert domain.get("id"), f"Domain row missing id: {domain}"
     assert domain.get("portal_url"), f"Domain row missing portal URL: {domain}"
+    assert ".sagemaker." in domain.get("portal_url", ""), (
+        f"Domain portal should be Studio URL: {domain}"
+    )
 
     assert owner_project.get("status") == "ok", f"Owner project row unhealthy: {owner_project}"
     assert owner_project.get("id"), f"Owner project row missing id: {owner_project}"
+    assert owner_project.get("portal_url"), f"Owner project row missing portal URL: {owner_project}"
+    assert owner_project.get("portal_url", "").endswith(f"/projects/{owner_project['id']}/overview")
+    assert "environment_id" in owner_project, (
+        f"Owner project missing environment_id: {owner_project}"
+    )
+    assert "environment_url" in owner_project, (
+        f"Owner project missing environment_url: {owner_project}"
+    )
+    if owner_project.get("environment_id"):
+        assert owner_project.get("environment_url", "").endswith(
+            f"/environments/{owner_project['environment_id']}"
+        )
+    assert users_project.get("id"), f"Users project row missing id: {users_project}"
+    assert users_project.get("portal_url"), f"Users project row missing portal URL: {users_project}"
+    assert users_project.get("portal_url", "").endswith(f"/projects/{users_project['id']}/overview")
+    assert "environment_id" in users_project, (
+        f"Users project missing environment_id: {users_project}"
+    )
+    assert "environment_url" in users_project, (
+        f"Users project missing environment_url: {users_project}"
+    )
+    if users_project.get("environment_id"):
+        assert users_project.get("environment_url", "").endswith(
+            f"/environments/{users_project['environment_id']}"
+        )
+    assert guests_project.get("id"), f"Guests project row missing id: {guests_project}"
+    assert guests_project.get("portal_url"), (
+        f"Guests project row missing portal URL: {guests_project}"
+    )
+    assert guests_project.get("portal_url", "").endswith(
+        f"/projects/{guests_project['id']}/overview"
+    )
+    assert "environment_id" in guests_project, (
+        f"Guests project missing environment_id: {guests_project}"
+    )
+    assert "environment_url" in guests_project, (
+        f"Guests project missing environment_url: {guests_project}"
+    )
+    if guests_project.get("environment_id"):
+        assert guests_project.get("environment_url", "").endswith(
+            f"/environments/{guests_project['environment_id']}"
+        )
 
     assert asset_type.get("status") == "ok", f"Asset type row unhealthy: {asset_type}"
     assert asset_type.get("name") == "QuiltPackage", f"Unexpected asset type row: {asset_type}"
@@ -275,7 +329,9 @@ def test_principals_list_returns_datazone_project_metadata():
     status, body = request_json("GET", "/principals")
     assert status == 200, f"Expected 200, got {status}: {body}"
     principals = body.get("principals", [])
+    principal_summary = body.get("principal_summary", [])
     assert isinstance(principals, list)
+    assert isinstance(principal_summary, list)
     # At least one principal should exist (seeded test data)
     assert len(principals) >= 1, "No principals found. Run python scripts/seed_test_data.py"
     # Every principal with a project should have a string project id
@@ -285,6 +341,27 @@ def test_principals_list_returns_datazone_project_metadata():
                 f"datazone_project_id must be a string, got {type(item['datazone_project_id'])}"
             )
             assert item["datazone_project_id"], "datazone_project_id must not be empty"
+
+    summary_principals = {item.get("principal") for item in principal_summary}
+    assert summary_principals, "principal_summary must contain at least one principal"
+    assert summary_principals.issubset({item.get("principal") for item in principals})
+
+
+@pytest.mark.integration
+def test_access_graph_exposes_listing_project_links():
+    """GET /admin/access-graph should include project and listing links for UI rendering."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/admin/access-graph", headers=_admin_headers())
+    assert status == 200, f"Expected 200, got {status}"
+    data = json.loads(body)
+    packages = data.get("packages", [])
+    assert packages, "Expected at least one package listing in access graph"
+    first = packages[0]
+    assert first.get("listing_url"), f"listing_url missing from package row: {first}"
+    assert first.get("owner_project_url"), f"owner_project_url missing from package row: {first}"
+    assert first.get("owner_project_url", "").endswith(
+        f"/projects/{first['owner_project_id']}/overview"
+    )
 
 
 # ---------------------------------------------------------------------------

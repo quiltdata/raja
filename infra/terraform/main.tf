@@ -80,6 +80,9 @@ locals {
   rale_router_lambda_arn       = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
   datazone_domain_exec_role    = "${var.stack_name}-datazone-domain-execution"
   datazone_domain_service_role = "${var.stack_name}-datazone-domain-service"
+  datazone_env_owner_role      = "raja-dz-env-owner"
+  datazone_env_users_role      = "raja-dz-env-users"
+  datazone_env_guests_role     = "raja-dz-env-guests"
 }
 
 resource "null_resource" "build_raja_layer" {
@@ -253,6 +256,177 @@ resource "aws_iam_role" "datazone_domain_service" {
 resource "aws_iam_role_policy_attachment" "datazone_domain_service" {
   role       = aws_iam_role.datazone_domain_service.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/SageMakerStudioDomainServiceRolePolicy"
+}
+
+resource "aws_iam_role" "datazone_environment_owner" {
+  name = local.datazone_env_owner_role
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "datazone.amazonaws.com"
+        }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+          "sts:SetContext",
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "datazone_environment_owner" {
+  name = "${var.stack_name}-datazone-environment-owner"
+  role = aws_iam_role.datazone_environment_owner.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "RegistryAndDataBucketFullAccess"
+        Effect = "Allow"
+        Action = ["s3:*"]
+        Resource = [
+          aws_s3_bucket.rajee_registry.arn,
+          "${aws_s3_bucket.rajee_registry.arn}/*",
+          aws_s3_bucket.rajee_test.arn,
+          "${aws_s3_bucket.rajee_test.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "datazone_environment_users" {
+  name = local.datazone_env_users_role
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "datazone.amazonaws.com"
+        }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+          "sts:SetContext",
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "datazone_environment_users" {
+  name = "${var.stack_name}-datazone-environment-users"
+  role = aws_iam_role.datazone_environment_users.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "RegistryAndDataBucketReadWriteObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:PutObject"
+        ]
+        Resource = [
+          "${aws_s3_bucket.rajee_registry.arn}/*",
+          "${aws_s3_bucket.rajee_test.arn}/*"
+        ]
+      },
+      {
+        Sid    = "RegistryAndDataBucketList"
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketLocation",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.rajee_registry.arn,
+          aws_s3_bucket.rajee_test.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "datazone_environment_guests" {
+  name = local.datazone_env_guests_role
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "datazone.amazonaws.com"
+        }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+          "sts:SetContext",
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "datazone_environment_guests" {
+  name = "${var.stack_name}-datazone-environment-guests"
+  role = aws_iam_role.datazone_environment_guests.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "RegistryAndDataBucketReadObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = [
+          "${aws_s3_bucket.rajee_registry.arn}/*",
+          "${aws_s3_bucket.rajee_test.arn}/*"
+        ]
+      },
+      {
+        Sid    = "RegistryAndDataBucketList"
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketLocation",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.rajee_registry.arn,
+          aws_s3_bucket.rajee_test.arn
+        ]
+      }
+    ]
+  })
 }
 
 resource "aws_datazone_domain" "raja" {
@@ -446,6 +620,9 @@ resource "aws_lambda_function" "control_plane" {
       DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
       DATAZONE_USERS_PROJECT_ID            = aws_datazone_project.users.id
       DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
+      DATAZONE_OWNER_ENVIRONMENT_ID        = var.datazone_owner_environment_id
+      DATAZONE_USERS_ENVIRONMENT_ID        = var.datazone_users_environment_id
+      DATAZONE_GUESTS_ENVIRONMENT_ID       = var.datazone_guests_environment_id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
@@ -558,6 +735,9 @@ resource "aws_lambda_function" "rale_authorizer" {
       DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
       DATAZONE_USERS_PROJECT_ID            = aws_datazone_project.users.id
       DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
+      DATAZONE_OWNER_ENVIRONMENT_ID        = var.datazone_owner_environment_id
+      DATAZONE_USERS_ENVIRONMENT_ID        = var.datazone_users_environment_id
+      DATAZONE_GUESTS_ENVIRONMENT_ID       = var.datazone_guests_environment_id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn

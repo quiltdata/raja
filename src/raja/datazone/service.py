@@ -23,6 +23,9 @@ class DataZoneConfig:
     owner_project_id: str = ""
     users_project_id: str = ""
     guests_project_id: str = ""
+    owner_environment_id: str = ""
+    users_environment_id: str = ""
+    guests_environment_id: str = ""
     asset_type_name: str = "QuiltPackage"
     asset_type_revision: str = "1"
 
@@ -36,6 +39,9 @@ class DataZoneConfig:
             owner_project_id=os.environ.get("DATAZONE_OWNER_PROJECT_ID", "").strip(),
             users_project_id=os.environ.get("DATAZONE_USERS_PROJECT_ID", "").strip(),
             guests_project_id=os.environ.get("DATAZONE_GUESTS_PROJECT_ID", "").strip(),
+            owner_environment_id=os.environ.get("DATAZONE_OWNER_ENVIRONMENT_ID", "").strip(),
+            users_environment_id=os.environ.get("DATAZONE_USERS_ENVIRONMENT_ID", "").strip(),
+            guests_environment_id=os.environ.get("DATAZONE_GUESTS_ENVIRONMENT_ID", "").strip(),
             asset_type_name=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE", "QuiltPackage").strip()
             or "QuiltPackage",
             asset_type_revision=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "1").strip()

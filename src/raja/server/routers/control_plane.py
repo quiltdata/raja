@@ -236,6 +236,13 @@ def _console_project_url(*, region: str, domain_id: str, project_id: str) -> str
     )
 
 
+def _console_environment_url(*, region: str, domain_id: str, environment_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}/environments/{environment_id}"
+    )
+
+
 def _studio_project_url(*, portal_url: str, project_id: str) -> str:
     return f"{portal_url.rstrip('/')}/projects/{project_id}/overview"
 
@@ -264,6 +271,57 @@ def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str
         f"https://{region}.console.aws.amazon.com/datazone/home"
         f"?region={region}#/domains/{domain_id}/browse/{listing_id}"
     )
+
+
+def _project_environment_id(project_id: str, config: DataZoneConfig) -> str:
+    if project_id == config.owner_project_id:
+        return config.owner_environment_id
+    if project_id == config.users_project_id:
+        return config.users_environment_id
+    if project_id == config.guests_project_id:
+        return config.guests_environment_id
+    return ""
+
+
+def _project_structure(
+    *,
+    project_id: str,
+    config: DataZoneConfig,
+    region: str,
+    domain_portal_url: str,
+) -> dict[str, Any]:
+    environment_id = _project_environment_id(project_id, config)
+    return {
+        "name": _project_name(project_id, config),
+        "id": project_id,
+        "portal_url": (
+            _studio_project_url(
+                portal_url=domain_portal_url,
+                project_id=project_id,
+            )
+            if domain_portal_url and project_id
+            else (
+                _console_project_url(
+                    region=region,
+                    domain_id=config.domain_id,
+                    project_id=project_id,
+                )
+                if region and project_id
+                else ""
+            )
+        ),
+        "environment_id": environment_id,
+        "environment_url": (
+            _console_environment_url(
+                region=region,
+                domain_id=config.domain_id,
+                environment_id=environment_id,
+            )
+            if region and environment_id
+            else ""
+        ),
+        "status": "ok" if project_id else "warn",
+    }
 
 
 def _summarize_principals(principals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -831,73 +889,32 @@ def get_admin_structure(
                 "region": region,
                 "portal_url": (
                     domain_portal_url
-                    or (_console_domain_url(region=region, domain_id=config.domain_id) if region else "")
+                    or (
+                        _console_domain_url(region=region, domain_id=config.domain_id)
+                        if region
+                        else ""
+                    )
                 ),
                 "status": domain_status,
             },
-            "owner_project": {
-                "name": _project_name(config.owner_project_id, config),
-                "id": config.owner_project_id,
-                "portal_url": (
-                    _studio_project_url(
-                        portal_url=domain_portal_url,
-                        project_id=config.owner_project_id,
-                    )
-                    if domain_portal_url and config.owner_project_id
-                    else (
-                        _console_project_url(
-                            region=region,
-                            domain_id=config.domain_id,
-                            project_id=config.owner_project_id,
-                        )
-                        if region and config.owner_project_id
-                        else ""
-                    )
-                ),
-                "status": "ok" if config.owner_project_id else "warn",
-            },
-            "users_project": {
-                "name": _project_name(config.users_project_id, config),
-                "id": config.users_project_id,
-                "portal_url": (
-                    _studio_project_url(
-                        portal_url=domain_portal_url,
-                        project_id=config.users_project_id,
-                    )
-                    if domain_portal_url and config.users_project_id
-                    else (
-                        _console_project_url(
-                            region=region,
-                            domain_id=config.domain_id,
-                            project_id=config.users_project_id,
-                        )
-                        if region and config.users_project_id
-                        else ""
-                    )
-                ),
-                "status": "ok" if config.users_project_id else "warn",
-            },
-            "guests_project": {
-                "name": _project_name(config.guests_project_id, config),
-                "id": config.guests_project_id,
-                "portal_url": (
-                    _studio_project_url(
-                        portal_url=domain_portal_url,
-                        project_id=config.guests_project_id,
-                    )
-                    if domain_portal_url and config.guests_project_id
-                    else (
-                        _console_project_url(
-                            region=region,
-                            domain_id=config.domain_id,
-                            project_id=config.guests_project_id,
-                        )
-                        if region and config.guests_project_id
-                        else ""
-                    )
-                ),
-                "status": "ok" if config.guests_project_id else "warn",
-            },
+            "owner_project": _project_structure(
+                project_id=config.owner_project_id,
+                config=config,
+                region=region,
+                domain_portal_url=domain_portal_url,
+            ),
+            "users_project": _project_structure(
+                project_id=config.users_project_id,
+                config=config,
+                region=region,
+                domain_portal_url=domain_portal_url,
+            ),
+            "guests_project": _project_structure(
+                project_id=config.guests_project_id,
+                config=config,
+                region=region,
+                domain_portal_url=domain_portal_url,
+            ),
             "asset_type": {
                 "name": asset_type_name,
                 "revision": asset_type_revision,
@@ -1071,7 +1088,8 @@ def get_access_graph(
     try:
         subscription_requests = service.list_subscription_requests()
     except DataZoneError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("access_graph_subscription_requests_unavailable", error=str(exc))
+        subscription_requests = []
 
     for item in subscription_requests:
         request_id = str(item.get("id") or "")
@@ -1097,9 +1115,9 @@ def get_access_graph(
                     listing_id = str(listing_data["id"])
                     break
 
-        listing = listing_index.get(listing_id)
-        package_name = listing.name if listing else listing_id
-        owner_project_id = listing.owner_project_id if listing else ""
+        matched_listing: Any | None = listing_index.get(listing_id)
+        package_name = matched_listing.name if matched_listing else listing_id
+        owner_project_id = matched_listing.owner_project_id if matched_listing else ""
         subscriptions.append(
             {
                 "package_name": package_name,

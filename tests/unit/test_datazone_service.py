@@ -143,6 +143,9 @@ def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAZONE_OWNER_PROJECT_ID", "prj_env_owner")
     monkeypatch.setenv("DATAZONE_USERS_PROJECT_ID", "prj_env_users")
     monkeypatch.setenv("DATAZONE_GUESTS_PROJECT_ID", "prj_env_guests")
+    monkeypatch.setenv("DATAZONE_OWNER_ENVIRONMENT_ID", "env_env_owner")
+    monkeypatch.setenv("DATAZONE_USERS_ENVIRONMENT_ID", "env_env_users")
+    monkeypatch.setenv("DATAZONE_GUESTS_ENVIRONMENT_ID", "env_env_guests")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE", "MyType")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "2")
     cfg = DataZoneConfig.from_env()
@@ -150,6 +153,9 @@ def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.owner_project_id == "prj_env_owner"
     assert cfg.users_project_id == "prj_env_users"
     assert cfg.guests_project_id == "prj_env_guests"
+    assert cfg.owner_environment_id == "env_env_owner"
+    assert cfg.users_environment_id == "env_env_users"
+    assert cfg.guests_environment_id == "env_env_guests"
     assert cfg.asset_type_name == "MyType"
     assert cfg.asset_type_revision == "2"
 

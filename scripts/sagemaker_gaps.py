@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,16 @@ PROJECT_SPECS = {
         ),
     },
 }
+ENVIRONMENT_SPECS = {
+    "owner": "raja-owner-env",
+    "users": "raja-users-env",
+    "guests": "raja-guests-env",
+}
+CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
+    "CustomAWS",
+    "Custom AWS",
+    "CustomAws",
+)
 
 
 @dataclass
@@ -67,6 +78,7 @@ class Context:
     domain_name: str
     root_domain_unit_id: str
     project_profile_name: str
+    outputs: dict[str, Any]
     dry_run: bool
 
 
@@ -136,12 +148,14 @@ def _get_context(args: argparse.Namespace) -> Context:
     client = _client(region)
     domain_id = _get_domain_id(args.domain_id)
     domain = client.get_domain(identifier=domain_id)
+    outputs = load_tf_outputs()
     return Context(
         region=region,
         domain_id=domain_id,
         domain_name=str(domain["name"]),
         root_domain_unit_id=str(domain["rootDomainUnitId"]),
         project_profile_name=args.project_profile_name,
+        outputs=outputs,
         dry_run=bool(args.dry_run),
     )
 
@@ -269,13 +283,156 @@ def _ensure_asset_type_grant(client: Any, ctx: Context) -> None:
     print(f"  Added asset type grant {response['grantId']}")
 
 
-def _update_outputs(project_ids: dict[str, str], ctx: Context) -> None:
-    outputs = load_tf_outputs()
+def _supports_environment_api(client: Any, ctx: Context, project_id: str) -> bool:
+    try:
+        client.list_environments(
+            domainIdentifier=ctx.domain_id,
+            projectIdentifier=project_id,
+            maxResults=1,
+        )
+        return True
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "ValidationException":
+            print("Environment API: unsupported for this DataZone domain version")
+            return False
+        raise
+
+
+def _find_custom_blueprint_id(client: Any, ctx: Context) -> str:
+    try:
+        blueprints = _list_all(
+            client.list_environment_blueprints,
+            "items",
+            domainIdentifier=ctx.domain_id,
+            managed=False,
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "ValidationException":
+            print("Custom blueprint lookup: unsupported for this DataZone domain version")
+            return ""
+        raise
+
+    for candidate_name in CUSTOM_BLUEPRINT_CANDIDATE_NAMES:
+        for blueprint in blueprints:
+            if blueprint.get("name") == candidate_name:
+                blueprint_id = str(blueprint["id"])
+                print(f"Custom blueprint: {candidate_name} ({blueprint_id})")
+                return blueprint_id
+
+    print("Custom blueprint: not found")
+    return ""
+
+
+def _discover_environment_ids(
+    client: Any,
+    ctx: Context,
+    project_ids: dict[str, str],
+) -> dict[str, str]:
+    discovered: dict[str, str] = {}
+
+    for key, environment_name in ENVIRONMENT_SPECS.items():
+        project_id = project_ids.get(key, "")
+        if not project_id:
+            continue
+        if not _supports_environment_api(client, ctx, project_id):
+            return {}
+        items = _list_all(
+            client.list_environments,
+            "items",
+            domainIdentifier=ctx.domain_id,
+            projectIdentifier=project_id,
+        )
+        by_name = {str(item.get("name") or ""): item for item in items}
+        item = by_name.get(environment_name)
+        if not item:
+            print(f"Environment {key}: {environment_name} (missing)")
+            continue
+        environment_project_id = str(item.get("projectId") or "")
+        environment_id = str(item.get("id") or "")
+        if environment_project_id and project_id != environment_project_id:
+            print(
+                f"Environment {key}: {environment_name} ({environment_id}) "
+                f"belongs to unexpected project {environment_project_id}"
+            )
+            continue
+        discovered[key] = environment_id
+        print(f"Environment {key}: {environment_name} ({environment_id})")
+
+    return discovered
+
+
+def _lambda_name_from_arn(arn: str) -> str:
+    return arn.rsplit(":", 1)[-1]
+
+
+def _wait_for_lambda_update(lambda_client: Any, function_name: str) -> None:
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        response = lambda_client.get_function_configuration(FunctionName=function_name)
+        status = str(response.get("LastUpdateStatus") or "")
+        if status in {"", "Successful"}:
+            return
+        if status == "Failed":
+            reason = response.get("LastUpdateStatusReason", "unknown reason")
+            raise RuntimeError(f"lambda update failed for {function_name}: {reason}")
+        time.sleep(2)
+    raise RuntimeError(f"timed out waiting for lambda update: {function_name}")
+
+
+def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) -> None:
+    if not environment_ids:
+        return
+
+    lambda_arns = [
+        str(ctx.outputs.get("control_plane_lambda_arn") or ""),
+        str(ctx.outputs.get("rale_authorizer_arn") or ""),
+    ]
+    lambda_names = [_lambda_name_from_arn(arn) for arn in lambda_arns if arn]
+    if not lambda_names:
+        print("Lambda environment sync: skipped (lambda outputs missing)")
+        return
+
+    env_updates = {
+        "DATAZONE_OWNER_ENVIRONMENT_ID": environment_ids.get("owner", ""),
+        "DATAZONE_USERS_ENVIRONMENT_ID": environment_ids.get("users", ""),
+        "DATAZONE_GUESTS_ENVIRONMENT_ID": environment_ids.get("guests", ""),
+    }
+    lambda_client = boto3.client("lambda", region_name=ctx.region)
+
+    for function_name in lambda_names:
+        configuration = lambda_client.get_function_configuration(FunctionName=function_name)
+        current = dict(configuration.get("Environment", {}).get("Variables", {}))
+        if all(current.get(key, "") == value for key, value in env_updates.items()):
+            print(f"Lambda environment sync: {function_name} already current")
+            continue
+        merged = {**current, **env_updates}
+        if ctx.dry_run:
+            print(f"Lambda environment sync: [DRY-RUN] Would update {function_name}")
+            continue
+        lambda_client.update_function_configuration(
+            FunctionName=function_name,
+            Environment={"Variables": merged},
+        )
+        _wait_for_lambda_update(lambda_client, function_name)
+        print(f"Lambda environment sync: updated {function_name}")
+
+
+def _update_outputs(
+    project_ids: dict[str, str],
+    environment_ids: dict[str, str],
+    ctx: Context,
+) -> None:
+    outputs = dict(ctx.outputs)
     updates = {
         "datazone_domain_id": ctx.domain_id,
         "datazone_owner_project_id": project_ids["owner"],
         "datazone_users_project_id": project_ids["users"],
         "datazone_guests_project_id": project_ids["guests"],
+        "datazone_owner_environment_id": environment_ids.get("owner", ""),
+        "datazone_users_environment_id": environment_ids.get("users", ""),
+        "datazone_guests_environment_id": environment_ids.get("guests", ""),
     }
     changed = False
     for key, value in updates.items():
@@ -318,7 +475,10 @@ def main() -> None:
         profile_id = _ensure_project_profile(client, ctx)
         project_ids = _ensure_projects(client, ctx, profile_id)
         _ensure_asset_type_grant(client, ctx)
-        _update_outputs(project_ids, ctx)
+        _find_custom_blueprint_id(client, ctx)
+        environment_ids = _discover_environment_ids(client, ctx, project_ids)
+        _sync_lambda_environment_ids(ctx, environment_ids)
+        _update_outputs(project_ids, environment_ids, ctx)
         _print_import_hints(ctx, project_ids)
     except ClientError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
