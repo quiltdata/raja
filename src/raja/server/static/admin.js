@@ -174,17 +174,35 @@ function updateHeaderHealth() {
   const errors = components.filter((item) => String(item).startsWith("error")).length;
   const warns = components.filter((item) => String(item) === "warn").length;
   dot.className = "dot";
+
+  const warnComponents = Object.values(state.structure?.stack || {})
+    .filter((item) => (item?.health?.status || "warn") === "warn")
+    .map((item) => {
+      const code = item.health?.status_code ? ` (HTTP ${item.health.status_code})` : "";
+      const detail = item.health?.detail ? `: ${item.health.detail}` : "";
+      return `${item.label}${code}${detail}`;
+    });
+  const errorComponents = Object.values(state.structure?.stack || {})
+    .filter((item) => String(item?.health?.status || "").startsWith("error"))
+    .map((item) => {
+      const detail = item.health?.detail ? `: ${item.health.detail}` : "";
+      return `${item.label}${detail}`;
+    });
+
   if (errors) {
     dot.classList.add("bad");
     text.textContent = `${errors} component${errors === 1 ? "" : "s"} unreachable`;
+    dot.title = errorComponents.join("\n");
     return;
   }
   if (warns) {
     dot.classList.add("warn");
     text.textContent = "Partial visibility";
+    dot.title = warnComponents.join("\n");
     return;
   }
   dot.classList.add("ok");
+  dot.title = "";
   text.textContent = "All systems live";
 }
 
@@ -273,13 +291,23 @@ function renderStatusRows() {
       const value = item.url
         ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(item.label)}</a>`
         : escapeHtml(item.label);
+      const badgeTooltip =
+        statusKind !== "ok"
+          ? [
+              item.health?.status_code ? `HTTP ${item.health.status_code}` : "",
+              item.health?.detail || "",
+              statusDetailText(status),
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : "";
       return `
         <div class="status-row">
           <div class="status-row-main">
             <strong>${value}</strong>
             <div class="status-row-meta">${escapeHtml(meta || "No detail returned")}</div>
           </div>
-          <span class="badge ${statusKind}">${escapeHtml(statusBadgeText(status))}</span>
+          <span class="badge ${statusKind}"${badgeTooltip ? ` title="${escapeHtml(badgeTooltip)}"` : ""}>${escapeHtml(statusBadgeText(status))}</span>
         </div>
       `;
     })

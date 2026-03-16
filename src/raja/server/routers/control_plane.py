@@ -796,7 +796,7 @@ def get_admin_structure(
                 "label": "RALE Authorizer",
                 "url": runtime["rale_authorizer_url"],
                 "health": (
-                    _probe_endpoint(runtime["rale_authorizer_url"])
+                    _probe_endpoint(runtime["rale_authorizer_url"], ready_path="/health")
                     if runtime["rale_authorizer_url"]
                     else {"reachable": False, "status": "warn", "detail": "not configured"}
                 ),
@@ -805,7 +805,7 @@ def get_admin_structure(
                 "label": "RALE Router",
                 "url": runtime["rale_router_url"],
                 "health": (
-                    _probe_endpoint(runtime["rale_router_url"])
+                    _probe_endpoint(runtime["rale_router_url"], ready_path="/health")
                     if runtime["rale_router_url"]
                     else {"reachable": False, "status": "warn", "detail": "not configured"}
                 ),
