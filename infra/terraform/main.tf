@@ -15,11 +15,11 @@ locals {
   rale_router_requirements     = "${local.rale_router_source_dir}/requirements.txt"
   raja_source_dir              = "${local.repo_root}/src/raja"
   layer_requirements           = "${local.repo_root}/infra/layers/raja/requirements.txt"
-  build_dir                 = "${path.module}/build"
-  control_plane_build_dir   = "${local.build_dir}/control_plane"
-  rale_authorizer_build_dir = "${local.build_dir}/rale_authorizer"
-  rale_router_build_dir     = "${local.build_dir}/rale_router"
-  layer_build_dir           = "${local.build_dir}/raja_layer"
+  build_dir                    = "${path.module}/build"
+  control_plane_build_dir      = "${local.build_dir}/control_plane"
+  rale_authorizer_build_dir    = "${local.build_dir}/rale_authorizer"
+  rale_router_build_dir        = "${local.build_dir}/rale_router"
+  layer_build_dir              = "${local.build_dir}/raja_layer"
 
   layer_source_hash = sha256(join("", concat(
     [filesha256(local.layer_requirements)],
@@ -71,14 +71,15 @@ locals {
     ARM64  = "ARM64 (linux/arm64)"
     X86_64 = "X86_64 (linux/amd64)"
   }
-  lambda_arn_prefix           = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
-  control_plane_lambda_name   = "${var.stack_name}-control-plane"
-  rale_authorizer_lambda_name = "${var.stack_name}-rale-authorizer"
-  rale_router_lambda_name     = "${var.stack_name}-rale-router"
-  control_plane_lambda_arn    = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
-  rale_authorizer_lambda_arn  = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
-  rale_router_lambda_arn      = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
-  datazone_domain_exec_role   = "${var.stack_name}-datazone-domain-execution"
+  lambda_arn_prefix            = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
+  control_plane_lambda_name    = "${var.stack_name}-control-plane"
+  rale_authorizer_lambda_name  = "${var.stack_name}-rale-authorizer"
+  rale_router_lambda_name      = "${var.stack_name}-rale-router"
+  control_plane_lambda_arn     = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
+  rale_authorizer_lambda_arn   = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
+  rale_router_lambda_arn       = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
+  datazone_domain_exec_role    = "${var.stack_name}-datazone-domain-execution"
+  datazone_domain_service_role = "${var.stack_name}-datazone-domain-service"
 }
 
 resource "null_resource" "build_raja_layer" {
@@ -204,7 +205,19 @@ resource "aws_iam_role" "datazone_domain_execution" {
         Principal = {
           Service = "datazone.amazonaws.com"
         }
-        Action = "sts:AssumeRole"
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+          "sts:SetContext",
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+          "ForAllValues:StringLike" = {
+            "aws:TagKeys" = "datazone*"
+          }
+        }
       }
     ]
   })
@@ -212,37 +225,66 @@ resource "aws_iam_role" "datazone_domain_execution" {
 
 resource "aws_iam_role_policy_attachment" "datazone_domain_execution" {
   role       = aws_iam_role.datazone_domain_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonDataZoneDomainExecutionRolePolicy"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/SageMakerStudioDomainExecutionRolePolicy"
+}
+
+resource "aws_iam_role" "datazone_domain_service" {
+  name = local.datazone_domain_service_role
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "datazone.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "datazone_domain_service" {
+  role       = aws_iam_role.datazone_domain_service.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/SageMakerStudioDomainServiceRolePolicy"
 }
 
 resource "aws_datazone_domain" "raja" {
   name                  = var.datazone_domain_name
   description           = "Software-defined authorization for Quilt packages: Cedar policies compile to JWT scopes, DataZone enforces access via subscription grants"
   domain_execution_role = aws_iam_role.datazone_domain_execution.arn
+  domain_version        = "V2"
+  service_role          = aws_iam_role.datazone_domain_service.arn
   skip_deletion_check   = true
 
-  depends_on = [aws_iam_role_policy_attachment.datazone_domain_execution]
+  depends_on = [
+    aws_iam_role_policy_attachment.datazone_domain_execution,
+    aws_iam_role_policy_attachment.datazone_domain_service,
+  ]
 }
 
 resource "aws_datazone_project" "owner" {
-  domain_identifier   = aws_datazone_domain.raja.id
-  name                = var.datazone_owner_project_name
-  description         = "Publishes QuiltPackage asset listings; RAJA control plane creates listings here and accepts subscriber requests on behalf of principals"
-  skip_deletion_check = true
+  domain_identifier = aws_datazone_domain.raja.id
+  name              = var.datazone_owner_project_name
+  description       = "Publishes QuiltPackage asset listings; RAJA control plane creates listings here and accepts subscriber requests on behalf of principals"
 }
 
 resource "aws_datazone_project" "users" {
-  domain_identifier   = aws_datazone_domain.raja.id
-  name                = var.datazone_users_project_name
-  description         = "Subscriber project for authenticated principals; principals are added as members by the control plane"
-  skip_deletion_check = true
+  domain_identifier = aws_datazone_domain.raja.id
+  name              = var.datazone_users_project_name
+  description       = "Subscriber project for authenticated principals; principals are added as members by the control plane"
 }
 
 resource "aws_datazone_project" "guests" {
-  domain_identifier   = aws_datazone_domain.raja.id
-  name                = var.datazone_guests_project_name
-  description         = "Subscriber project for unauthenticated/public read-only access; subscriptions are auto-approved"
-  skip_deletion_check = true
+  domain_identifier = aws_datazone_domain.raja.id
+  name              = var.datazone_guests_project_name
+  description       = "Subscriber project for unauthenticated/public read-only access; subscriptions are auto-approved"
 }
 
 resource "aws_datazone_asset_type" "quilt_package" {
