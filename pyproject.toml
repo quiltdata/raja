@@ -118,6 +118,7 @@ deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
 destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
 seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DataZone" }
 seed-packages = { cmd = "python scripts/seed_packages.py", help = "Seed quilt3 packages into raja-poc-registry from raja-poc-test" }
+sagemaker-gaps = { cmd = "uv run --extra aws python scripts/sagemaker_gaps.py", help = "Fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
 
 # Docker image building
 build-envoy = { cmd = "bash scripts/build-envoy-image.sh", help = "Build Envoy container image locally" }
