@@ -359,7 +359,6 @@ function renderPrincipals() {
             <div class="principal-scopes">${principalScopeMarkup(item.scopes || [])}</div>
           </td>
           <td>${escapeHtml(item.datazone_project_name || item.datazone_project_id || "")}</td>
-          <td>${escapeHtml(item.datazone_project_id || "")}</td>
           <td>${escapeHtml(String(item.scope_count ?? (item.scopes || []).length))}</td>
           <td>${escapeHtml(lastIssued ? formatTimestamp(lastIssued) : "Never")}</td>
           <td><button type="button" class="secondary delete-principal" data-principal="${escapeHtml(item.principal)}">Delete</button></td>
