@@ -424,6 +424,43 @@ class DataZoneService:
             status="ACCEPTED",
         )
 
+    def list_subscription_requests(
+        self,
+        *,
+        statuses: tuple[str, ...] = ("ACCEPTED", "PENDING", "REJECTED"),
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for status in statuses:
+            next_token: str | None = None
+            while True:
+                kwargs: dict[str, Any] = {
+                    "domainIdentifier": self._config.domain_id,
+                    "status": status,
+                    "maxResults": _SEARCH_PAGE_SIZE,
+                }
+                if next_token:
+                    kwargs["nextToken"] = next_token
+                try:
+                    response = self._client.list_subscription_requests(**kwargs)
+                except (ClientError, BotoCoreError) as exc:
+                    raise DataZoneError("failed to list DataZone subscription requests") from exc
+                for item in response.get("items", []):
+                    if not isinstance(item, dict):
+                        continue
+                    request_id = str(item.get("id") or "")
+                    if request_id and request_id in seen_ids:
+                        continue
+                    normalized = dict(item)
+                    normalized["status"] = str(item.get("status") or status)
+                    items.append(normalized)
+                    if request_id:
+                        seen_ids.add(request_id)
+                next_token = response.get("nextToken")
+                if not next_token:
+                    break
+        return items
+
     def _find_subscription_request(
         self,
         *,

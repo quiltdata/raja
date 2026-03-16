@@ -229,11 +229,64 @@ def _console_domain_url(*, region: str, domain_id: str) -> str:
     )
 
 
+def _console_project_url(*, region: str, domain_id: str, project_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}/projects/{project_id}"
+    )
+
+
+def _studio_project_url(*, portal_url: str, project_id: str) -> str:
+    return f"{portal_url.rstrip('/')}/projects/{project_id}/overview"
+
+
+def _studio_subscription_requests_url(
+    *,
+    portal_url: str,
+    project_id: str,
+    status: str,
+) -> str:
+    status_map = {
+        "ACCEPTED": "APPROVED",
+        "PENDING": "PENDING",
+        "REJECTED": "REJECTED",
+        "REVOKED": "REVOKED",
+    }
+    mapped_status = status_map.get(status.upper(), status.upper())
+    return (
+        f"{portal_url.rstrip('/')}/projects/{project_id}/catalog/subscriptionRequests/incoming"
+        f"?status={quote(mapped_status, safe='')}"
+    )
+
+
 def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str:
     return (
         f"https://{region}.console.aws.amazon.com/datazone/home"
         f"?region={region}#/domains/{domain_id}/browse/{listing_id}"
     )
+
+
+def _summarize_principals(principals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in principals:
+        principal = str(item.get("principal") or "")
+        if not principal:
+            continue
+        summary = grouped.setdefault(
+            principal,
+            {
+                "principal": principal,
+                "project_ids": [],
+                "project_names": [],
+            },
+        )
+        project_id = str(item.get("datazone_project_id") or "")
+        project_name = str(item.get("datazone_project_name") or "")
+        if project_id and project_id not in summary["project_ids"]:
+            summary["project_ids"].append(project_id)
+        if project_name and project_name not in summary["project_names"]:
+            summary["project_names"].append(project_name)
+    return list(grouped.values())
 
 
 def _probe_endpoint(
@@ -722,7 +775,10 @@ def list_principals(
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principals_listed", count=len(principals))
-    return {"principals": principals}
+    return {
+        "principals": principals,
+        "principal_summary": _summarize_principals(principals),
+    }
 
 
 @router.get("/admin/structure")
@@ -737,10 +793,12 @@ def get_admin_structure(
     config = DataZoneConfig.from_env()
 
     domain_name = config.domain_id
+    domain_portal_url = ""
     domain_status = "warn"
     try:
         domain = datazone.get_domain(identifier=config.domain_id)
         domain_name = str(domain.get("name") or config.domain_id)
+        domain_portal_url = str(domain.get("portalUrl") or "")
         domain_status = "ok"
     except Exception as exc:
         domain_status = f"error: {exc}"
@@ -771,15 +829,74 @@ def get_admin_structure(
                 "name": domain_name,
                 "id": config.domain_id,
                 "region": region,
-                "portal_url": _console_domain_url(region=region, domain_id=config.domain_id)
-                if region
-                else "",
+                "portal_url": (
+                    domain_portal_url
+                    or (_console_domain_url(region=region, domain_id=config.domain_id) if region else "")
+                ),
                 "status": domain_status,
             },
             "owner_project": {
                 "name": _project_name(config.owner_project_id, config),
                 "id": config.owner_project_id,
+                "portal_url": (
+                    _studio_project_url(
+                        portal_url=domain_portal_url,
+                        project_id=config.owner_project_id,
+                    )
+                    if domain_portal_url and config.owner_project_id
+                    else (
+                        _console_project_url(
+                            region=region,
+                            domain_id=config.domain_id,
+                            project_id=config.owner_project_id,
+                        )
+                        if region and config.owner_project_id
+                        else ""
+                    )
+                ),
                 "status": "ok" if config.owner_project_id else "warn",
+            },
+            "users_project": {
+                "name": _project_name(config.users_project_id, config),
+                "id": config.users_project_id,
+                "portal_url": (
+                    _studio_project_url(
+                        portal_url=domain_portal_url,
+                        project_id=config.users_project_id,
+                    )
+                    if domain_portal_url and config.users_project_id
+                    else (
+                        _console_project_url(
+                            region=region,
+                            domain_id=config.domain_id,
+                            project_id=config.users_project_id,
+                        )
+                        if region and config.users_project_id
+                        else ""
+                    )
+                ),
+                "status": "ok" if config.users_project_id else "warn",
+            },
+            "guests_project": {
+                "name": _project_name(config.guests_project_id, config),
+                "id": config.guests_project_id,
+                "portal_url": (
+                    _studio_project_url(
+                        portal_url=domain_portal_url,
+                        project_id=config.guests_project_id,
+                    )
+                    if domain_portal_url and config.guests_project_id
+                    else (
+                        _console_project_url(
+                            region=region,
+                            domain_id=config.domain_id,
+                            project_id=config.guests_project_id,
+                        )
+                        if region and config.guests_project_id
+                        else ""
+                    )
+                ),
+                "status": "ok" if config.guests_project_id else "warn",
             },
             "asset_type": {
                 "name": asset_type_name,
@@ -836,25 +953,38 @@ def get_access_graph(
     _: None = Depends(dependencies.require_admin_auth),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
+    if not isinstance(principal, str):
+        principal = None
     try:
         config = DataZoneConfig.from_env()
         service = _datazone_service(datazone)
         principals_response = list_principals(limit=None, datazone=datazone)
         principals = principals_response["principals"]
+        principal_summary = principals_response["principal_summary"]
         if principal:
             principals = [item for item in principals if item.get("principal") == principal]
+            principal_summary = [
+                item for item in principal_summary if item.get("principal") == principal
+            ]
         listings = service.list_package_listings()
+        domain_portal_url = (
+            str(datazone.get_domain(identifier=config.domain_id).get("portalUrl") or "")
+            if config.domain_id
+            else ""
+        )
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
     packages: list[dict[str, Any]] = []
+    subscriptions: list[dict[str, Any]] = []
     access_rows: list[dict[str, Any]] = []
     project_filter_ids = {str(item["datazone_project_id"]) for item in principals}
+    listing_index = {listing.listing_id: listing for listing in listings}
 
     for listing in listings:
         try:
-            subscriptions = 0
+            subscription_count = 0
             for project_id in _ordered_project_ids(config):
                 if project_id == listing.owner_project_id:
                     continue
@@ -863,7 +993,7 @@ def get_access_graph(
                     listing_id=listing.listing_id,
                 )
                 if accepted:
-                    subscriptions += 1
+                    subscription_count += 1
         except DataZoneError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -874,7 +1004,23 @@ def get_access_graph(
                 "owner_project_id": listing.owner_project_id,
                 "owner_project_name": _project_name(listing.owner_project_id, config),
                 "asset_type": config.asset_type_name,
-                "subscriptions": subscriptions,
+                "subscriptions": subscription_count,
+                "owner_project_url": (
+                    _studio_project_url(
+                        portal_url=domain_portal_url,
+                        project_id=listing.owner_project_id,
+                    )
+                    if domain_portal_url and listing.owner_project_id
+                    else (
+                        _console_project_url(
+                            region=region,
+                            domain_id=config.domain_id,
+                            project_id=listing.owner_project_id,
+                        )
+                        if region and listing.owner_project_id
+                        else ""
+                    )
+                ),
                 "listing_url": (
                     _console_listing_url(
                         region=region,
@@ -922,9 +1068,78 @@ def get_access_graph(
                 }
             )
 
+    try:
+        subscription_requests = service.list_subscription_requests()
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    for item in subscription_requests:
+        request_id = str(item.get("id") or "")
+        status = str(item.get("status") or "UNKNOWN")
+        principals_data = item.get("subscribedPrincipals", [])
+        consumer_project_id = ""
+        if isinstance(principals_data, list):
+            for principal_data in principals_data:
+                if not isinstance(principal_data, dict):
+                    continue
+                project_data = principal_data.get("project")
+                if isinstance(project_data, dict) and project_data.get("id"):
+                    consumer_project_id = str(project_data["id"])
+                    break
+
+        listings_data = item.get("subscribedListings", [])
+        listing_id = ""
+        if isinstance(listings_data, list):
+            for listing_data in listings_data:
+                if not isinstance(listing_data, dict):
+                    continue
+                if listing_data.get("id"):
+                    listing_id = str(listing_data["id"])
+                    break
+
+        listing = listing_index.get(listing_id)
+        package_name = listing.name if listing else listing_id
+        owner_project_id = listing.owner_project_id if listing else ""
+        subscriptions.append(
+            {
+                "package_name": package_name,
+                "owner_project_id": owner_project_id,
+                "owner_project_name": _project_name(owner_project_id, config)
+                if owner_project_id
+                else "",
+                "consumer_project_id": consumer_project_id,
+                "consumer_project_name": _project_name(consumer_project_id, config)
+                if consumer_project_id
+                else "",
+                "status": status,
+                "subscription_id": request_id,
+                "subscription_url": (
+                    _studio_subscription_requests_url(
+                        portal_url=domain_portal_url,
+                        project_id=owner_project_id,
+                        status=status,
+                    )
+                    if domain_portal_url and owner_project_id
+                    else ""
+                ),
+            }
+        )
+
+    subscriptions.sort(
+        key=lambda item: (
+            str(item.get("package_name") or ""),
+            str(item.get("owner_project_name") or ""),
+            str(item.get("consumer_project_name") or ""),
+            str(item.get("status") or ""),
+            str(item.get("subscription_id") or ""),
+        )
+    )
+
     return {
         "principals": principals,
+        "principal_summary": principal_summary,
         "packages": packages,
+        "subscriptions": subscriptions,
         "access": access_rows,
     }
 
@@ -1093,24 +1308,29 @@ def create_principal(
 @router.delete("/principals/{principal}")
 def delete_principal(
     principal: str,
+    project_id: str | None = Query(default=None),
     _: None = Depends(dependencies.require_admin_auth),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, str]:
-    """Remove a principal from their DataZone project."""
-    logger.info("principal_delete_requested", principal=principal)
+    """Remove a principal from a DataZone project."""
+    if not isinstance(project_id, str):
+        project_id = None
+    logger.info("principal_delete_requested", principal=principal, project_id=project_id)
     try:
-        config = DataZoneConfig.from_env()
         service = _datazone_service(datazone)
-        project_id = service.find_project_for_principal(
-            principal, project_ids=_ordered_project_ids(config)
-        )
-        if project_id is None:
+        target_project_id = project_id
+        if target_project_id is None:
+            config = DataZoneConfig.from_env()
+            target_project_id = service.find_project_for_principal(
+                principal, project_ids=_ordered_project_ids(config)
+            )
+        if target_project_id is None:
             raise HTTPException(status_code=404, detail=f"Principal not found: {principal}")
-        service.delete_project_membership(project_id=project_id, user_identifier=principal)
+        service.delete_project_membership(project_id=target_project_id, user_identifier=principal)
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principal_deleted", principal=principal)
-    return {"message": f"Principal {principal} deleted"}
+    return {"message": f"Removed {principal} from project"}
 
 
 @router.get("/policies")

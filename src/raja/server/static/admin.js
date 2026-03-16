@@ -61,6 +61,10 @@ function clearStatusClasses(el) {
 
 function setStatusBanner(id, text, kind = "") {
   const el = select(id);
+  setStatusNode(el, text, kind);
+}
+
+function setStatusNode(el, text, kind = "") {
   if (!el) return;
   el.textContent = text;
   clearStatusClasses(el);
@@ -96,6 +100,8 @@ function statusKindFromValue(value) {
   if (!value) return "warn";
   const raw = String(value).toLowerCase();
   if (raw === "ok") return "ok";
+  if (raw === "accepted" || raw === "succeeded") return "ok";
+  if (raw === "rejected" || raw === "failed") return "error";
   if (raw.startsWith("error")) return "error";
   return "warn";
 }
@@ -114,6 +120,36 @@ function statusDetailText(value) {
   if (lower === "ok" || lower === "warn") return "";
   if (lower.startsWith("error:")) return raw.slice(6).trim();
   return raw;
+}
+
+function scopesForProject(projectKey) {
+  if (projectKey === "owner") return ["*:*:*"];
+  if (projectKey === "users") return ["S3Object:*:*"];
+  return ["S3Object:*:s3:GetObject"];
+}
+
+function dedupePrincipals() {
+  const summary = state.accessGraph?.principal_summary;
+  if (Array.isArray(summary) && summary.length) return summary;
+
+  const grouped = new Map();
+  for (const item of state.accessGraph?.principals || []) {
+    if (!grouped.has(item.principal)) {
+      grouped.set(item.principal, {
+        principal: item.principal,
+        project_ids: [],
+        project_names: [],
+      });
+    }
+    const row = grouped.get(item.principal);
+    if (item.datazone_project_id && !row.project_ids.includes(item.datazone_project_id)) {
+      row.project_ids.push(item.datazone_project_id);
+    }
+    if (item.datazone_project_name && !row.project_names.includes(item.datazone_project_name)) {
+      row.project_names.push(item.datazone_project_name);
+    }
+  }
+  return Array.from(grouped.values());
 }
 
 async function parseResponse(response) {
@@ -245,11 +281,26 @@ function renderStatusRows() {
       value: `${datazone.owner_project.name} (${datazone.owner_project.id || "unset"})`,
       meta: "Seeder project that owns published listings",
       status: datazone.owner_project.status,
+      href: datazone.owner_project.portal_url,
+    },
+    {
+      label: "Users project",
+      value: `${datazone.users_project.name} (${datazone.users_project.id || "unset"})`,
+      meta: "Project with broad package access",
+      status: datazone.users_project.status,
+      href: datazone.users_project.portal_url,
+    },
+    {
+      label: "Guests project",
+      value: `${datazone.guests_project.name} (${datazone.guests_project.id || "unset"})`,
+      meta: "Project with read-only package access",
+      status: datazone.guests_project.status,
+      href: datazone.guests_project.portal_url,
     },
     {
       label: "Asset type",
       value: `${datazone.asset_type.name} rev ${datazone.asset_type.revision}`,
-      meta: "Registered DataZone package asset type",
+      meta: "Registered SageMaker package asset type",
       status: datazone.asset_type.status,
     },
   ];
@@ -322,7 +373,7 @@ function principalScopeMarkup(scopes = []) {
 }
 
 function renderPrincipalSelectors() {
-  const principals = state.accessGraph?.principals || [];
+  const principals = dedupePrincipals();
   const options = ['<option value="">Choose a principal</option>']
     .concat(
       principals.map((item) => {
@@ -333,7 +384,7 @@ function renderPrincipalSelectors() {
     )
     .join("");
 
-  for (const id of ["global-principal", "revoke-principal-select"]) {
+  for (const id of ["global-principal"]) {
     const el = select(id);
     if (el) el.innerHTML = options;
   }
@@ -344,30 +395,81 @@ function renderPrincipalSelectors() {
   }
 }
 
-function renderPrincipals() {
-  const tbody = select("principals-body");
-  if (!tbody) return;
+function renderProjects() {
   const principals = state.accessGraph?.principals || [];
+  const projectRows = new Map(
+    ["owner", "users", "guests"].map((projectKey) => [projectKey, []]),
+  );
+  const datazone = state.structure?.datazone || {};
+  const projectConfig = {
+    owner: datazone.owner_project,
+    users: datazone.users_project,
+    guests: datazone.guests_project,
+  };
 
-  tbody.innerHTML = principals
-    .map((item) => {
-      const lastIssued = state.lastIssuedAt.get(item.principal) || item.last_token_issued;
-      return `
-        <tr>
-          <td>
-            <div>${escapeHtml(item.principal)}</div>
-            <div class="principal-scopes">${principalScopeMarkup(item.scopes || [])}</div>
-          </td>
-          <td>${escapeHtml(item.datazone_project_name || item.datazone_project_id || "")}</td>
-          <td>${escapeHtml(String(item.scope_count ?? (item.scopes || []).length))}</td>
-          <td>${escapeHtml(lastIssued ? formatTimestamp(lastIssued) : "Never")}</td>
-          <td><button type="button" class="secondary delete-principal" data-principal="${escapeHtml(item.principal)}">Delete</button></td>
-        </tr>
-      `;
-    })
-    .join("");
+  for (const [projectKey, project] of Object.entries(projectConfig)) {
+    const meta = select(`project-${projectKey}-meta`);
+    const link = select(`project-${projectKey}-link`);
+    const scope = select(`project-${projectKey}-scope`);
+    if (meta) {
+      meta.textContent = project?.id ? `${project.name} (${project.id})` : "Project not configured";
+    }
+    if (link) {
+      if (project?.portal_url) {
+        link.href = project.portal_url;
+        link.hidden = false;
+      } else {
+        link.hidden = true;
+        link.removeAttribute("href");
+      }
+    }
+    if (scope) {
+      scope.textContent = scopesForProject(projectKey).join(", ");
+    }
+  }
 
-  select("principals-summary-meta").textContent = `${principals.length} principals`;
+  for (const item of principals) {
+    const projectKey = Object.entries(projectConfig).find(
+      ([, project]) => project?.id && project.id === item.datazone_project_id,
+    )?.[0];
+    if (!projectKey) continue;
+    projectRows.get(projectKey).push(item);
+  }
+
+  for (const [projectKey, items] of projectRows.entries()) {
+    const tbody = select(`project-${projectKey}-body`);
+    if (!tbody) continue;
+    tbody.innerHTML = items.length
+      ? items
+          .map((item) => {
+            const lastIssued = state.lastIssuedAt.get(item.principal) || item.last_token_issued;
+            return `
+              <tr>
+                <td>
+                  <div>${escapeHtml(item.principal)}</div>
+                  <div class="principal-scopes">${principalScopeMarkup(item.scopes || [])}</div>
+                </td>
+                <td>${escapeHtml(lastIssued ? formatTimestamp(lastIssued) : "Never")}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="secondary delete-principal"
+                    data-principal="${escapeHtml(item.principal)}"
+                    data-project-id="${escapeHtml(item.datazone_project_id || "")}"
+                  >Remove from project</button>
+                </td>
+              </tr>
+            `;
+          })
+          .join("")
+      : '<tr><td colspan="3">No members</td></tr>';
+  }
+
+  const uniquePrincipals = dedupePrincipals();
+  const projectsSummary = select("projects-summary-meta");
+  if (projectsSummary) {
+    projectsSummary.textContent = `${uniquePrincipals.length} principals across ${projectRows.size} projects`;
+  }
 }
 
 function renderPackages() {
@@ -375,35 +477,42 @@ function renderPackages() {
   if (!tbody) return;
   const packages = state.accessGraph?.packages || [];
   tbody.innerHTML = packages
-    .map((item) => `
-      <tr>
-        <td>${item.listing_url ? `<a href="${escapeHtml(item.listing_url)}" target="_blank" rel="noopener">${escapeHtml(item.package_name)}</a>` : escapeHtml(item.package_name)}</td>
-        <td>${escapeHtml(item.listing_id)}</td>
-        <td>${escapeHtml(item.owner_project_name || item.owner_project_id || "")}</td>
-        <td>${escapeHtml(item.asset_type || "")}</td>
-        <td>${escapeHtml(String(item.subscriptions ?? 0))}</td>
-      </tr>
-    `)
+    .map(
+      (item) => `
+        <tr>
+          <td>${item.listing_url ? `<a href="${escapeHtml(item.listing_url)}" target="_blank" rel="noopener">${escapeHtml(item.package_name)}</a>` : escapeHtml(item.package_name)}</td>
+          <td>${escapeHtml(item.listing_id)}</td>
+          <td>${item.owner_project_url ? `<a href="${escapeHtml(item.owner_project_url)}" target="_blank" rel="noopener">${escapeHtml(item.owner_project_name || item.owner_project_id || "")}</a>` : escapeHtml(item.owner_project_name || item.owner_project_id || "")}</td>
+          <td>${escapeHtml(item.asset_type || "")}</td>
+          <td>${item.listing_url ? `<a href="${escapeHtml(item.listing_url)}" target="_blank" rel="noopener">${escapeHtml(String(item.subscriptions ?? 0))}</a>` : escapeHtml(String(item.subscriptions ?? 0))}</td>
+          <td><button type="button" class="secondary use-in-rale" data-package="${escapeHtml(item.package_name || "")}">${item.package_name === state.selectedPackage ? "Selected for flow" : "Select for flow"}</button></td>
+        </tr>
+      `,
+    )
     .join("");
   select("packages-summary-meta").textContent = `${packages.length} listings`;
 }
 
-function renderAccessTable() {
-  const tbody = select("access-body");
+function renderSubscriptions() {
+  const tbody = select("subscriptions-body");
   if (!tbody) return;
-  const rows = state.accessGraph?.access || [];
-  tbody.innerHTML = rows
-    .map((item) => `
-      <tr>
-        <td>${escapeHtml(item.principal_project_name || item.principal_project_id || "")}</td>
-        <td>${escapeHtml(item.package_name || "")}</td>
-        <td>${escapeHtml(item.access_mode || "")}</td>
-        <td>${escapeHtml(item.source || "")}</td>
-        <td>${escapeHtml(item.subscription_id || "")}</td>
-      </tr>
-    `)
-    .join("");
-  select("access-summary-meta").textContent = `${rows.length} relationships`;
+  const rows = state.accessGraph?.subscriptions || [];
+  tbody.innerHTML = rows.length
+    ? rows
+        .map(
+          (item) => `
+            <tr>
+              <td>${escapeHtml(item.package_name || "")}</td>
+              <td>${escapeHtml(item.owner_project_name || item.owner_project_id || "")}</td>
+              <td>${escapeHtml(item.consumer_project_name || item.consumer_project_id || "")}</td>
+              <td><span class="badge ${statusKindFromValue(item.status)}">${escapeHtml(item.status || "UNKNOWN")}</span></td>
+              <td>${item.subscription_url ? `<a href="${escapeHtml(item.subscription_url)}" target="_blank" rel="noopener">${escapeHtml(item.subscription_id || "")}</a>` : escapeHtml(item.subscription_id || "")}</td>
+            </tr>
+          `,
+        )
+        .join("")
+    : '<tr><td colspan="5">No subscriptions</td></tr>';
+  select("subscriptions-summary-meta").textContent = `${rows.length} subscriptions`;
 }
 
 function renderRalePackages(packages, registry) {
@@ -530,9 +639,9 @@ async function loadAccessGraph() {
   }
   state.accessGraph = result.data;
   renderPrincipalSelectors();
-  renderPrincipals();
+  renderProjects();
+  renderSubscriptions();
   renderPackages();
-  renderAccessTable();
 }
 
 async function loadRalePackages() {
@@ -562,49 +671,62 @@ async function refreshAll() {
   await loadFailureDefinitions();
 }
 
-function scopesForMode(mode) {
-  if (mode === "owner") return ["*:*:*"];
-  if (mode === "user") return ["S3Object:*:*"];
-  return ["S3Object:*:s3:GetObject"];
-}
-
 async function createPrincipal(event) {
   event.preventDefault();
-  const principal = select("principal-input").value.trim();
+  const form = event.currentTarget;
+  const principal = form.elements.principal?.value.trim();
+  const statusNode = form.parentElement?.querySelector('[data-role="project-membership-status"]');
   if (!principal) {
-    setStatusBanner("principal-form-status", "Principal ID is required.", "warn");
+    setStatusNode(statusNode, "Principal ARN is required.", "warn");
     return;
   }
 
-  const mode = select("principal-scope-mode").value;
+  const projectKey = form.dataset.projectKey || "guests";
   const result = await apiFetch("/principals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ principal, scopes: scopesForMode(mode) }),
+    body: JSON.stringify({ principal, scopes: scopesForProject(projectKey) }),
   });
   if (!result.ok) {
-    setStatusBanner("principal-form-status", result.data.detail || "Unable to add principal.", "error");
+    setStatusNode(statusNode, result.data.detail || "Unable to add principal to project.", "error");
     return;
   }
 
-  select("principal-input").value = "";
-  setStatusBanner("principal-form-status", `Added ${principal}.`, "ok");
+  form.reset();
+  setStatusNode(statusNode, `Added ${principal} to project.`, "ok");
   await loadAccessGraph();
 }
 
-async function deletePrincipal(principal) {
-  const result = await apiFetch(`/principals/${encodeURIComponent(principal)}`, {
+async function deletePrincipal(principal, projectId = "", statusNode = null) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  const result = await apiFetch(`/principals/${encodeURIComponent(principal)}${query}`, {
     method: "DELETE",
   });
   if (!result.ok) {
-    select("revoke-soft-output").textContent = result.data.detail || "Delete failed.";
+    setStatusNode(statusNode, result.data.detail || "Removal failed.", "error");
     return;
   }
-  select("revoke-soft-output").textContent = result.data.message || `Deleted ${principal}.`;
-  if (state.selectedPrincipal === principal) {
-    state.selectedPrincipal = "";
-  }
+  setStatusNode(statusNode, result.data.message || `Removed ${principal} from project.`, "ok");
   await loadAccessGraph();
+  if (
+    state.selectedPrincipal === principal &&
+    !dedupePrincipals().some((item) => item.principal === principal)
+  ) {
+    state.selectedPrincipal = "";
+    renderPrincipalSelectors();
+  }
+}
+
+async function selectPackageForRale(packageName, options = {}) {
+  if (!packageName) return;
+  state.selectedPackage = packageName;
+  const packageSelect = select("rale-package-select");
+  if (packageSelect) packageSelect.value = packageName;
+  await onPackageSelected(packageName);
+  renderPackages();
+  if (options.scroll !== false) {
+    select("section-rale")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function resetRaleFlow() {
@@ -627,8 +749,8 @@ function resetRaleFlow() {
   select("rale-summary-meta").textContent = "Reset";
 }
 
-async function onPackageSelected() {
-  const packageName = select("rale-package-select").value;
+async function onPackageSelected(explicitPackageName = "") {
+  const packageName = explicitPackageName || select("rale-package-select").value;
   resetRaleFlow();
   select("rale-package-select").value = packageName;
   if (!packageName) return;
@@ -688,7 +810,7 @@ async function authorizeRale(event) {
     renderClaims(annotatedClaims || []);
     select("rale-deliver-button").disabled = false;
     state.lastIssuedAt.set(principal, Math.floor(Date.now() / 1000));
-    renderPrincipals();
+    renderProjects();
     setStatusBanner(
       "rale-authorize-status",
       `TAJ issued for ${principal}. Claims are decoded inline below.`,
@@ -825,11 +947,13 @@ function bindEvents() {
   });
 
   select("header-health-chip").addEventListener("click", () => {
-    select("column-structure").scrollIntoView({ behavior: "smooth", block: "start" });
+    select("section-stack").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   select("structure-refresh").addEventListener("click", loadStructure);
-  select("principal-form").addEventListener("submit", createPrincipal);
+  for (const form of document.querySelectorAll(".project-principal-form")) {
+    form.addEventListener("submit", createPrincipal);
+  }
 
   select("global-principal").addEventListener("change", async (event) => {
     state.selectedPrincipal = event.target.value;
@@ -840,7 +964,18 @@ function bindEvents() {
   document.body.addEventListener("click", async (event) => {
     const principalButton = event.target.closest(".delete-principal");
     if (principalButton) {
-      await deletePrincipal(principalButton.dataset.principal || "");
+      const statusNode = principalButton.closest(".project-card")?.querySelector('[data-role="principal-form-status"]');
+      await deletePrincipal(
+        principalButton.dataset.principal || "",
+        principalButton.dataset.projectId || "",
+        statusNode,
+      );
+      return;
+    }
+
+    const packageButton = event.target.closest(".use-in-rale");
+    if (packageButton) {
+      await selectPackageForRale(packageButton.dataset.package || "");
       return;
     }
 
@@ -850,18 +985,8 @@ function bindEvents() {
     }
   });
 
-  select("revoke-refresh").addEventListener("click", loadAccessGraph);
-  select("revoke-delete").addEventListener("click", async () => {
-    const principal = select("revoke-principal-select").value;
-    if (!principal) {
-      select("revoke-soft-output").textContent = "Choose a principal first.";
-      return;
-    }
-    await deletePrincipal(principal);
-  });
-
   select("rale-reset").addEventListener("click", resetRaleFlow);
-  select("rale-package-select").addEventListener("change", onPackageSelected);
+  select("rale-package-select").addEventListener("change", () => onPackageSelected());
   select("rale-file-select").addEventListener("change", onFileSelected);
   select("rale-authorize-form").addEventListener("submit", authorizeRale);
   select("rale-deliver-button").addEventListener("click", deliverRale);

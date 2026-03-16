@@ -72,9 +72,11 @@ def _subscription_item(
     request_id: str = "sub_abc",
     project_id: str = "prj_consumer",
     listing_id: str = "lst_abc",
+    status: str = "ACCEPTED",
 ) -> dict:
     return {
         "id": request_id,
+        "status": status,
         "subscribedPrincipals": [{"project": {"id": project_id}}],
         "subscribedListings": [{"id": listing_id}],
     }
@@ -392,3 +394,31 @@ def test_ensure_grant_reuses_pending_request() -> None:
         identifier="sub_existing",
         decisionComment="Approved by RAJA POC bootstrap",
     )
+
+
+def test_list_subscription_requests_collects_all_statuses() -> None:
+    client = MagicMock()
+    client.list_subscription_requests.side_effect = [
+        {
+            "items": [_subscription_item(request_id="sub_accepted", status="ACCEPTED")],
+            "nextToken": None,
+        },
+        {
+            "items": [_subscription_item(request_id="sub_pending", status="PENDING")],
+            "nextToken": None,
+        },
+        {
+            "items": [_subscription_item(request_id="sub_rejected", status="REJECTED")],
+            "nextToken": None,
+        },
+    ]
+    svc = _service(client)
+
+    requests = svc.list_subscription_requests()
+
+    assert [item["id"] for item in requests] == [
+        "sub_accepted",
+        "sub_pending",
+        "sub_rejected",
+    ]
+    assert [item["status"] for item in requests] == ["ACCEPTED", "PENDING", "REJECTED"]

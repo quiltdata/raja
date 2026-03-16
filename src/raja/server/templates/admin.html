@@ -31,7 +31,7 @@
       </button>
 
       <label class="principal-wrap" for="global-principal">
-        <span class="header-label">Current principal</span>
+        <span class="header-label">Principal filter</span>
         <select id="global-principal">
           <option value="">Loading principals...</option>
         </select>
@@ -52,9 +52,9 @@
       <section class="column-grid">
         <div class="app-column" id="column-structure">
           <div class="column-header">
-            <div class="column-kicker">Data Governance</div>
-            <h1>SageMaker Projects</h1>
-            <p>Domain identity, linked DataZone projects, and current project membership.</p>
+            <div class="column-kicker">SageMaker resources</div>
+            <h1>SageMaker Configuration</h1>
+            <p>Domain identity, linked SageMaker projects, and current project membership.</p>
           </div>
 
           <details class="section-card" id="section-datazone">
@@ -81,91 +81,127 @@
                   <div class="project-card-head">
                     <div>
                       <h3>Owner</h3>
-                      <div class="project-card-meta" id="tier-owner-meta">Not loaded</div>
+                      <div class="project-card-meta" id="project-owner-meta">Not loaded</div>
                     </div>
-                    <a id="tier-owner-link" target="_blank" rel="noopener">Open project</a>
+                    <a id="project-owner-link" target="_blank" rel="noopener">Open in SageMaker</a>
                   </div>
-                  <p class="project-scope">Scope: <span id="tier-owner-scope">*:*:*</span></p>
+                  <p class="project-scope">Granted scopes: <span id="project-owner-scope">*:*:*</span></p>
                   <table>
                     <thead>
                       <tr>
-                        <th>Principal ID</th>
-                        <th>Last token issued</th>
+                        <th>Principal ARN</th>
+                        <th>Last TAJ issued</th>
                         <th></th>
                       </tr>
                     </thead>
-                    <tbody id="tier-owner-body"></tbody>
+                    <tbody id="project-owner-body"></tbody>
                   </table>
-                  <form class="project-principal-form add-member-row" data-tier="owner">
+                  <form class="project-principal-form add-member-row" data-project-key="owner">
                     <input
                       name="principal"
                       placeholder="arn:aws:iam::123456789012:user/example"
                     />
-                    <button type="submit">Add member</button>
+                    <button type="submit">Add to project</button>
                   </form>
-                  <div class="inline-status" data-role="principal-form-status"></div>
+                  <div class="inline-status" data-role="project-membership-status"></div>
                 </section>
 
-                <section class="project-card" data-tier="users">
+                <section class="project-card" data-project-key="users">
                   <div class="project-card-head">
                     <div>
                       <h3>Users</h3>
-                      <div class="project-card-meta" id="tier-users-meta">Not loaded</div>
+                      <div class="project-card-meta" id="project-users-meta">Not loaded</div>
                     </div>
-                    <a id="tier-users-link" target="_blank" rel="noopener">Open project</a>
+                    <a id="project-users-link" target="_blank" rel="noopener">Open in SageMaker</a>
                   </div>
-                  <p class="project-scope">Scope: <span id="tier-users-scope">S3Object:*:*</span></p>
+                  <p class="project-scope">Granted scopes: <span id="project-users-scope">S3Object:*:*</span></p>
                   <table>
                     <thead>
                       <tr>
-                        <th>Principal ID</th>
-                        <th>Last token issued</th>
+                        <th>Principal ARN</th>
+                        <th>Last TAJ issued</th>
                         <th></th>
                       </tr>
                     </thead>
-                    <tbody id="tier-users-body"></tbody>
+                    <tbody id="project-users-body"></tbody>
                   </table>
-                  <form class="project-principal-form add-member-row" data-tier="users">
+                  <form class="project-principal-form add-member-row" data-project-key="users">
                     <input
                       name="principal"
                       placeholder="arn:aws:iam::123456789012:user/example"
                     />
-                    <button type="submit">Add member</button>
+                    <button type="submit">Add to project</button>
                   </form>
-                  <div class="inline-status" data-role="principal-form-status"></div>
+                  <div class="inline-status" data-role="project-membership-status"></div>
                 </section>
 
-                <section class="project-card" data-tier="guests">
+                <section class="project-card" data-project-key="guests">
                   <div class="project-card-head">
                     <div>
                       <h3>Guests</h3>
-                      <div class="project-card-meta" id="tier-guests-meta">Not loaded</div>
+                      <div class="project-card-meta" id="project-guests-meta">Not loaded</div>
                     </div>
-                    <a id="tier-guests-link" target="_blank" rel="noopener">Open project</a>
+                    <a id="project-guests-link" target="_blank" rel="noopener">Open in SageMaker</a>
                   </div>
                   <p class="project-scope">
-                    Scope: <span id="tier-guests-scope">S3Object:*:s3:GetObject</span>
+                    Granted scopes: <span id="project-guests-scope">S3Object:*:s3:GetObject</span>
                   </p>
                   <table>
                     <thead>
                       <tr>
-                        <th>Principal ID</th>
-                        <th>Last token issued</th>
+                        <th>Principal ARN</th>
+                        <th>Last TAJ issued</th>
                         <th></th>
                       </tr>
                     </thead>
-                    <tbody id="tier-guests-body"></tbody>
+                    <tbody id="project-guests-body"></tbody>
                   </table>
-                  <form class="project-principal-form add-member-row" data-tier="guests">
+                  <form class="project-principal-form add-member-row" data-project-key="guests">
                     <input
                       name="principal"
                       placeholder="arn:aws:iam::123456789012:user/example"
                     />
-                    <button type="submit">Add member</button>
+                    <button type="submit">Add to project</button>
                   </form>
-                  <div class="inline-status" data-role="principal-form-status"></div>
+                  <div class="inline-status" data-role="project-membership-status"></div>
                 </section>
               </div>
+            </div>
+          </details>
+
+          <details class="section-card" id="section-subscriptions">
+            <summary>
+              <span>Subscriptions</span>
+              <span class="summary-meta" id="subscriptions-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Package</th>
+                    <th>Owner</th>
+                    <th>Consumer</th>
+                    <th>Status</th>
+                    <th>ID</th>
+                  </tr>
+                </thead>
+                <tbody id="subscriptions-body"></tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="section-card about-card" id="section-about">
+            <summary>
+              <span>About</span>
+              <span class="summary-meta">Reading list</span>
+            </summary>
+            <div class="section-body">
+              <ul class="about-list">
+                <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></li>
+                <li><a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></li>
+                <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a></li>
+                <li><a href="https://ihack.us/2026/01/20/rajee-vs-iam-the-petty-life-of-secrets/" target="_blank" rel="noopener">RAJEE vs IAM</a></li>
+              </ul>
             </div>
           </details>
         </div>
@@ -173,7 +209,7 @@
         <div class="app-column" id="column-execution">
           <div class="column-header">
             <div class="column-kicker">Live system</div>
-            <h1>RAJ Stack</h1>
+            <h1>RAJ Execution</h1>
             <p>Choose a package target, exercise the flow, then inspect live health.</p>
           </div>
 
@@ -191,7 +227,7 @@
                     <th>Owner project</th>
                     <th>Asset type</th>
                     <th>Subscriptions</th>
-                    <th>RALE</th>
+                    <th>Use in flow</th>
                   </tr>
                 </thead>
                 <tbody id="packages-body"></tbody>
@@ -320,20 +356,6 @@
         </div>
       </section>
 
-      <details class="section-card about-card" id="section-about">
-        <summary>
-          <span>About</span>
-          <span class="summary-meta">Reading list</span>
-        </summary>
-        <div class="section-body">
-          <ul class="about-list">
-            <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></li>
-            <li><a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></li>
-            <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a></li>
-            <li><a href="https://ihack.us/2026/01/20/rajee-vs-iam-the-petty-life-of-secrets/" target="_blank" rel="noopener">RAJEE vs IAM</a></li>
-          </ul>
-        </div>
-      </details>
     </main>
 
     <script src="static/admin.js" type="module"></script>
