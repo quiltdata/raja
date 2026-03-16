@@ -260,12 +260,55 @@ def _probe_endpoint(
 
 def _resolve_runtime_config() -> dict[str, str]:
     resolved, _ = resolve_config()
+    authorizer_url = resolved.rale_authorizer_url
+    if not authorizer_url:
+        authorizer_url = _resolve_lambda_function_url(
+            os.environ.get("RALE_AUTHORIZER_FUNCTION_NAME", "").strip()
+        )
+
+    router_url = resolved.rale_router_url
+    if not router_url:
+        router_url = _resolve_lambda_function_url(
+            os.environ.get("RALE_ROUTER_FUNCTION_NAME", "").strip()
+        )
+
     return {
         "registry": resolved.registry,
         "rajee_endpoint": resolved.rajee_endpoint,
-        "rale_authorizer_url": resolved.rale_authorizer_url,
-        "rale_router_url": resolved.rale_router_url,
+        "rale_authorizer_url": authorizer_url,
+        "rale_router_url": router_url,
     }
+
+
+def _resolve_lambda_function_url(function_name: str) -> str:
+    if not function_name:
+        return ""
+    try:
+        client = boto3.client("lambda")
+        response = client.get_function_url_config(FunctionName=function_name)
+    except (BotoCoreError, ClientError) as exc:
+        logger.warning(
+            "lambda_function_url_lookup_failed", function_name=function_name, error=str(exc)
+        )
+        return ""
+    function_url = response.get("FunctionUrl")
+    return str(function_url).rstrip("/") if isinstance(function_url, str) else ""
+
+
+def _external_base_url(request: Request) -> str:
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("host") or request.url.netloc
+    event = request.scope.get("aws.event")
+    stage = ""
+    if isinstance(event, dict):
+        request_context = event.get("requestContext")
+        if isinstance(request_context, dict):
+            raw_stage = request_context.get("stage")
+            if isinstance(raw_stage, str) and raw_stage and raw_stage != "$default":
+                stage = raw_stage.strip("/")
+
+    base_url = f"{scheme}://{host}".rstrip("/")
+    return f"{base_url}/{stage}" if stage else base_url
 
 
 def _build_rale_path(usl: str) -> tuple[str, str]:
@@ -704,7 +747,9 @@ def get_admin_structure(
         asset_type_revision = config.asset_type_revision
         asset_type_status = f"error: {exc}"
 
-    server_url = str(request.base_url).rstrip("/")
+    server_url = _external_base_url(request)
+    health_url = f"{server_url}/health"
+    jwks_url = f"{server_url}/.well-known/jwks.json"
     jwks = get_jwks(secret=secret)
 
     return {
@@ -733,7 +778,7 @@ def get_admin_structure(
             "server": {
                 "label": "RAJA server",
                 "url": server_url,
-                "health": _probe_endpoint(f"{server_url}/health"),
+                "health": _probe_endpoint(health_url),
             },
             "rale_authorizer": {
                 "label": "RALE Authorizer",
@@ -764,7 +809,7 @@ def get_admin_structure(
             },
             "jwks": {
                 "label": "JWKS",
-                "url": f"{server_url}/.well-known/jwks.json",
+                "url": jwks_url,
                 "kids": [str(key.get("kid") or "") for key in jwks.get("keys", [])],
                 "health": {"reachable": True, "status": "ok"},
             },

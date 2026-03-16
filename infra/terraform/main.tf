@@ -320,6 +320,7 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
         Effect = "Allow"
         Action = [
           "lambda:GetFunction",
+          "lambda:GetFunctionUrlConfig",
           "lambda:GetFunctionConfiguration",
           "lambda:UpdateFunctionConfiguration",
           "lambda:GetFunctionConcurrency",

@@ -173,6 +173,34 @@ def test_admin_structure_reports_datazone_rows_without_errors():
     assert asset_type.get("name") == "QuiltPackage", f"Unexpected asset type row: {asset_type}"
 
 
+@pytest.mark.integration
+def test_admin_structure_reports_live_rale_stack_endpoints():
+    """GET /admin/structure must expose configured RALE endpoints and healthy server probe."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/admin/structure", headers=_admin_headers())
+    assert status == 200, f"Expected 200, got {status}"
+    data = json.loads(body)
+
+    stack = data.get("stack", {})
+    server = stack.get("server", {})
+    authorizer = stack.get("rale_authorizer", {})
+    router = stack.get("rale_router", {})
+
+    assert server.get("health", {}).get("status_code") == 200, (
+        f"Server health probe should hit the deployed stage path: {server}"
+    )
+
+    assert authorizer.get("url"), f"RALE authorizer URL missing from admin structure: {authorizer}"
+    assert authorizer.get("health", {}).get("detail") != "not configured", (
+        f"RALE authorizer unexpectedly reported as unconfigured: {authorizer}"
+    )
+
+    assert router.get("url"), f"RALE router URL missing from admin structure: {router}"
+    assert router.get("health", {}).get("detail") != "not configured", (
+        f"RALE router unexpectedly reported as unconfigured: {router}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Principals — DataZone project metadata
 # ---------------------------------------------------------------------------

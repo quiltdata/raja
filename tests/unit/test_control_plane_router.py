@@ -318,7 +318,10 @@ def test_list_policies_skips_missing_policy_id():
 
 def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     request = MagicMock()
-    request.base_url = "https://api.example.com/"
+    request.headers = {"host": "api.example.com", "x-forwarded-proto": "https"}
+    request.url.scheme = "https"
+    request.url.netloc = "api.example.com"
+    request.scope = {"aws.event": {"requestContext": {"stage": "prod"}}}
     datazone = MagicMock()
     datazone.get_domain.return_value = {"name": "demo-domain"}
     datazone.get_asset_type.return_value = {"name": "QuiltPackage", "revision": "2"}
@@ -369,6 +372,10 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     )
     assert response["datazone"]["domain"]["status"] == "ok"
     assert response["datazone"]["asset_type"]["status"] == "ok"
+    assert response["stack"]["server"]["url"] == "https://api.example.com/prod"
+    assert response["stack"]["rale_authorizer"]["url"] == "https://authorizer.example.com"
+    assert response["stack"]["rale_router"]["url"] == "https://router.example.com"
+    assert response["stack"]["jwks"]["url"] == "https://api.example.com/prod/.well-known/jwks.json"
 
 
 def test_get_jwks():
