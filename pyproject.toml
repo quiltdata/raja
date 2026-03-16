@@ -138,9 +138,9 @@ test-rale-cli = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${
 test-all = { sequence = ["check", "test", "deploy", "test-integration", "test-rale-cli"], help = "Run linting and tests, deploy, run integration tests, and verify the live RALE CLI flow" }
 
 # Internal tasks (prefixed with _)
-_format = { cmd = "uv run --python 3.12 --extra dev ruff format src tests infra lambda_handlers", help = "Internal: format code" }
-_lint-fix = { cmd = "uv run --python 3.12 --extra dev ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
-_typecheck = { cmd = "uv run --python 3.12 --extra dev mypy src", help = "Internal: run type checker" }
+_format = { cmd = "uv run --extra dev ruff format src tests infra lambda_handlers", help = "Internal: format code" }
+_lint-fix = { cmd = "uv run --extra dev ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
+_typecheck = { cmd = "uv run --extra dev mypy src", help = "Internal: run type checker" }
 _show-outputs = { cmd = "python scripts/show_outputs.py", help = "Internal: print deployment summary" }
 _terraform-apply = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json | python3 -c \"import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))\" > ../tf-outputs.json", help = "Internal: deploy Terraform stack and persist outputs" }
 _wait-rajee-stable = { shell = "set -a; [ -f .env ] && . ./.env; set +a; aws ecs wait services-stable --cluster raja-standalone-rajee-cluster --services raja-standalone-rajee-service", help = "Internal: wait for the RAJEE ECS service to reach a stable state" }
