@@ -113,6 +113,16 @@ def _extract_tf_value(raw: Any) -> str | None:
     return None
 
 
+def _load_principal_from_sts() -> str:
+    """Return the caller's IAM ARN from STS GetCallerIdentity, or '' on failure."""
+    try:
+        import boto3
+
+        return str(boto3.client("sts").get_caller_identity()["Arn"])
+    except Exception:
+        return ""
+
+
 def _load_default_principal_from_server(server_url: str) -> str:
     if not server_url:
         return ""
@@ -222,6 +232,7 @@ def resolve_config(
         or file_values.get("RAJA_DEFAULT_PRINCIPAL")
         or file_values.get("default_principal")
         or _load_default_principal_from_server(server_url)
+        or _load_principal_from_sts()
         or DEFAULT_PRINCIPAL
     )
 
@@ -257,6 +268,10 @@ def resolve_config(
 
 def validate_config(config: ResolvedConfig) -> list[str]:
     errors: list[str] = []
+    if not config.principal:
+        errors.append(
+            "principal is required (--principal flag, RAJA_PRINCIPAL env, config file, or AWS credentials via STS)"
+        )
     if not config.registry:
         errors.append("RAJA_REGISTRY is required (flag/env/config/terraform output)")
     if not config.admin_key:
