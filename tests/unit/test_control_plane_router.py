@@ -378,6 +378,25 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     assert response["stack"]["jwks"]["url"] == "https://api.example.com/prod/.well-known/jwks.json"
 
 
+def test_probe_endpoint_appends_ready_path_to_probe_url() -> None:
+    response = MagicMock()
+    response.status_code = 200
+
+    with patch.object(control_plane.httpx, "get", return_value=response) as get_mock:
+        result = control_plane._probe_endpoint(
+            "https://authorizer.example.com/",
+            ready_path="health",
+        )
+
+    get_mock.assert_called_once_with(
+        "https://authorizer.example.com/health",
+        timeout=5.0,
+        follow_redirects=False,
+    )
+    assert result["status"] == "ok"
+    assert result["url"] == "https://authorizer.example.com/health"
+
+
 def test_get_jwks():
     """Test JWKS endpoint returns correct format."""
     response = control_plane.get_jwks(secret="test-secret")

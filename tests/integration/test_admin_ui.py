@@ -197,11 +197,23 @@ def test_admin_structure_reports_live_rale_stack_endpoints():
     )
 
     assert authorizer.get("url"), f"RALE authorizer URL missing from admin structure: {authorizer}"
+    assert authorizer.get("health", {}).get("url", "").endswith("/health"), (
+        f"RALE authorizer probe should target /health: {authorizer}"
+    )
+    assert authorizer.get("health", {}).get("status_code") == 200, (
+        f"RALE authorizer health probe should succeed: {authorizer}"
+    )
     assert authorizer.get("health", {}).get("detail") != "not configured", (
         f"RALE authorizer unexpectedly reported as unconfigured: {authorizer}"
     )
 
     assert router.get("url"), f"RALE router URL missing from admin structure: {router}"
+    assert router.get("health", {}).get("url", "").endswith("/health"), (
+        f"RALE router probe should target /health: {router}"
+    )
+    assert router.get("health", {}).get("status_code") == 200, (
+        f"RALE router health probe should succeed: {router}"
+    )
     assert router.get("health", {}).get("detail") != "not configured", (
         f"RALE router unexpectedly reported as unconfigured: {router}"
     )

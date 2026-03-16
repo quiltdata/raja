@@ -243,7 +243,8 @@ def _probe_endpoint(
 ) -> dict[str, Any]:
     target = url.rstrip("/")
     if ready_path:
-        target = f"{target}{ready_path}"
+        suffix = ready_path if ready_path.startswith("/") else f"/{ready_path}"
+        target = f"{target}{suffix}"
     try:
         response = httpx.get(target, timeout=5.0, follow_redirects=False)
     except httpx.RequestError as exc:
