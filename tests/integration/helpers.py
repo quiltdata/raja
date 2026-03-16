@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,13 @@ logger = logging.getLogger(__name__)
 _PUBLIC_CONTROL_PLANE_PATHS = {"/", "/health", "/.well-known/jwks.json"}
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RALE_URI_FILE = _REPO_ROOT / ".rale-test-uri"
+_REQUEST_TIMEOUT_SECONDS = 10.0
+_REQUEST_RETRY_ATTEMPTS = 3
+_REQUEST_RETRY_DELAY_SECONDS = 1.0
+_TRANSIENT_ENVOY_503_SNIPPETS = (
+    b"upstream connect error",
+    b"connection termination",
+)
 
 
 def _load_dotenv(path: Path) -> None:
@@ -291,17 +299,42 @@ def request_url(
     headers: dict[str, str] | None = None,
     body: bytes | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
-    req = request.Request(url, data=body, headers=headers or {}, method=method)
-    try:
-        with request.urlopen(req) as response:
-            payload = response.read()
-            status = response.status
-            response_headers = dict(response.headers.items())
-    except error.HTTPError as exc:
-        payload = exc.read()
-        status = exc.code
-        response_headers = dict(exc.headers.items())
-    return status, response_headers, payload
+    last_error: BaseException | None = None
+    for attempt in range(_REQUEST_RETRY_ATTEMPTS):
+        req = request.Request(url, data=body, headers=headers or {}, method=method)
+        try:
+            with request.urlopen(req, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+                payload = response.read()
+                status = response.status
+                response_headers = dict(response.headers.items())
+            if (
+                status == 503
+                and attempt + 1 < _REQUEST_RETRY_ATTEMPTS
+                and any(snippet in payload.lower() for snippet in _TRANSIENT_ENVOY_503_SNIPPETS)
+            ):
+                time.sleep(_REQUEST_RETRY_DELAY_SECONDS)
+                continue
+            return status, response_headers, payload
+        except error.HTTPError as exc:
+            payload = exc.read()
+            status = exc.code
+            response_headers = dict(exc.headers.items())
+            if (
+                status == 503
+                and attempt + 1 < _REQUEST_RETRY_ATTEMPTS
+                and any(snippet in payload.lower() for snippet in _TRANSIENT_ENVOY_503_SNIPPETS)
+            ):
+                time.sleep(_REQUEST_RETRY_DELAY_SECONDS)
+                continue
+            return status, response_headers, payload
+        except (error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt + 1 < _REQUEST_RETRY_ATTEMPTS:
+                time.sleep(_REQUEST_RETRY_DELAY_SECONDS)
+                continue
+
+    assert last_error is not None
+    return 503, {}, str(last_error).encode("utf-8")
 
 
 @lru_cache(maxsize=1)

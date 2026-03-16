@@ -45,6 +45,15 @@ function setAdminAuthError(message) {
   if (message) banner.textContent = message;
 }
 
+function setHeaderHealthLabel(message, kind = "") {
+  const dot = select("header-health-dot");
+  const text = select("header-health-text");
+  if (!dot || !text) return;
+  dot.className = "dot";
+  if (kind) dot.classList.add(kind);
+  text.textContent = message;
+}
+
 function clearStatusClasses(el) {
   if (!el) return;
   el.classList.remove("ok", "warn", "error");
@@ -177,6 +186,26 @@ function updateHeaderHealth() {
   }
   dot.classList.add("ok");
   text.textContent = "All systems live";
+}
+
+async function reloadAdminState() {
+  const key = getAdminKey();
+  if (!key) {
+    setAuthState("unknown");
+    setHeaderHealthLabel("Admin key required");
+    setAdminAuthError("Enter the admin key to load the control plane.");
+    return;
+  }
+
+  setAuthState("unknown");
+  setHeaderHealthLabel("Loading control plane");
+  await refreshAll();
+  setAuthState("ok");
+  if (!state.selectedPrincipal && state.accessGraph?.principals?.length) {
+    state.selectedPrincipal = state.accessGraph.principals[0].principal;
+    renderPrincipalSelectors();
+    select("rale-principal").value = state.selectedPrincipal;
+  }
 }
 
 function renderStatusRows() {
@@ -751,6 +780,14 @@ function bindEvents() {
   select("admin-key").addEventListener("input", (event) => {
     setAdminKey(event.target.value.trim());
     setAuthState(getAdminKey() ? "unknown" : "fail");
+    setHeaderHealthLabel(getAdminKey() ? "Press Enter to load" : "Admin key required");
+  });
+
+  select("admin-key").addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    setAdminKey(event.target.value.trim());
+    await reloadAdminState();
   });
 
   select("admin-key-toggle").addEventListener("click", () => {
@@ -825,19 +862,7 @@ function bindEvents() {
 async function init() {
   bindEvents();
   resetRaleFlow();
-  if (!getAdminKey()) {
-    setAuthState("unknown");
-    setAdminAuthError("Enter the admin key to load the control plane.");
-    return;
-  }
-  setAuthState("unknown");
-  await refreshAll();
-  setAuthState("ok");
-  if (!state.selectedPrincipal && state.accessGraph?.principals?.length) {
-    state.selectedPrincipal = state.accessGraph.principals[0].principal;
-    renderPrincipalSelectors();
-    select("rale-principal").value = state.selectedPrincipal;
-  }
+  await reloadAdminState();
 }
 
 init().catch((error) => {

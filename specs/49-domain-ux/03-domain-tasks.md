@@ -19,47 +19,56 @@ Assumes Path A: creating a fresh V2 domain via Terraform (not upgrading an exist
 
 ## Gotchas
 
-These are the ways a Path A deployment can fail silently or require manual recovery.
+These are the ways a Path A (fresh V2) deployment can fail silently or require manual
+recovery. Verified against AWS docs at
+[upgrade-domain](https://docs.aws.amazon.com/sagemaker-unified-studio/latest/adminguide/upgrade-domain.html)
 
 **G1. `domain_version` forces resource replacement.**
-Terraform treats any change to `domain_version` as requiring destroy + recreate of the
-`aws_datazone_domain` resource. If the attribute is added to an existing Terraform state
-that manages a live V1 domain, `terraform plan` will show a replacement. Run `terraform
-plan` before `terraform apply` and confirm the replacement is intentional.
+Terraform treats any change to `domain_version` as requiring destroy + recreate of
+`aws_datazone_domain`. Run `terraform plan` before every apply that touches the domain
+resource and confirm the replacement is intentional.
 
 **G2. `skip_deletion_check = true` will block `terraform destroy`.**
-The domain resource at `main.tf:222` and all three project resources at `main.tf:227-246`
-have `skip_deletion_check = true`. This flag tells the AWS API to skip the deletion
-safety check, but if Terraform's lifecycle policy or a dependent resource prevents
-deletion, the destroy will fail mid-run. Verify destroy succeeds end-to-end on a
-non-production stack before relying on it for the V2 rebuild cycle.
+The domain resource (`main.tf:222`) and all three project resources (`main.tf:227-246`)
+have `skip_deletion_check = true`. Verify destroy succeeds end-to-end on a non-production
+stack before relying on it in the V2 rebuild cycle.
 
-**G3. Projects must be empty before the domain can be destroyed.**
-DataZone will reject domain deletion if projects have active subscriptions, memberships,
-or assets. The existing `scripts/cleanup_datazone_projects.py` must be run (and succeed)
-before `terraform destroy`, not after. If it is missing API calls for V2-created
-resources, the destroy will stall.
+**G3. Projects must be emptied before the domain can be destroyed.**
+DataZone rejects domain deletion if projects have active subscriptions, memberships, or
+assets. `scripts/cleanup_datazone_projects.py` must succeed *before* `terraform destroy`.
+If it is missing coverage for any resource type, the destroy will stall mid-run.
 
-**G4. SSO/IAM Identity Center is required to log into the V2 portal.**
-A V2 domain requires IAM Identity Center to be enabled in the account. IAM role
-credentials can call the DataZone APIs, but cannot log into the SageMaker Unified Studio
-web portal. If the account does not have IAM Identity Center configured, the admin UI
-portal link will be non-functional even though the API works.
+**G4. IAM roles cannot log into the SageMaker Unified Studio portal — confirmed.**
+AWS docs state explicitly: "IAM roles cannot log into Amazon SageMaker Unified Studio."
+The current deployed domain has `singleSignOn: DISABLED` (confirmed via `aws datazone
+get-domain`). This means the portal URL is non-functional for anyone. If web portal
+access matters, at least one IAM *user* or IAM Identity Center user must be added as a
+root domain owner. API access (Lambda, boto3, admin server) is unaffected.
 
-**G5. The execution role trust policy needs `sts:SetContext` for V2.**
-The V1 execution role trust policy allows `sts:AssumeRole` and `sts:TagSession`. V2
-adds `sts:SetContext`. Without it the domain service will fail to perform certain
-cross-account or cross-service operations at runtime. The new managed policy
-`SageMakerStudioDomainExecutionRolePolicy` implicitly assumes the trust policy also
-includes this action — the policy alone is not enough if the trust document is copied
-from the V1 role.
+**G5. Execution role trust policy needs `sts:SetContext` for V2 — confirmed.**
+V1 trust policy allows `sts:AssumeRole` and `sts:TagSession`. V2 adds `sts:SetContext`.
+Attaching `SageMakerStudioDomainExecutionRolePolicy` alone is not enough if the trust
+document was copied from the V1 role without adding `sts:SetContext`.
 
-**G6. The Terraform `aws_datazone_domain` resource may not yet expose `domain_version` in
-all provider versions.**
-The argument was confirmed present via the Pulumi registry (same schema source) and
-CloudFormation, but the exact `hashicorp/aws` provider version that added it was not
-pinpointed. Pin to a recent provider version (≥ 5.72) and run `terraform init -upgrade`
-before applying to avoid a schema mismatch error.
+**G6. Pin the Terraform AWS provider version.**
+The `domain_version` and `service_role` arguments were added in a recent provider release.
+Pin to ≥ 5.72 in `infra/terraform/versions.tf` and run `terraform init -upgrade` before
+applying to avoid a schema mismatch error.
+
+**G7. Environments / environment profiles do not exist in V2.**
+AWS docs: DataZone Environments are not carried over; they are replaced by SageMaker
+project profiles. For Path A this is a non-issue since we never created V1 environments,
+but any future work referencing DataZone environment APIs will fail against a V2 domain.
+
+**G8. Rollback is blocked once any project is created via SageMaker Unified Studio.**
+AWS docs: rolling back from V2 to V1 is only permitted when no projects were created in
+SageMaker Unified Studio. Once `poe seed-test-data` runs and creates projects via the
+Unified Studio surface, rollback is no longer available without deleting those projects
+first.
+
+**G9. Projects created in the V2 portal are not visible in the legacy DataZone portal.**
+Not an issue for RAJA's current setup (no legacy DataZone portal usage), but worth noting
+if any human operators use both portals during a transition period.
 
 ---
 
