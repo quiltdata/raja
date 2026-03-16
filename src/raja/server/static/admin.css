@@ -220,7 +220,7 @@ button:disabled {
 
 .column-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   align-items: start;
 }
@@ -310,6 +310,10 @@ button:disabled {
 .compact-form,
 .field-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.single-column {
+  grid-template-columns: 1fr;
 }
 
 .status-rows {
@@ -408,6 +412,73 @@ th {
   background: rgba(159, 58, 34, 0.08);
   color: var(--accent-dark);
   font-size: 0.74rem;
+}
+
+.project-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.project-card {
+  border-radius: 16px;
+  border: 1.5px solid rgba(56, 44, 23, 0.16);
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 2px 10px rgba(56, 44, 23, 0.07);
+  overflow: clip;
+}
+
+.project-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem 0.95rem 0.7rem;
+  border-bottom: 2px solid rgba(159, 58, 34, 0.2);
+  background: linear-gradient(180deg, rgba(159, 58, 34, 0.07), rgba(159, 58, 34, 0.02));
+}
+
+.project-card-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.project-card > .project-scope,
+.project-card > table,
+.project-card > .add-member-row,
+.project-card > .inline-status {
+  margin-left: 0.95rem;
+  margin-right: 0.95rem;
+}
+
+.add-member-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.add-member-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.add-member-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.project-card-meta {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.project-scope {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
 }
 
 .inline-status,

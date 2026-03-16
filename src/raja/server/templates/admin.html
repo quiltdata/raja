@@ -44,22 +44,22 @@
       <section class="page-intro">
         <p>
           The UI teaches the system by walking the same path the runtime takes:
-          understand the deployed structure, inspect the current DataZone-backed
-          authorization graph, then run the live RALE flow and failure probes.
+          inspect the deployed domain and projects, choose a live package target,
+          then run the RALE flow, failure probes, and stack diagnostics in one scroll.
         </p>
       </section>
 
       <section class="column-grid">
         <div class="app-column" id="column-structure">
           <div class="column-header">
-            <div class="column-kicker">Static, read-only</div>
-            <h1>Domain Structure</h1>
-            <p>Live census of the DataZone domain and RAJA stack.</p>
+            <div class="column-kicker">Data Governance</div>
+            <h1>SageMaker Projects</h1>
+            <p>Domain identity, linked DataZone projects, and current project membership.</p>
           </div>
 
           <details class="section-card" id="section-datazone">
             <summary>
-              <span>DataZone</span>
+              <span>Domain</span>
               <span class="summary-meta" id="datazone-summary-meta">Not loaded</span>
             </summary>
             <div class="section-body">
@@ -70,60 +70,112 @@
             </div>
           </details>
 
-          <details class="section-card" id="section-stack">
+          <details class="section-card" id="section-projects">
             <summary>
-              <span>RAJ Stack</span>
-              <span class="summary-meta" id="stack-summary-meta">Not loaded</span>
+              <span>Projects</span>
+              <span class="summary-meta" id="projects-summary-meta">Not loaded</span>
             </summary>
             <div class="section-body">
-              <div class="status-rows" id="stack-status-rows"></div>
+              <div class="project-grid">
+                <section class="project-card" data-tier="owner">
+                  <div class="project-card-head">
+                    <div>
+                      <h3>Owner</h3>
+                      <div class="project-card-meta" id="tier-owner-meta">Not loaded</div>
+                    </div>
+                    <a id="tier-owner-link" target="_blank" rel="noopener">Open project</a>
+                  </div>
+                  <p class="project-scope">Scope: <span id="tier-owner-scope">*:*:*</span></p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Principal ID</th>
+                        <th>Last token issued</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="tier-owner-body"></tbody>
+                  </table>
+                  <form class="project-principal-form add-member-row" data-tier="owner">
+                    <input
+                      name="principal"
+                      placeholder="arn:aws:iam::123456789012:user/example"
+                    />
+                    <button type="submit">Add member</button>
+                  </form>
+                  <div class="inline-status" data-role="principal-form-status"></div>
+                </section>
+
+                <section class="project-card" data-tier="users">
+                  <div class="project-card-head">
+                    <div>
+                      <h3>Users</h3>
+                      <div class="project-card-meta" id="tier-users-meta">Not loaded</div>
+                    </div>
+                    <a id="tier-users-link" target="_blank" rel="noopener">Open project</a>
+                  </div>
+                  <p class="project-scope">Scope: <span id="tier-users-scope">S3Object:*:*</span></p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Principal ID</th>
+                        <th>Last token issued</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="tier-users-body"></tbody>
+                  </table>
+                  <form class="project-principal-form add-member-row" data-tier="users">
+                    <input
+                      name="principal"
+                      placeholder="arn:aws:iam::123456789012:user/example"
+                    />
+                    <button type="submit">Add member</button>
+                  </form>
+                  <div class="inline-status" data-role="principal-form-status"></div>
+                </section>
+
+                <section class="project-card" data-tier="guests">
+                  <div class="project-card-head">
+                    <div>
+                      <h3>Guests</h3>
+                      <div class="project-card-meta" id="tier-guests-meta">Not loaded</div>
+                    </div>
+                    <a id="tier-guests-link" target="_blank" rel="noopener">Open project</a>
+                  </div>
+                  <p class="project-scope">
+                    Scope: <span id="tier-guests-scope">S3Object:*:s3:GetObject</span>
+                  </p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Principal ID</th>
+                        <th>Last token issued</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="tier-guests-body"></tbody>
+                  </table>
+                  <form class="project-principal-form add-member-row" data-tier="guests">
+                    <input
+                      name="principal"
+                      placeholder="arn:aws:iam::123456789012:user/example"
+                    />
+                    <button type="submit">Add member</button>
+                  </form>
+                  <div class="inline-status" data-role="principal-form-status"></div>
+                </section>
+              </div>
             </div>
           </details>
         </div>
 
-        <div class="app-column" id="column-data">
+        <div class="app-column" id="column-execution">
           <div class="column-header">
-            <div class="column-kicker">Managed objects</div>
-            <h1>Test Data</h1>
-            <p>Principals, listings, and the cross-project access graph.</p>
+            <div class="column-kicker">Live system</div>
+            <h1>RAJ Stack</h1>
+            <p>Choose a package target, exercise the flow, then inspect live health.</p>
           </div>
-
-          <details class="section-card" id="section-principals">
-            <summary>
-              <span>Principals</span>
-              <span class="summary-meta" id="principals-summary-meta">Not loaded</span>
-            </summary>
-            <div class="section-body">
-              <form id="principal-form" class="compact-form">
-                <div class="field-stack">
-                  <label for="principal-input">Principal ID</label>
-                  <input id="principal-input" placeholder="arn:aws:iam::123456789012:user/example" />
-                </div>
-                <div class="field-stack">
-                  <label for="principal-scope-mode">Access tier</label>
-                  <select id="principal-scope-mode">
-                    <option value="guest">Guests (read-only)</option>
-                    <option value="user">Users</option>
-                    <option value="owner">Owner</option>
-                  </select>
-                </div>
-                <button type="submit">Add principal</button>
-              </form>
-              <div id="principal-form-status" class="inline-status"></div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Principal ID</th>
-                    <th>Access tier</th>
-                    <th>Scopes</th>
-                    <th>Last token issued</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="principals-body"></tbody>
-              </table>
-            </div>
-          </details>
 
           <details class="section-card" id="section-listings">
             <summary>
@@ -139,41 +191,13 @@
                     <th>Owner project</th>
                     <th>Asset type</th>
                     <th>Subscriptions</th>
+                    <th>RALE</th>
                   </tr>
                 </thead>
                 <tbody id="packages-body"></tbody>
               </table>
             </div>
           </details>
-
-          <details class="section-card" id="section-access">
-            <summary>
-              <span>Access</span>
-              <span class="summary-meta" id="access-summary-meta">Not loaded</span>
-            </summary>
-            <div class="section-body">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Principal project</th>
-                    <th>Package</th>
-                    <th>Access mode</th>
-                    <th>Source</th>
-                    <th>Subscription ID</th>
-                  </tr>
-                </thead>
-                <tbody id="access-body"></tbody>
-              </table>
-            </div>
-          </details>
-        </div>
-
-        <div class="app-column" id="column-execution">
-          <div class="column-header">
-            <div class="column-kicker">Dynamic flows</div>
-            <h1>Live Execution</h1>
-            <p>RALE walkthrough, failure probes, and revocation controls.</p>
-          </div>
 
           <details class="section-card" id="section-rale">
             <summary>
@@ -263,26 +287,22 @@
             </div>
           </details>
 
-          <details class="section-card" id="section-revocation">
+          <details class="section-card" id="section-stack">
             <summary>
-              <span>Revocation</span>
-              <span class="summary-meta">Soft and hard</span>
+              <span>Stack Health</span>
+              <span class="summary-meta" id="stack-summary-meta">Not loaded</span>
             </summary>
             <div class="section-body">
-              <div class="step-card">
-                <div class="step-heading">Soft revocation</div>
-                <div class="field-grid">
-                  <label class="field-stack">Principal
-                    <select id="revoke-principal-select"></select>
-                  </label>
-                </div>
-                <div class="actions">
-                  <button type="button" class="secondary" id="revoke-refresh">Refresh principals</button>
-                  <button type="button" id="revoke-delete">Delete principal</button>
-                </div>
-                <pre id="revoke-soft-output">No action yet.</pre>
-              </div>
+              <div class="status-rows" id="stack-status-rows"></div>
+            </div>
+          </details>
 
+          <details class="section-card" id="section-rotation">
+            <summary>
+              <span>Secret Rotation</span>
+              <span class="summary-meta">Rotate and invalidate all tokens</span>
+            </summary>
+            <div class="section-body">
               <div class="step-card">
                 <div class="step-heading">Hard revocation</div>
                 <div class="actions">
