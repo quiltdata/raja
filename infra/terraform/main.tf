@@ -234,7 +234,7 @@ resource "aws_datazone_project" "owner" {
 resource "aws_datazone_project" "users" {
   domain_identifier   = aws_datazone_domain.raja.id
   name                = var.datazone_users_project_name
-  description         = "Subscriber project for authenticated principals; RAJA auto-creates per-principal sub-projects under this domain"
+  description         = "Subscriber project for authenticated principals; principals are added as members by the control plane"
   skip_deletion_check = true
 }
 
@@ -253,7 +253,6 @@ resource "aws_datazone_asset_type" "quilt_package" {
 
   lifecycle {
     ignore_changes = [description]
-    prevent_destroy = true
   }
 }
 
@@ -336,6 +335,18 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.rajee_registry.arn,
+          "${aws_s3_bucket.rajee_registry.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "datazone:AcceptSubscriptionRequest",
           "datazone:CreateAsset",
           "datazone:CreateListingChangeSet",
@@ -400,6 +411,7 @@ resource "aws_lambda_function" "control_plane" {
       TOKEN_TTL                            = tostring(var.token_ttl)
       RAJA_ADMIN_KEY                       = var.raja_admin_key
       RAJA_DEFAULT_PRINCIPAL               = var.raja_default_principal_username != "" ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/${var.raja_default_principal_username}" : ""
+      RAJA_REGISTRY                        = "s3://${aws_s3_bucket.rajee_registry.bucket}"
       RALE_AUTHORIZER_FUNCTION_NAME        = local.rale_authorizer_lambda_name
       RALE_ROUTER_FUNCTION_NAME            = local.rale_router_lambda_name
       AWS_ACCOUNT_ID                       = data.aws_caller_identity.current.account_id

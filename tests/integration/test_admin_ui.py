@@ -17,7 +17,13 @@ from urllib import error, request
 
 import pytest
 
-from .helpers import request_json, require_api_url, require_test_principal
+from .helpers import (
+    parse_rale_test_quilt_uri,
+    request_json,
+    require_api_url,
+    require_rale_test_quilt_uri,
+    require_test_principal,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,6 +205,51 @@ def test_admin_structure_reports_live_rale_stack_endpoints():
     assert router.get("health", {}).get("detail") != "not configured", (
         f"RALE router unexpectedly reported as unconfigured: {router}"
     )
+
+
+@pytest.mark.integration
+def test_admin_rale_endpoints_execute_live_flow():
+    """Admin RALE endpoints should support the shipped browser walkthrough."""
+    quilt_uri = require_rale_test_quilt_uri()
+    parts = parse_rale_test_quilt_uri(quilt_uri)
+    principal = require_test_principal()
+
+    status, body = request_json("GET", "/admin/rale/packages")
+    assert status == 200, body
+    assert body.get("registry"), body
+    assert parts["package_name"] in body.get("packages", []), body
+
+    status, body = request_json(
+        "GET",
+        "/admin/rale/package-files",
+        query={"package_name": parts["package_name"]},
+    )
+    assert status == 200, body
+    assert body.get("manifest_hash") == parts["hash"], body
+    files = body.get("files", [])
+    assert any(item.get("path") == "data.csv" for item in files), body
+
+    usl = f"quilt+s3://{parts['registry']}#package={parts['package_name']}@{parts['hash']}&path=data.csv"
+    status, body = request_json(
+        "POST",
+        "/admin/rale/authorize",
+        {"principal": principal, "usl": usl},
+    )
+    assert status == 200, body
+    taj = body.get("body", {}).get("token")
+    assert taj, body
+    claims = body.get("claims", {})
+    assert claims.get("sub") == principal, body
+    assert claims.get("manifest_hash") == parts["hash"], body
+
+    status, body = request_json(
+        "POST",
+        "/admin/rale/deliver",
+        {"taj": taj, "usl": usl},
+    )
+    assert status == 200, body
+    assert body.get("status_code") == 200, body
+    assert body.get("byte_count", 0) > 0, body
 
 
 # ---------------------------------------------------------------------------

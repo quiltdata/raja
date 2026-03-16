@@ -391,6 +391,18 @@ def test_get_jwks():
     assert "k" in key
 
 
+def test_probe_endpoint_marks_client_errors_warn() -> None:
+    response = MagicMock()
+    response.status_code = 400
+
+    with patch.object(control_plane.httpx, "get", return_value=response):
+        result = control_plane._probe_endpoint("https://authorizer.example.com")
+
+    assert result["reachable"] is True
+    assert result["status"] == "warn"
+    assert result["status_code"] == 400
+
+
 def test_require_env_raises_when_missing():
     with pytest.raises(RuntimeError, match="TEST_VAR is required"):
         control_plane._require_env(None, "TEST_VAR")

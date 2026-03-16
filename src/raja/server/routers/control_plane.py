@@ -249,11 +249,20 @@ def _probe_endpoint(
     except httpx.RequestError as exc:
         return {"reachable": False, "status": "error", "detail": str(exc), "url": target}
 
-    ok = response.status_code < 500
+    status_code = response.status_code
+    if status_code < 400:
+        status = "ok"
+        reachable = True
+    elif status_code < 500:
+        status = "warn"
+        reachable = True
+    else:
+        status = "error"
+        reachable = False
     return {
-        "reachable": ok,
-        "status": "ok" if ok else "error",
-        "status_code": response.status_code,
+        "reachable": reachable,
+        "status": status,
+        "status_code": status_code,
         "url": target,
     }
 
@@ -339,7 +348,10 @@ def _render_claim_annotation(key: str, value: Any) -> dict[str, Any]:
 
 def _read_registry_packages(registry: str) -> list[str]:
     quilt3 = _load_quilt3()
-    return sorted(str(name) for name in quilt3.list_packages(registry=registry))
+    try:
+        return sorted(str(name) for name in quilt3.list_packages(registry=registry))
+    except Exception as exc:
+        raise RuntimeError("Cannot list registry packages - check registry access") from exc
 
 
 def _browse_package_files(registry: str, package_name: str) -> tuple[str, list[dict[str, Any]]]:
