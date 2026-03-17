@@ -46,7 +46,7 @@ def _make_service() -> tuple[DataZoneService, DataZoneConfig]:
 
 @pytest.mark.integration
 def test_seeded_users_are_found_in_datazone_projects() -> None:
-    """Every user in RAJA_USERS must resolve to a DataZone project via find_project_for_principal."""
+    """Every user in RAJA_USERS must resolve to a DataZone project."""
     principals = require_raja_users()
     service, config = _make_service()
 
@@ -87,7 +87,9 @@ def test_seeded_users_land_in_correct_tiers() -> None:
     # users tier: second user (if provided)
     if len(principals) >= 2 and config.users_project_id:
         users_arn = principals[1]
-        assert service._is_project_member(project_id=config.users_project_id, principal=users_arn), (
+        assert service._is_project_member(
+            project_id=config.users_project_id, principal=users_arn
+        ), (
             f"{users_arn} is not a member of users project {config.users_project_id}"
         )
 

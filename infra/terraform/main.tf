@@ -98,7 +98,7 @@ resource "null_resource" "build_raja_layer" {
       rm -rf "${local.layer_build_dir}"
       mkdir -p "${local.layer_build_dir}/python"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
         -r "${local.layer_requirements}" --target "${local.layer_build_dir}/python"
       cp -R "${local.raja_source_dir}" "${local.layer_build_dir}/python/raja"
     EOT
@@ -118,7 +118,7 @@ resource "null_resource" "build_control_plane" {
       rm -rf "${local.control_plane_build_dir}"
       mkdir -p "${local.control_plane_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
         -r "${local.control_plane_requirements}" --target "${local.control_plane_build_dir}"
       cp -R "${local.control_plane_source_dir}/." "${local.control_plane_build_dir}/"
     EOT
@@ -138,7 +138,7 @@ resource "null_resource" "build_rale_authorizer" {
       rm -rf "${local.rale_authorizer_build_dir}"
       mkdir -p "${local.rale_authorizer_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
         -r "${local.rale_authorizer_requirements}" --target "${local.rale_authorizer_build_dir}"
       cp -R "${local.rale_authorizer_source_dir}/." "${local.rale_authorizer_build_dir}/"
     EOT
@@ -158,7 +158,7 @@ resource "null_resource" "build_rale_router" {
       rm -rf "${local.rale_router_build_dir}"
       mkdir -p "${local.rale_router_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
         -r "${local.rale_router_requirements}" --target "${local.rale_router_build_dir}"
       cp -R "${local.rale_router_source_dir}/." "${local.rale_router_build_dir}/"
     EOT
@@ -645,7 +645,7 @@ resource "aws_lambda_layer_version" "raja" {
   layer_name               = "${var.stack_name}-raja-layer"
   filename                 = data.archive_file.raja_layer_zip.output_path
   source_code_hash         = data.archive_file.raja_layer_zip.output_base64sha256
-  compatible_runtimes      = ["python3.12"]
+  compatible_runtimes      = ["python3.14"]
   compatible_architectures = [var.lambda_architecture]
   description              = "Shared RAJA library for Lambda handlers"
 }
@@ -653,7 +653,7 @@ resource "aws_lambda_layer_version" "raja" {
 resource "aws_lambda_function" "control_plane" {
   function_name = "${var.stack_name}-control-plane"
   role          = aws_iam_role.control_plane_lambda.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   architectures = [var.lambda_architecture]
   handler       = "handler.handler"
   timeout       = 15
@@ -768,7 +768,7 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
 resource "aws_lambda_function" "rale_authorizer" {
   function_name = "${var.stack_name}-rale-authorizer"
   role          = aws_iam_role.rale_authorizer_lambda.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   architectures = [var.lambda_architecture]
   handler       = "handler.handler"
   timeout       = 20
@@ -867,7 +867,7 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
 resource "aws_lambda_function" "rale_router" {
   function_name = "${var.stack_name}-rale-router"
   role          = aws_iam_role.rale_router_lambda.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   architectures = [var.lambda_architecture]
   handler       = "handler.handler"
   timeout       = 30

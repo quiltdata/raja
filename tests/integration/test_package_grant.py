@@ -119,7 +119,6 @@ def test_all_seeded_principals_can_access_package() -> None:
 @pytest.mark.integration
 def test_unknown_principal_denied_package() -> None:
     """A principal in no project must not pass the package grant check."""
-    uri = require_rale_test_quilt_uri()
     service, config = _make_service()
 
     project_ids = [p for p in [

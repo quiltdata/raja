@@ -14,7 +14,7 @@ Demo and debugging tool for the RALE flow. Not a production data path.
 
 | Concern | Choice | Rationale |
 | --- | --- | --- |
-| Language | Python 3.12+ | Same as the library; no new runtime |
+| Language | Python 3.14+ | Same as the library; no new runtime |
 | CLI framework | `click` | Already used in the repo; supports TTY detection |
 | Config | `toml` (stdlib `tomllib`) | Human-editable; no extra dependency |
 | Output | `rich` | Phase headers, inline annotations, and formatted token display without manual ANSI |

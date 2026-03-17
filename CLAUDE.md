@@ -106,7 +106,7 @@ See child CLAUDE.md files for detailed documentation:
 
 ### Core Dependencies
 
-- **Python 3.12+** - Modern Python features
+- **Python 3.14+** - Modern Python features
 - **Pydantic** (>=2.7.0) - Data validation and serialization
 - **PyJWT** (>=2.8.0) - JWT token operations
 
