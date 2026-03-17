@@ -47,7 +47,6 @@ class ConfigOverrides:
     registry: str | None = None
     rajee_endpoint: str | None = None
     admin_key: str | None = None
-    principal: str | None = None
     tf_dir: str | None = None
 
 
@@ -224,14 +223,9 @@ def resolve_config(
         or ""
     )
     principal = (
-        chosen.principal
-        or os.getenv("RAJA_PRINCIPAL")
+        os.getenv("RAJA_PRINCIPAL")
         or file_values.get("RAJA_PRINCIPAL")
         or file_values.get("principal")
-        or os.getenv("RAJA_DEFAULT_PRINCIPAL")
-        or file_values.get("RAJA_DEFAULT_PRINCIPAL")
-        or file_values.get("default_principal")
-        or _load_default_principal_from_server(server_url)
         or _load_principal_from_sts()
         or DEFAULT_PRINCIPAL
     )
@@ -270,8 +264,7 @@ def validate_config(config: ResolvedConfig) -> list[str]:
     errors: list[str] = []
     if not config.principal:
         errors.append(
-            "principal is required"
-            " (--principal flag, RAJA_PRINCIPAL env, config file, or AWS credentials via STS)"
+            "principal is required (RAJA_PRINCIPAL env, config file, or AWS credentials via STS)"
         )
     if not config.registry:
         errors.append("RAJA_REGISTRY is required (flag/env/config/terraform output)")

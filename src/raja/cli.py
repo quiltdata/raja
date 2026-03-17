@@ -22,7 +22,6 @@ from raja.rale.state import SessionState
 @click.option("--registry", type=str, default=None, help="Default Quilt registry")
 @click.option("--rajee-endpoint", type=str, default=None, help="RAJEE endpoint URL")
 @click.option("--admin-key", type=str, default=None, help="RAJA admin key")
-@click.option("--principal", type=str, default=None, help="Principal for demo flow")
 @click.option("--tf-dir", type=str, default=None, help="Terraform directory for outputs")
 @click.pass_context
 def main(
@@ -33,7 +32,6 @@ def main(
     registry: str | None,
     rajee_endpoint: str | None,
     admin_key: str | None,
-    principal: str | None,
     tf_dir: str | None,
 ) -> None:
     """RALE CLI demo runner."""
@@ -43,7 +41,6 @@ def main(
         registry=registry,
         rajee_endpoint=rajee_endpoint,
         admin_key=admin_key,
-        principal=principal,
         tf_dir=tf_dir,
     )
     config, tf_outputs = resolve_config(overrides)
