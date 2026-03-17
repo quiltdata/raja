@@ -117,9 +117,7 @@ def test_validate_config_errors_on_missing_principal() -> None:
     assert "principal" in errors[0].lower()
 
 
-def test_resolve_config_falls_back_to_sts(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_resolve_config_falls_back_to_sts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("RAJA_SERVER_URL", "http://env-server")
     monkeypatch.setenv("RAJA_REGISTRY", "env-registry")
     monkeypatch.setenv("RAJEE_ENDPOINT", "http://env-rajee")
@@ -128,7 +126,10 @@ def test_resolve_config_falls_back_to_sts(
     monkeypatch.delenv("RAJA_PRINCIPAL", raising=False)
     monkeypatch.delenv("RAJA_DEFAULT_PRINCIPAL", raising=False)
 
-    monkeypatch.setattr("raja.rale.config.httpx.get", lambda *args, **kwargs: (_ for _ in ()).throw(Exception("no server")))
+    monkeypatch.setattr(
+        "raja.rale.config.httpx.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(Exception("no server")),
+    )
     monkeypatch.setattr(
         "raja.rale.config._load_principal_from_sts",
         lambda: "arn:aws:iam::123456789012:user/kmoore",

@@ -270,7 +270,8 @@ def validate_config(config: ResolvedConfig) -> list[str]:
     errors: list[str] = []
     if not config.principal:
         errors.append(
-            "principal is required (--principal flag, RAJA_PRINCIPAL env, config file, or AWS credentials via STS)"
+            "principal is required"
+            " (--principal flag, RAJA_PRINCIPAL env, config file, or AWS credentials via STS)"
         )
     if not config.registry:
         errors.append("RAJA_REGISTRY is required (flag/env/config/terraform output)")
