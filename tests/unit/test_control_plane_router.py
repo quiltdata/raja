@@ -384,6 +384,7 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     request.headers = {"host": "api.example.com", "x-forwarded-proto": "https"}
     request.url.scheme = "https"
     request.url.netloc = "api.example.com"
+    request.url.hostname = "api.example.com"
     request.scope = {"aws.event": {"requestContext": {"stage": "prod"}}}
     datazone = MagicMock()
     datazone.get_domain.return_value = {
