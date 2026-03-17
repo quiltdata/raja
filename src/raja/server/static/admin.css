@@ -624,9 +624,8 @@ pre {
   color: var(--muted);
 }
 
-.about-card {
-  max-width: 32rem;
-  margin: 1.2rem auto 0;
+.about-card summary {
+  background: rgba(45, 111, 67, 0.07);
 }
 
 .about-list {
