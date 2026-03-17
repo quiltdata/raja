@@ -6,7 +6,8 @@ This script patches the current Terraform provider gaps for RAJA's V2 domain:
 1. Ensure the default project profile exists and is ENABLED.
 2. Ensure the owner/users/guests projects exist in the V2 domain.
 3. Ensure the root domain unit grants CREATE_ASSET_TYPE to owner projects.
-4. Refresh infra/tf-outputs.json with discovered project IDs.
+4. Ensure the users project has subscription grants to owner project listings.
+5. Refresh infra/tf-outputs.json with discovered project IDs.
 
 It is safe to rerun. Existing resources are reused.
 """
@@ -18,6 +19,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -109,11 +111,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _get_region() -> str:
-    return (
-        os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or "us-east-1"
-    )
+    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
 
 
 def _get_domain_id(cli_domain_id: str | None) -> str:
@@ -452,13 +450,125 @@ def _update_outputs(
     print("Outputs: refreshed infra/tf-outputs.json")
 
 
+def _search_owner_listings(
+    client: Any, ctx: Context, owner_project_id: str
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {"domainIdentifier": ctx.domain_id, "maxResults": 50}
+        if next_token:
+            kwargs["nextToken"] = next_token
+        try:
+            response = client.search_listings(**kwargs)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code == "ValidationException":
+                print("Subscription grants: listing search unsupported for this domain version")
+                return []
+            raise
+        for item in response.get("items", []):
+            listing = item.get("assetListing")
+            if isinstance(listing, dict) and listing.get("owningProjectId") == owner_project_id:
+                items.append(listing)
+        next_token = response.get("nextToken")
+        if not next_token:
+            return items
+
+
+def _find_sub_request(
+    client: Any,
+    ctx: Context,
+    listing_id: str,
+    project_id: str,
+    status: str,
+) -> dict[str, Any] | None:
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "domainIdentifier": ctx.domain_id,
+            "status": status,
+            "maxResults": 50,
+            "subscribedListingId": listing_id,
+        }
+        if next_token:
+            kwargs["nextToken"] = next_token
+        response = client.list_subscription_requests(**kwargs)
+        for item in response.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            principals = item.get("subscribedPrincipals", [])
+            listings = item.get("subscribedListings", [])
+            project_match = any(
+                isinstance(p.get("project"), dict) and p["project"].get("id") == project_id
+                for p in principals
+            )
+            listing_match = any(lst.get("id") == listing_id for lst in listings)
+            if project_match and listing_match:
+                return item
+        next_token = response.get("nextToken")
+        if not next_token:
+            return None
+
+
+def _ensure_subscription_grant(
+    client: Any,
+    ctx: Context,
+    listing_id: str,
+    listing_name: str,
+    project_id: str,
+    project_key: str,
+) -> None:
+    label = f"Subscription grant {project_key}/{listing_name}"
+    if _find_sub_request(client, ctx, listing_id, project_id, "ACCEPTED"):
+        print(f"{label}: present")
+        return
+    print(f"{label}: missing")
+    if ctx.dry_run:
+        print(f"  [DRY-RUN] Would create and accept subscription for {project_key}")
+        return
+    pending = _find_sub_request(client, ctx, listing_id, project_id, "PENDING")
+    if pending is None:
+        pending = client.create_subscription_request(
+            clientToken=str(uuid.uuid4()),
+            domainIdentifier=ctx.domain_id,
+            requestReason=f"RAJA default grant for {listing_name}",
+            subscribedListings=[{"identifier": listing_id}],
+            subscribedPrincipals=[{"project": {"identifier": project_id}}],
+        )
+        print(f"  Created subscription request {pending['id']}")
+    client.accept_subscription_request(
+        domainIdentifier=ctx.domain_id,
+        identifier=str(pending["id"]),
+        decisionComment="Auto-approved by sagemaker_gaps.py",
+    )
+    print(f"  Accepted subscription grant for {project_key}")
+
+
+def _ensure_default_subscription_grants(
+    client: Any, ctx: Context, project_ids: dict[str, str]
+) -> None:
+    owner_project_id = project_ids.get("owner", "")
+    if not owner_project_id:
+        return
+    listings = _search_owner_listings(client, ctx, owner_project_id)
+    if not listings:
+        print("Subscription grants: no listings found in owner project")
+        return
+    for listing in listings:
+        listing_id = str(listing.get("listingId") or listing.get("id") or "")
+        listing_name = str(listing.get("name") or listing_id)
+        if not listing_id:
+            continue
+        project_id = project_ids.get("users", "")
+        if project_id:
+            _ensure_subscription_grant(client, ctx, listing_id, listing_name, project_id, "users")
+
+
 def _print_import_hints(ctx: Context, project_ids: dict[str, str]) -> None:
     print("\nTerraform import hints:")
     for key, project_id in project_ids.items():
-        print(
-            "  terraform import aws_datazone_project."
-            f"{key} {ctx.domain_id}:{project_id}"
-        )
+        print(f"  terraform import aws_datazone_project.{key} {ctx.domain_id}:{project_id}")
 
 
 def main() -> None:
@@ -475,6 +585,7 @@ def main() -> None:
         profile_id = _ensure_project_profile(client, ctx)
         project_ids = _ensure_projects(client, ctx, profile_id)
         _ensure_asset_type_grant(client, ctx)
+        _ensure_default_subscription_grants(client, ctx, project_ids)
         _find_custom_blueprint_id(client, ctx)
         environment_ids = _discover_environment_ids(client, ctx, project_ids)
         _sync_lambda_environment_ids(ctx, environment_ids)
