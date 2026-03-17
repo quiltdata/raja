@@ -92,7 +92,7 @@ raja/
 │   ├── version.py         # Version management and releases
 │   ├── load_policies.py   # Load policies to AVP
 │   ├── invoke_compiler.py # Trigger compiler Lambda
-│   └── seed_test_data.py  # Seed test data for integration tests
+│   └── seed_users.py      # Seed IAM users into DataZone projects for integration tests
 │
 └── specs/                 # Design specifications
     └── 1-mvp/             # MVP documentation

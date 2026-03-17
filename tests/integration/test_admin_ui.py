@@ -333,7 +333,7 @@ def test_principals_list_returns_datazone_project_metadata():
     assert isinstance(principals, list)
     assert isinstance(principal_summary, list)
     # At least one principal should exist (seeded test data)
-    assert len(principals) >= 1, "No principals found. Run python scripts/seed_test_data.py"
+    assert len(principals) >= 1, "No principals found. Run python scripts/seed_users.py"
     # Every principal with a project should have a string project id
     for item in principals:
         if "datazone_project_id" in item:

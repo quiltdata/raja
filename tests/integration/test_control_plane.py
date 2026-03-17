@@ -24,5 +24,5 @@ def test_control_plane_lists_principals():
     missing = seeded_arns - present
     assert not missing, (
         f"Expected IAM user principal(s) not found in DataZone projects: {missing}\n"
-        "Run: python scripts/seed_test_data.py"
+        "Run: python scripts/seed_users.py"
     )
