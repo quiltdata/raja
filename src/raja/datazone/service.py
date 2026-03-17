@@ -438,9 +438,7 @@ class DataZoneService:
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-        effective_listing_ids: list[str | None] = (
-            list(listing_ids) if listing_ids else [None]
-        )
+        effective_listing_ids: list[str | None] = list(listing_ids) if listing_ids else [None]
         for listing_id in effective_listing_ids:
             for status in statuses:
                 next_token: str | None = None
@@ -459,7 +457,9 @@ class DataZoneService:
                     try:
                         response = self._client.list_subscription_requests(**kwargs)
                     except (ClientError, BotoCoreError) as exc:
-                        raise DataZoneError("failed to list DataZone subscription requests") from exc
+                        raise DataZoneError(
+                            "failed to list DataZone subscription requests"
+                        ) from exc
                     for item in response.get("items", []):
                         if not isinstance(item, dict):
                             continue
