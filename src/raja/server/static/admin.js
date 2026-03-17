@@ -619,6 +619,20 @@ function recordFailureResult(result) {
   select("failure-export-results").disabled = state.failureResults.length === 0;
 }
 
+function renderConsoleLinks() {
+  const list = select("console-links-list");
+  const meta = select("console-summary-meta");
+  if (!list || !state.structure) return;
+  const links = state.structure.console_links || [];
+  list.innerHTML = links
+    .map(
+      ({ label, url }) =>
+        `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`,
+    )
+    .join("");
+  if (meta) meta.textContent = links.length ? `${links.length} links` : "Unavailable";
+}
+
 async function loadStructure() {
   const result = await apiFetch("/admin/structure");
   if (!result.ok) {
@@ -627,6 +641,7 @@ async function loadStructure() {
   }
   state.structure = result.data;
   renderStatusRows();
+  renderConsoleLinks();
   updateHeaderHealth();
 }
 

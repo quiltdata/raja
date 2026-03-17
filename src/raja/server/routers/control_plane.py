@@ -222,6 +222,93 @@ def _authorize_package_with_datazone(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _console_lambda_url(*, region: str, fn_name: str) -> str:
+    return f"https://console.aws.amazon.com/lambda/home?region={region}#/functions/{fn_name}"
+
+
+def _console_logs_url(*, region: str, log_group: str) -> str:
+    from urllib.parse import quote
+
+    encoded = quote(log_group, safe="").replace("%", "$25")
+    return f"https://console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups/log-group/{encoded}"
+
+
+def _console_secret_url(*, region: str, secret_arn: str) -> str:
+    parts = secret_arn.split(":")
+    secret_name = parts[6] if len(parts) > 6 else secret_arn
+    return f"https://console.aws.amazon.com/secretsmanager/secret?name={secret_name}&region={region}"
+
+
+def _console_s3_url(*, bucket: str) -> str:
+    return f"https://s3.console.aws.amazon.com/s3/buckets/{bucket}"
+
+
+def _console_ecs_url(*, region: str, cluster: str, service: str) -> str:
+    return (
+        f"https://console.aws.amazon.com/ecs/v2/clusters/{cluster}"
+        f"/services/{service}/health?region={region}"
+    )
+
+
+def _build_console_links(*, request: "Request", region: str) -> list[dict[str, str]]:
+    """Build AWS Console deep-links from Lambda environment variables."""
+    import re as _re
+
+    links: list[dict[str, str]] = []
+    if not region:
+        return links
+
+    # API Gateway — extract API ID from the request host
+    host = request.url.hostname or ""
+    m = _re.match(r"([a-z0-9]+)\.execute-api\.", host)
+    if m:
+        api_id = m.group(1)
+        links.append({
+            "label": "API Gateway",
+            "url": f"https://console.aws.amazon.com/apigateway/home?region={region}#/apis/{api_id}/resources",
+        })
+
+    # Control plane Lambda (AWS_LAMBDA_FUNCTION_NAME is auto-injected by the runtime)
+    cp_fn = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "").strip()
+    if cp_fn:
+        links.append({"label": "Control Plane Lambda", "url": _console_lambda_url(region=region, fn_name=cp_fn)})
+        links.append({"label": "Control Plane Logs", "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{cp_fn}")})
+
+    # RALE Authorizer Lambda
+    auth_fn = os.environ.get("RALE_AUTHORIZER_FUNCTION_NAME", "").strip()
+    if auth_fn:
+        links.append({"label": "RALE Authorizer Lambda", "url": _console_lambda_url(region=region, fn_name=auth_fn)})
+        links.append({"label": "RALE Authorizer Logs", "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{auth_fn}")})
+
+    # RALE Router Lambda
+    router_fn = os.environ.get("RALE_ROUTER_FUNCTION_NAME", "").strip()
+    if router_fn:
+        links.append({"label": "RALE Router Lambda", "url": _console_lambda_url(region=region, fn_name=router_fn)})
+        links.append({"label": "RALE Router Logs", "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{router_fn}")})
+
+    # JWT Signing Secret
+    jwt_arn = os.environ.get("JWT_SECRET_ARN", "").strip()
+    if jwt_arn and region:
+        links.append({"label": "JWT Secret", "url": _console_secret_url(region=region, secret_arn=jwt_arn)})
+
+    # S3 buckets
+    registry = os.environ.get("RAJA_REGISTRY", "").strip().removeprefix("s3://")
+    if registry:
+        links.append({"label": "Registry Bucket (S3)", "url": _console_s3_url(bucket=registry)})
+
+    test_bucket = os.environ.get("RAJEE_TEST_BUCKET_NAME", "").strip()
+    if test_bucket:
+        links.append({"label": "Test Bucket (S3)", "url": _console_s3_url(bucket=test_bucket)})
+
+    # ECS service
+    cluster = os.environ.get("ECS_CLUSTER_NAME", "").strip()
+    service = os.environ.get("ECS_SERVICE_NAME", "").strip()
+    if cluster and service:
+        links.append({"label": "RAJEE ECS Service", "url": _console_ecs_url(region=region, cluster=cluster, service=service)})
+
+    return links
+
+
 def _console_domain_url(*, region: str, domain_id: str) -> str:
     return (
         f"https://{region}.console.aws.amazon.com/datazone/home"
@@ -961,6 +1048,7 @@ def get_admin_structure(
                 "health": {"reachable": True, "status": "ok"},
             },
         },
+        "console_links": _build_console_links(request=request, region=region),
     }
 
 

@@ -113,3 +113,13 @@ output "rale_router_url" {
   description = "RALE router Lambda Function URL."
   value       = aws_lambda_function_url.rale_router.function_url
 }
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name for the RAJEE Envoy service."
+  value       = aws_ecs_cluster.rajee.name
+}
+
+output "ecs_service_name" {
+  description = "ECS service name for the RAJEE Envoy service."
+  value       = aws_ecs_service.rajee.name
+}

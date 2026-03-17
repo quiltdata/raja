@@ -681,6 +681,9 @@ resource "aws_lambda_function" "control_plane" {
       RALE_ROUTER_FUNCTION_NAME            = local.rale_router_lambda_name
       AWS_ACCOUNT_ID                       = data.aws_caller_identity.current.account_id
       RAJEE_ENDPOINT                       = "${local.rajee_endpoint_protocol}://${aws_lb.rajee.dns_name}"
+      RAJEE_TEST_BUCKET_NAME               = aws_s3_bucket.rajee_test.bucket
+      ECS_CLUSTER_NAME                     = "${var.stack_name}-rajee-cluster"
+      ECS_SERVICE_NAME                     = "${var.stack_name}-rajee-service"
     }
   }
 
