@@ -1086,7 +1086,9 @@ def get_access_graph(
             )
 
     try:
-        subscription_requests = service.list_subscription_requests()
+        subscription_requests = service.list_subscription_requests(
+            listing_ids=[listing.listing_id for listing in listings]
+        )
     except DataZoneError as exc:
         logger.warning("access_graph_subscription_requests_unavailable", error=str(exc))
         subscription_requests = []

@@ -433,38 +433,47 @@ class DataZoneService:
     def list_subscription_requests(
         self,
         *,
+        listing_ids: list[str] | None = None,
         statuses: tuple[str, ...] = ("ACCEPTED", "PENDING", "REJECTED"),
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-        for status in statuses:
-            next_token: str | None = None
-            while True:
-                kwargs: dict[str, Any] = {
-                    "domainIdentifier": self._config.domain_id,
-                    "status": status,
-                    "maxResults": _SEARCH_PAGE_SIZE,
-                }
-                if next_token:
-                    kwargs["nextToken"] = next_token
-                try:
-                    response = self._client.list_subscription_requests(**kwargs)
-                except (ClientError, BotoCoreError) as exc:
-                    raise DataZoneError("failed to list DataZone subscription requests") from exc
-                for item in response.get("items", []):
-                    if not isinstance(item, dict):
-                        continue
-                    request_id = str(item.get("id") or "")
-                    if request_id and request_id in seen_ids:
-                        continue
-                    normalized = dict(item)
-                    normalized["status"] = str(item.get("status") or status)
-                    items.append(normalized)
-                    if request_id:
-                        seen_ids.add(request_id)
-                next_token = response.get("nextToken")
-                if not next_token:
-                    break
+        effective_listing_ids: list[str | None] = (
+            list(listing_ids) if listing_ids else [None]
+        )
+        for listing_id in effective_listing_ids:
+            for status in statuses:
+                next_token: str | None = None
+                while True:
+                    kwargs: dict[str, Any] = {
+                        "domainIdentifier": self._config.domain_id,
+                        "status": status,
+                        "maxResults": _SEARCH_PAGE_SIZE,
+                    }
+                    if listing_id:
+                        kwargs["subscribedListingId"] = listing_id
+                    elif self._config.owner_project_id:
+                        kwargs["owningProjectId"] = self._config.owner_project_id
+                    if next_token:
+                        kwargs["nextToken"] = next_token
+                    try:
+                        response = self._client.list_subscription_requests(**kwargs)
+                    except (ClientError, BotoCoreError) as exc:
+                        raise DataZoneError("failed to list DataZone subscription requests") from exc
+                    for item in response.get("items", []):
+                        if not isinstance(item, dict):
+                            continue
+                        request_id = str(item.get("id") or "")
+                        if request_id and request_id in seen_ids:
+                            continue
+                        normalized = dict(item)
+                        normalized["status"] = str(item.get("status") or status)
+                        items.append(normalized)
+                        if request_id:
+                            seen_ids.add(request_id)
+                    next_token = response.get("nextToken")
+                    if not next_token:
+                        break
         return items
 
     def _find_subscription_request(
