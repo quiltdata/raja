@@ -17,7 +17,13 @@ from urllib import error, request
 
 import pytest
 
-from .helpers import request_json, require_api_url, require_test_principal
+from .helpers import (
+    parse_rale_test_quilt_uri,
+    request_json,
+    require_api_url,
+    require_rale_test_quilt_uri,
+    require_test_principal,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,6 +74,13 @@ def test_admin_ui_html_is_served():
     # Admin UI must not reference AVP or Cedar policy store
     assert "verifiedpermissions" not in html.lower(), (
         "Admin HTML references Amazon Verified Permissions — should be DataZone"
+    )
+    assert 'id="section-projects"' in html, "Project membership section missing from admin UI"
+    assert 'id="section-listings"' in html, "Package listings section missing from admin UI"
+    assert 'id="section-principals"' not in html, "Legacy principals section should be removed"
+    assert 'id="section-access"' not in html, "Legacy access graph section should be removed"
+    assert html.index('id="section-failures"') < html.index('id="section-stack"'), (
+        "Stack health should appear after failure tests in document order"
     )
 
 
@@ -145,6 +158,167 @@ def test_jwks_is_public_and_valid():
 
 
 # ---------------------------------------------------------------------------
+# Admin structure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_admin_structure_reports_datazone_rows_without_errors():
+    """GET /admin/structure must expose healthy DataZone structure rows."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/admin/structure", headers=_admin_headers())
+    assert status == 200, f"Expected 200, got {status}"
+    data = json.loads(body)
+
+    datazone = data.get("datazone", {})
+    domain = datazone.get("domain", {})
+    owner_project = datazone.get("owner_project", {})
+    users_project = datazone.get("users_project", {})
+    guests_project = datazone.get("guests_project", {})
+    asset_type = datazone.get("asset_type", {})
+
+    assert domain.get("status") == "ok", f"Domain row unhealthy: {domain}"
+    assert domain.get("id"), f"Domain row missing id: {domain}"
+    assert domain.get("portal_url"), f"Domain row missing portal URL: {domain}"
+    assert ".sagemaker." in domain.get("portal_url", ""), (
+        f"Domain portal should be Studio URL: {domain}"
+    )
+
+    assert owner_project.get("status") == "ok", f"Owner project row unhealthy: {owner_project}"
+    assert owner_project.get("id"), f"Owner project row missing id: {owner_project}"
+    assert owner_project.get("portal_url"), f"Owner project row missing portal URL: {owner_project}"
+    assert owner_project.get("portal_url", "").endswith(f"/projects/{owner_project['id']}/overview")
+    assert "environment_id" in owner_project, (
+        f"Owner project missing environment_id: {owner_project}"
+    )
+    assert "environment_url" in owner_project, (
+        f"Owner project missing environment_url: {owner_project}"
+    )
+    if owner_project.get("environment_id"):
+        assert owner_project.get("environment_url", "").endswith(
+            f"/environments/{owner_project['environment_id']}"
+        )
+    assert users_project.get("id"), f"Users project row missing id: {users_project}"
+    assert users_project.get("portal_url"), f"Users project row missing portal URL: {users_project}"
+    assert users_project.get("portal_url", "").endswith(f"/projects/{users_project['id']}/overview")
+    assert "environment_id" in users_project, (
+        f"Users project missing environment_id: {users_project}"
+    )
+    assert "environment_url" in users_project, (
+        f"Users project missing environment_url: {users_project}"
+    )
+    if users_project.get("environment_id"):
+        assert users_project.get("environment_url", "").endswith(
+            f"/environments/{users_project['environment_id']}"
+        )
+    assert guests_project.get("id"), f"Guests project row missing id: {guests_project}"
+    assert guests_project.get("portal_url"), (
+        f"Guests project row missing portal URL: {guests_project}"
+    )
+    assert guests_project.get("portal_url", "").endswith(
+        f"/projects/{guests_project['id']}/overview"
+    )
+    assert "environment_id" in guests_project, (
+        f"Guests project missing environment_id: {guests_project}"
+    )
+    assert "environment_url" in guests_project, (
+        f"Guests project missing environment_url: {guests_project}"
+    )
+    if guests_project.get("environment_id"):
+        assert guests_project.get("environment_url", "").endswith(
+            f"/environments/{guests_project['environment_id']}"
+        )
+
+    assert asset_type.get("status") == "ok", f"Asset type row unhealthy: {asset_type}"
+    assert asset_type.get("name") == "QuiltPackage", f"Unexpected asset type row: {asset_type}"
+
+
+@pytest.mark.integration
+def test_admin_structure_reports_live_rale_stack_endpoints():
+    """GET /admin/structure must expose configured RALE endpoints and healthy server probe."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/admin/structure", headers=_admin_headers())
+    assert status == 200, f"Expected 200, got {status}"
+    data = json.loads(body)
+
+    stack = data.get("stack", {})
+    server = stack.get("server", {})
+    authorizer = stack.get("rale_authorizer", {})
+    router = stack.get("rale_router", {})
+
+    assert server.get("health", {}).get("status_code") == 200, (
+        f"Server health probe should hit the deployed stage path: {server}"
+    )
+
+    assert authorizer.get("url"), f"RALE authorizer URL missing from admin structure: {authorizer}"
+    assert authorizer.get("health", {}).get("url", "").endswith("/health"), (
+        f"RALE authorizer probe should target /health: {authorizer}"
+    )
+    assert authorizer.get("health", {}).get("status_code") == 200, (
+        f"RALE authorizer health probe should succeed: {authorizer}"
+    )
+    assert authorizer.get("health", {}).get("detail") != "not configured", (
+        f"RALE authorizer unexpectedly reported as unconfigured: {authorizer}"
+    )
+
+    assert router.get("url"), f"RALE router URL missing from admin structure: {router}"
+    assert router.get("health", {}).get("url", "").endswith("/health"), (
+        f"RALE router probe should target /health: {router}"
+    )
+    assert router.get("health", {}).get("status_code") == 200, (
+        f"RALE router health probe should succeed: {router}"
+    )
+    assert router.get("health", {}).get("detail") != "not configured", (
+        f"RALE router unexpectedly reported as unconfigured: {router}"
+    )
+
+
+@pytest.mark.integration
+def test_admin_rale_endpoints_execute_live_flow():
+    """Admin RALE endpoints should support the shipped browser walkthrough."""
+    quilt_uri = require_rale_test_quilt_uri()
+    parts = parse_rale_test_quilt_uri(quilt_uri)
+    principal = require_test_principal()
+
+    status, body = request_json("GET", "/admin/rale/packages")
+    assert status == 200, body
+    assert body.get("registry"), body
+    assert parts["package_name"] in body.get("packages", []), body
+
+    status, body = request_json(
+        "GET",
+        "/admin/rale/package-files",
+        query={"package_name": parts["package_name"]},
+    )
+    assert status == 200, body
+    assert body.get("manifest_hash") == parts["hash"], body
+    files = body.get("files", [])
+    assert any(item.get("path") == "data.csv" for item in files), body
+
+    usl = f"quilt+s3://{parts['registry']}#package={parts['package_name']}@{parts['hash']}&path=data.csv"
+    status, body = request_json(
+        "POST",
+        "/admin/rale/authorize",
+        {"principal": principal, "usl": usl},
+    )
+    assert status == 200, body
+    taj = body.get("body", {}).get("token")
+    assert taj, body
+    claims = body.get("claims", {})
+    assert claims.get("sub") == principal, body
+    assert claims.get("manifest_hash") == parts["hash"], body
+
+    status, body = request_json(
+        "POST",
+        "/admin/rale/deliver",
+        {"taj": taj, "usl": usl},
+    )
+    assert status == 200, body
+    assert body.get("status_code") == 200, body
+    assert body.get("byte_count", 0) > 0, body
+
+
+# ---------------------------------------------------------------------------
 # Principals — DataZone project metadata
 # ---------------------------------------------------------------------------
 
@@ -155,7 +329,9 @@ def test_principals_list_returns_datazone_project_metadata():
     status, body = request_json("GET", "/principals")
     assert status == 200, f"Expected 200, got {status}: {body}"
     principals = body.get("principals", [])
+    principal_summary = body.get("principal_summary", [])
     assert isinstance(principals, list)
+    assert isinstance(principal_summary, list)
     # At least one principal should exist (seeded test data)
     assert len(principals) >= 1, "No principals found. Run python scripts/seed_test_data.py"
     # Every principal with a project should have a string project id
@@ -165,6 +341,27 @@ def test_principals_list_returns_datazone_project_metadata():
                 f"datazone_project_id must be a string, got {type(item['datazone_project_id'])}"
             )
             assert item["datazone_project_id"], "datazone_project_id must not be empty"
+
+    summary_principals = {item.get("principal") for item in principal_summary}
+    assert summary_principals, "principal_summary must contain at least one principal"
+    assert summary_principals.issubset({item.get("principal") for item in principals})
+
+
+@pytest.mark.integration
+def test_access_graph_exposes_listing_project_links():
+    """GET /admin/access-graph should include project and listing links for UI rendering."""
+    api_url = require_api_url()
+    status, body = _raw_get(f"{api_url}/admin/access-graph", headers=_admin_headers())
+    assert status == 200, f"Expected 200, got {status}"
+    data = json.loads(body)
+    packages = data.get("packages", [])
+    assert packages, "Expected at least one package listing in access graph"
+    first = packages[0]
+    assert first.get("listing_url"), f"listing_url missing from package row: {first}"
+    assert first.get("owner_project_url"), f"owner_project_url missing from package row: {first}"
+    assert first.get("owner_project_url", "").endswith(
+        f"/projects/{first['owner_project_id']}/overview"
+    )
 
 
 # ---------------------------------------------------------------------------

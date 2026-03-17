@@ -109,6 +109,10 @@ def _build_package_uri(storage: str, registry: str, package_name: str, manifest_
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG001
+    raw_path = str(event.get("rawPath") or event.get("path") or "")
+    if raw_path.rstrip("/") == "/health":
+        return _response(200, {"status": "ok"})
+
     jwt_secret_arn = os.environ.get("JWT_SECRET_ARN")
     jwt_secret_version = os.environ.get("JWT_SECRET_VERSION")
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")

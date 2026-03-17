@@ -28,6 +28,21 @@ output "datazone_guests_project_id" {
   value       = aws_datazone_project.guests.id
 }
 
+output "datazone_owner_environment_role_arn" {
+  description = "IAM role ARN used by the owner DataZone environment."
+  value       = aws_iam_role.datazone_environment_owner.arn
+}
+
+output "datazone_users_environment_role_arn" {
+  description = "IAM role ARN used by the users DataZone environment."
+  value       = aws_iam_role.datazone_environment_users.arn
+}
+
+output "datazone_guests_environment_role_arn" {
+  description = "IAM role ARN used by the guests DataZone environment."
+  value       = aws_iam_role.datazone_environment_guests.arn
+}
+
 output "datazone_package_asset_type" {
   description = "Amazon DataZone asset type name for RAJA package listings."
   value       = aws_datazone_asset_type.quilt_package.name
@@ -97,4 +112,14 @@ output "rale_router_arn" {
 output "rale_router_url" {
   description = "RALE router Lambda Function URL."
   value       = aws_lambda_function_url.rale_router.function_url
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name for the RAJEE Envoy service."
+  value       = aws_ecs_cluster.rajee.name
+}
+
+output "ecs_service_name" {
+  description = "ECS service name for the RAJEE Envoy service."
+  value       = aws_ecs_service.rajee.name
 }

@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "0.9.1"
+version = "1.0.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "awscrt>=0.20.0",
     "click>=8.1.0",
     "httpx>=0.27.0",
     "pydantic>=2.7.0",
@@ -26,6 +27,7 @@ dev = [
     "poethepoet>=0.24.0",
     "pytest-watch>=4.2.0",
     "ruff>=0.1.0",
+    "uvicorn>=0.29.0",
     "boto3-stubs[datazone,secretsmanager]>=1.34.0",
 ]
 
@@ -34,10 +36,11 @@ aws = [
 ]
 
 test = [
-    "awscrt>=0.20.0",
     "moto>=4.2.0",
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-env>=1.1.5",
+    "pytest-mock>=3.14.0",
 ]
 
 [build-system]
@@ -81,7 +84,7 @@ addopts = [
     "--showlocals",
 ]
 filterwarnings = [
-    "ignore::jwt.warnings.InsecureKeyLengthWarning",
+    "ignore:.*key length.*:UserWarning",
 ]
 markers = [
     "unit: Unit tests (no external dependencies)",
@@ -92,6 +95,9 @@ markers = [
 
 [tool.poe.tasks]
 # Clean build artifacts and caches
+serve = { shell = "RAJA_ADMIN_KEY=${RAJA_ADMIN_KEY:-dev} uv run --extra dev uvicorn raja.server.app:app --reload --port 8000", help = "Run admin UI locally at http://localhost:8000 (hot-reload on file changes)" }
+
+# Clean build artifacts and caches
 clean = { cmd = "bash -c 'rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage dist build *.egg-info infra/cdk.out* infra/terraform/.terraform infra/terraform/terraform.tfstate* infra/terraform/build && find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true'", help = "Remove build artifacts, caches, and infra outputs" }
 
 # Quality checks - combine format + lint + typecheck
@@ -99,9 +105,9 @@ check = { sequence = ["_format", "_lint-fix", "_typecheck"], help = "Format, lin
 
 # Testing
 test = { cmd = "bash scripts/test_all.sh", help = "Run all unit tests (Python + Rust + Lua)" }
-test-unit = { cmd = "pytest tests/unit/ -v", help = "Run unit tests only" }
-test-cov = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
-coverage = { cmd = "pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage (alias for test-cov)" }
+test-unit = { cmd = "uv run --extra test python -m pytest tests/unit/ -v", help = "Run unit tests only" }
+test-cov = { cmd = "uv run --extra test python -m pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage" }
+coverage = { cmd = "uv run --extra test python -m pytest tests/ --cov=src/raja --cov-report=html --cov-report=term", help = "Run tests with coverage (alias for test-cov)" }
 test-docker = { shell = "cd infra && ./test-docker.sh ${action}", args = [{ name = "action", positional = true, default = "up" }], help = "Build and test Docker containers locally (args: up|logs|down|status)" }
 
 # Demo
@@ -111,11 +117,12 @@ demo-package = { cmd = "pytest tests/integration/test_rajee_package_grant.py -v 
 demo-translation = { cmd = "pytest tests/integration/test_rajee_translation_grant.py -v -s", help = "Run translation grant (TAJ-package) demonstrations" }
 
 # AWS deployment
-deploy = { sequence = ["_terraform-apply", "_show-outputs"], help = "Deploy standalone RAJA stack with Terraform" }
+deploy = { sequence = ["_terraform-apply", "_wait-rajee-stable", "_sagemaker-gaps", "_seed-test-data", "_seed-packages", "_show-outputs"], help = "Deploy standalone RAJA stack, wait for RAJEE, fill V2 gaps, and seed integration fixtures" }
 deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
 destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
-seed-test-data = { cmd = "python scripts/seed_test_data.py", help = "Seed integration test principals into DataZone" }
-seed-packages = { cmd = "python scripts/seed_packages.py", help = "Seed quilt3 packages into raja-poc-registry from raja-poc-test" }
+seed-test-data = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_test_data", help = "Seed integration test principals into DataZone" }
+seed-packages = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_packages", help = "Seed quilt3 packages into raja-poc-registry from raja-poc-test and publish the DataZone listing" }
+sagemaker-gaps = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python scripts/sagemaker_gaps.py", help = "Fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
 
 # Docker image building
 build-envoy = { cmd = "bash scripts/build-envoy-image.sh", help = "Build Envoy container image locally" }
@@ -130,16 +137,20 @@ bump = { cmd = "python scripts/version.py bump ${part}", args = [{ name = "part"
 tag = { script = "scripts.version:create_tag", help = "Create and push release tag (runs checks first)" }
 
 # Integration test (kept separate as it requires deployed resources)
-test-integration = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; pytest tests/integration/ -v", help = "Run integration tests (requires deployed AWS resources)" }
-test-rale-cli = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; pytest tests/integration/test_rale_cli_live.py -v", help = "Run live RALE CLI integration tests (requires deployed AWS resources)" }
-test-all = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; poe check && poe test && poe deploy && poe test-integration && poe test-rale-cli", help = "Run linting and tests, deploy, run integration tests, and verify the live RALE CLI flow" }
+test-integration = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; uv run --extra test python -m pytest tests/integration/ -v", help = "Run integration tests (requires deployed AWS resources)" }
+test-rale-cli = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; uv run --extra test python -m pytest tests/integration/test_rale_cli_live.py -v", help = "Run live RALE CLI integration tests (requires deployed AWS resources)" }
+test-all = { sequence = ["check", "test", "deploy", "test-integration", "test-rale-cli"], help = "Run linting and tests, deploy, run integration tests, and verify the live RALE CLI flow" }
 
 # Internal tasks (prefixed with _)
-_format = { cmd = "ruff format src tests infra lambda_handlers", help = "Internal: format code" }
-_lint-fix = { cmd = "ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
-_typecheck = { cmd = "mypy src", help = "Internal: run type checker" }
+_format = { cmd = "uv run --extra dev ruff format src tests infra lambda_handlers", help = "Internal: format code" }
+_lint-fix = { cmd = "uv run --extra dev ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
+_typecheck = { cmd = "uv run --extra dev mypy src", help = "Internal: run type checker" }
 _show-outputs = { cmd = "python scripts/show_outputs.py", help = "Internal: print deployment summary" }
 _terraform-apply = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json | python3 -c \"import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))\" > ../tf-outputs.json", help = "Internal: deploy Terraform stack and persist outputs" }
+_wait-rajee-stable = { shell = "set -a; [ -f .env ] && . ./.env; set +a; aws ecs wait services-stable --cluster raja-standalone-rajee-cluster --services raja-standalone-rajee-service", help = "Internal: wait for the RAJEE ECS service to reach a stable state" }
+_sagemaker-gaps = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python scripts/sagemaker_gaps.py", help = "Internal: fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
+_seed-test-data = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_test_data", help = "Internal: seed integration test principals into DataZone" }
+_seed-packages = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_packages", help = "Internal: seed quilt packages and DataZone listings" }
 _terraform-destroy = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../tf-outputs.json", help = "Internal: destroy Terraform stack" }
 
 [tool.mypy]

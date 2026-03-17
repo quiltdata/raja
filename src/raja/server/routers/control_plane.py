@@ -9,8 +9,10 @@ import secrets
 import time
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 import boto3
+import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
@@ -24,13 +26,17 @@ from raja.datazone import (
     project_id_for_scopes,
 )
 from raja.exceptions import TokenInvalidError
+from raja.manifest import _load_quilt3
 from raja.package_map import parse_s3_path
-from raja.quilt_uri import validate_quilt_uri
+from raja.quilt_uri import QuiltUri, parse_quilt_uri, validate_quilt_uri
+from raja.rale.config import resolve_config
 from raja.server import dependencies
 from raja.server.logging_config import get_logger
 from raja.token import (
     create_token_with_package_grant,
     create_token_with_package_map,
+    decode_token,
+    validate_taj_token,
     validate_token,
 )
 
@@ -108,6 +114,16 @@ class PolicyUpdateRequest(BaseModel):
     statement: str
 
 
+class RaleAuthorizeRequest(BaseModel):
+    principal: str
+    usl: str
+
+
+class RaleDeliverRequest(BaseModel):
+    usl: str
+    taj: str
+
+
 DATAZONE_DOMAIN_ID = os.environ.get("DATAZONE_DOMAIN_ID")
 TOKEN_TTL = int(os.environ.get("TOKEN_TTL", "3600"))
 
@@ -156,6 +172,16 @@ def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _project_name(project_id: str, config: DataZoneConfig) -> str:
+    if project_id == config.owner_project_id:
+        return "Owner"
+    if project_id == config.users_project_id:
+        return "Users"
+    if project_id == config.guests_project_id:
+        return "Guests"
+    return project_id
+
+
 def _derive_principal_scopes(datazone_client: Any, principal: str) -> list[str] | None:
     """Look up which DataZone project the principal belongs to and return scopes.
 
@@ -194,6 +220,411 @@ def _authorize_package_with_datazone(
         return service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _console_lambda_url(*, region: str, fn_name: str) -> str:
+    return f"https://console.aws.amazon.com/lambda/home?region={region}#/functions/{fn_name}"
+
+
+def _console_logs_url(*, region: str, log_group: str) -> str:
+    from urllib.parse import quote
+
+    encoded = quote(log_group, safe="").replace("%", "$25")
+    return f"https://console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups/log-group/{encoded}"
+
+
+def _console_secret_url(*, region: str, secret_arn: str) -> str:
+    parts = secret_arn.split(":")
+    secret_name = parts[6] if len(parts) > 6 else secret_arn
+    return (
+        f"https://console.aws.amazon.com/secretsmanager/secret?name={secret_name}&region={region}"
+    )
+
+
+def _console_s3_url(*, bucket: str) -> str:
+    return f"https://s3.console.aws.amazon.com/s3/buckets/{bucket}"
+
+
+def _console_ecs_url(*, region: str, cluster: str, service: str) -> str:
+    return (
+        f"https://console.aws.amazon.com/ecs/v2/clusters/{cluster}"
+        f"/services/{service}/health?region={region}"
+    )
+
+
+def _build_console_links(*, request: Request, region: str) -> list[dict[str, str]]:
+    """Build AWS Console deep-links from Lambda environment variables."""
+    import re as _re
+
+    links: list[dict[str, str]] = []
+    if not region:
+        return links
+
+    # API Gateway — extract API ID from the request host
+    host = request.url.hostname or ""
+    m = _re.match(r"([a-z0-9]+)\.execute-api\.", host)
+    if m:
+        api_id = m.group(1)
+        links.append(
+            {
+                "label": "API Gateway",
+                "url": f"https://console.aws.amazon.com/apigateway/home?region={region}#/apis/{api_id}/resources",
+            }
+        )
+
+    # Control plane Lambda (AWS_LAMBDA_FUNCTION_NAME is auto-injected by the runtime)
+    cp_fn = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "").strip()
+    if cp_fn:
+        links.append(
+            {
+                "label": "Control Plane Lambda",
+                "url": _console_lambda_url(region=region, fn_name=cp_fn),
+            }
+        )
+        links.append(
+            {
+                "label": "Control Plane Logs",
+                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{cp_fn}"),
+            }
+        )
+
+    # RALE Authorizer Lambda
+    auth_fn = os.environ.get("RALE_AUTHORIZER_FUNCTION_NAME", "").strip()
+    if auth_fn:
+        links.append(
+            {
+                "label": "RALE Authorizer Lambda",
+                "url": _console_lambda_url(region=region, fn_name=auth_fn),
+            }
+        )
+        links.append(
+            {
+                "label": "RALE Authorizer Logs",
+                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{auth_fn}"),
+            }
+        )
+
+    # RALE Router Lambda
+    router_fn = os.environ.get("RALE_ROUTER_FUNCTION_NAME", "").strip()
+    if router_fn:
+        links.append(
+            {
+                "label": "RALE Router Lambda",
+                "url": _console_lambda_url(region=region, fn_name=router_fn),
+            }
+        )
+        links.append(
+            {
+                "label": "RALE Router Logs",
+                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{router_fn}"),
+            }
+        )
+
+    # JWT Signing Secret
+    jwt_arn = os.environ.get("JWT_SECRET_ARN", "").strip()
+    if jwt_arn and region:
+        links.append(
+            {"label": "JWT Secret", "url": _console_secret_url(region=region, secret_arn=jwt_arn)}
+        )
+
+    # S3 buckets
+    registry = os.environ.get("RAJA_REGISTRY", "").strip().removeprefix("s3://")
+    if registry:
+        links.append({"label": "Registry Bucket (S3)", "url": _console_s3_url(bucket=registry)})
+
+    test_bucket = os.environ.get("RAJEE_TEST_BUCKET_NAME", "").strip()
+    if test_bucket:
+        links.append({"label": "Test Bucket (S3)", "url": _console_s3_url(bucket=test_bucket)})
+
+    # ECS service
+    cluster = os.environ.get("ECS_CLUSTER_NAME", "").strip()
+    service = os.environ.get("ECS_SERVICE_NAME", "").strip()
+    if cluster and service:
+        links.append(
+            {
+                "label": "RAJEE ECS Service",
+                "url": _console_ecs_url(region=region, cluster=cluster, service=service),
+            }
+        )
+
+    return links
+
+
+def _console_domain_url(*, region: str, domain_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}"
+    )
+
+
+def _console_project_url(*, region: str, domain_id: str, project_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}/projects/{project_id}"
+    )
+
+
+def _console_environment_url(*, region: str, domain_id: str, environment_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}/environments/{environment_id}"
+    )
+
+
+def _studio_project_url(*, portal_url: str, project_id: str) -> str:
+    return f"{portal_url.rstrip('/')}/projects/{project_id}/overview"
+
+
+def _studio_subscription_requests_url(
+    *,
+    portal_url: str,
+    project_id: str,
+    status: str,
+) -> str:
+    status_map = {
+        "ACCEPTED": "APPROVED",
+        "PENDING": "PENDING",
+        "REJECTED": "REJECTED",
+        "REVOKED": "REVOKED",
+    }
+    mapped_status = status_map.get(status.upper(), status.upper())
+    return (
+        f"{portal_url.rstrip('/')}/projects/{project_id}/catalog/subscriptionRequests/incoming"
+        f"?status={quote(mapped_status, safe='')}"
+    )
+
+
+def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str:
+    return (
+        f"https://{region}.console.aws.amazon.com/datazone/home"
+        f"?region={region}#/domains/{domain_id}/browse/{listing_id}"
+    )
+
+
+def _project_environment_id(project_id: str, config: DataZoneConfig) -> str:
+    if project_id == config.owner_project_id:
+        return config.owner_environment_id
+    if project_id == config.users_project_id:
+        return config.users_environment_id
+    if project_id == config.guests_project_id:
+        return config.guests_environment_id
+    return ""
+
+
+def _project_structure(
+    *,
+    project_id: str,
+    config: DataZoneConfig,
+    region: str,
+    domain_portal_url: str,
+) -> dict[str, Any]:
+    environment_id = _project_environment_id(project_id, config)
+    return {
+        "name": _project_name(project_id, config),
+        "id": project_id,
+        "portal_url": (
+            _studio_project_url(
+                portal_url=domain_portal_url,
+                project_id=project_id,
+            )
+            if domain_portal_url and project_id
+            else (
+                _console_project_url(
+                    region=region,
+                    domain_id=config.domain_id,
+                    project_id=project_id,
+                )
+                if region and project_id
+                else ""
+            )
+        ),
+        "environment_id": environment_id,
+        "environment_url": (
+            _console_environment_url(
+                region=region,
+                domain_id=config.domain_id,
+                environment_id=environment_id,
+            )
+            if region and environment_id
+            else ""
+        ),
+        "status": "ok" if project_id else "warn",
+    }
+
+
+def _summarize_principals(principals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in principals:
+        principal = str(item.get("principal") or "")
+        if not principal:
+            continue
+        summary = grouped.setdefault(
+            principal,
+            {
+                "principal": principal,
+                "project_ids": [],
+                "project_names": [],
+            },
+        )
+        project_id = str(item.get("datazone_project_id") or "")
+        project_name = str(item.get("datazone_project_name") or "")
+        if project_id and project_id not in summary["project_ids"]:
+            summary["project_ids"].append(project_id)
+        if project_name and project_name not in summary["project_names"]:
+            summary["project_names"].append(project_name)
+    return list(grouped.values())
+
+
+def _probe_endpoint(
+    url: str,
+    *,
+    ready_path: str | None = None,
+) -> dict[str, Any]:
+    target = url.rstrip("/")
+    if ready_path:
+        suffix = ready_path if ready_path.startswith("/") else f"/{ready_path}"
+        target = f"{target}{suffix}"
+    try:
+        response = httpx.get(target, timeout=5.0, follow_redirects=False)
+    except httpx.RequestError as exc:
+        return {"reachable": False, "status": "error", "detail": str(exc), "url": target}
+
+    status_code = response.status_code
+    if status_code < 400:
+        status = "ok"
+        reachable = True
+    elif status_code < 500:
+        status = "warn"
+        reachable = True
+    else:
+        status = "error"
+        reachable = False
+    return {
+        "reachable": reachable,
+        "status": status,
+        "status_code": status_code,
+        "url": target,
+    }
+
+
+def _resolve_runtime_config() -> dict[str, str]:
+    resolved, _ = resolve_config()
+    authorizer_url = resolved.rale_authorizer_url
+    if not authorizer_url:
+        authorizer_url = _resolve_lambda_function_url(
+            os.environ.get("RALE_AUTHORIZER_FUNCTION_NAME", "").strip()
+        )
+
+    router_url = resolved.rale_router_url
+    if not router_url:
+        router_url = _resolve_lambda_function_url(
+            os.environ.get("RALE_ROUTER_FUNCTION_NAME", "").strip()
+        )
+
+    return {
+        "registry": resolved.registry,
+        "rajee_endpoint": resolved.rajee_endpoint,
+        "rale_authorizer_url": authorizer_url,
+        "rale_router_url": router_url,
+    }
+
+
+def _resolve_lambda_function_url(function_name: str) -> str:
+    if not function_name:
+        return ""
+    try:
+        client = boto3.client("lambda")
+        response = client.get_function_url_config(FunctionName=function_name)
+    except (BotoCoreError, ClientError) as exc:
+        logger.warning(
+            "lambda_function_url_lookup_failed", function_name=function_name, error=str(exc)
+        )
+        return ""
+    function_url = response.get("FunctionUrl")
+    return str(function_url).rstrip("/") if isinstance(function_url, str) else ""
+
+
+def _external_base_url(request: Request) -> str:
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("host") or request.url.netloc
+    event = request.scope.get("aws.event")
+    stage = ""
+    if isinstance(event, dict):
+        request_context = event.get("requestContext")
+        if isinstance(request_context, dict):
+            raw_stage = request_context.get("stage")
+            if isinstance(raw_stage, str) and raw_stage and raw_stage != "$default":
+                stage = raw_stage.strip("/")
+
+    base_url = f"{scheme}://{host}".rstrip("/")
+    return f"{base_url}/{stage}" if stage else base_url
+
+
+def _build_rale_path(usl: str) -> tuple[str, str]:
+    parsed = parse_quilt_uri(usl)
+    if not parsed.path:
+        raise ValueError("USL path is required")
+    pinned_path = f"/{parsed.registry}/{parsed.package_name}@{parsed.hash}/{parsed.path}"
+    unpinned_path = f"/{parsed.registry}/{parsed.package_name}/{parsed.path}"
+    return pinned_path, unpinned_path
+
+
+def _render_claim_annotation(key: str, value: Any) -> dict[str, Any]:
+    explanations = {
+        "sub": "Principal the TAJ was minted for.",
+        "grants": "Concrete S3 grant prefixes derived from the DataZone decision.",
+        "manifest_hash": "Immutable Quilt manifest hash pinned at authorization time.",
+        "package_name": "Package name the TAJ is allowed to access.",
+        "registry": "Registry bucket backing the package.",
+        "iat": "Issue time for the TAJ.",
+        "exp": "Expiry time after which the TAJ must be rejected.",
+    }
+    return {
+        "key": key,
+        "value": value,
+        "explanation": explanations.get(key, "Token claim."),
+    }
+
+
+def _read_registry_packages(registry: str) -> list[str]:
+    quilt3 = _load_quilt3()
+    try:
+        return sorted(str(name) for name in quilt3.list_packages(registry=registry))
+    except Exception as exc:
+        raise RuntimeError("Cannot list registry packages - check registry access") from exc
+
+
+def _browse_package_files(registry: str, package_name: str) -> tuple[str, list[dict[str, Any]]]:
+    quilt3 = _load_quilt3()
+    try:
+        package = quilt3.Package.browse(name=package_name, registry=registry)
+    except Exception as exc:
+        raise RuntimeError("Cannot resolve latest hash - check registry access") from exc
+
+    manifest_hash = getattr(package, "top_hash", None)
+    if not isinstance(manifest_hash, str) or not manifest_hash:
+        raise RuntimeError("Cannot resolve latest hash - check registry access")
+
+    entries: list[dict[str, Any]] = []
+    registry_bucket = registry.split("://", 1)[1] if "://" in registry else registry
+    for logical_path, entry in package.walk():
+        size_value = getattr(entry, "size", None)
+        normalized_path = str(logical_path)
+        usl = QuiltUri(
+            storage="s3",
+            registry=registry_bucket,
+            package_name=package_name,
+            hash=manifest_hash,
+            path=normalized_path,
+        ).normalized()
+        entries.append(
+            {
+                "path": normalized_path,
+                "size": size_value if isinstance(size_value, int) else None,
+                "usl": usl,
+            }
+        )
+    return manifest_hash, entries
 
 
 router = APIRouter(prefix="", tags=["control-plane"])
@@ -519,7 +950,10 @@ def list_principals(
                     {
                         "principal": user_id,
                         "datazone_project_id": project_id,
+                        "datazone_project_name": _project_name(project_id, config),
                         "scopes": scopes,
+                        "scope_count": len(scopes),
+                        "last_token_issued": None,
                     }
                 )
             if limit and len(principals) >= limit:
@@ -527,7 +961,460 @@ def list_principals(
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principals_listed", count=len(principals))
-    return {"principals": principals}
+    return {
+        "principals": principals,
+        "principal_summary": _summarize_principals(principals),
+    }
+
+
+@router.get("/admin/structure")
+def get_admin_structure(
+    request: Request,
+    _: None = Depends(dependencies.require_admin_auth),
+    datazone: Any = Depends(dependencies.get_datazone_client),
+    secret: str = Depends(dependencies.get_jwt_secret),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    config = DataZoneConfig.from_env()
+
+    domain_name = config.domain_id
+    domain_portal_url = ""
+    domain_status = "warn"
+    try:
+        domain = datazone.get_domain(identifier=config.domain_id)
+        domain_name = str(domain.get("name") or config.domain_id)
+        domain_portal_url = str(domain.get("portalUrl") or "")
+        domain_status = "ok"
+    except Exception as exc:
+        domain_status = f"error: {exc}"
+
+    asset_type_status = "warn"
+    try:
+        asset_type_response = datazone.get_asset_type(
+            domainIdentifier=config.domain_id,
+            identifier=config.asset_type_name,
+            revision=config.asset_type_revision,
+        )
+        asset_type_name = str(asset_type_response.get("name") or config.asset_type_name)
+        asset_type_revision = str(asset_type_response.get("revision") or config.asset_type_revision)
+        asset_type_status = "ok"
+    except Exception as exc:
+        asset_type_name = config.asset_type_name
+        asset_type_revision = config.asset_type_revision
+        asset_type_status = f"error: {exc}"
+
+    server_url = _external_base_url(request)
+    health_url = f"{server_url}/health"
+    jwks_url = f"{server_url}/.well-known/jwks.json"
+    jwks = get_jwks(secret=secret)
+
+    return {
+        "datazone": {
+            "domain": {
+                "name": domain_name,
+                "id": config.domain_id,
+                "region": region,
+                "portal_url": (
+                    domain_portal_url
+                    or (
+                        _console_domain_url(region=region, domain_id=config.domain_id)
+                        if region
+                        else ""
+                    )
+                ),
+                "status": domain_status,
+            },
+            "owner_project": _project_structure(
+                project_id=config.owner_project_id,
+                config=config,
+                region=region,
+                domain_portal_url=domain_portal_url,
+            ),
+            "users_project": _project_structure(
+                project_id=config.users_project_id,
+                config=config,
+                region=region,
+                domain_portal_url=domain_portal_url,
+            ),
+            "guests_project": _project_structure(
+                project_id=config.guests_project_id,
+                config=config,
+                region=region,
+                domain_portal_url=domain_portal_url,
+            ),
+            "asset_type": {
+                "name": asset_type_name,
+                "revision": asset_type_revision,
+                "status": asset_type_status,
+            },
+        },
+        "stack": {
+            "server": {
+                "label": "RAJA server",
+                "url": server_url,
+                "health": _probe_endpoint(health_url),
+            },
+            "rale_authorizer": {
+                "label": "RALE Authorizer",
+                "url": runtime["rale_authorizer_url"],
+                "health": (
+                    _probe_endpoint(runtime["rale_authorizer_url"], ready_path="/health")
+                    if runtime["rale_authorizer_url"]
+                    else {"reachable": False, "status": "warn", "detail": "not configured"}
+                ),
+            },
+            "rale_router": {
+                "label": "RALE Router",
+                "url": runtime["rale_router_url"],
+                "health": (
+                    _probe_endpoint(runtime["rale_router_url"], ready_path="/health")
+                    if runtime["rale_router_url"]
+                    else {"reachable": False, "status": "warn", "detail": "not configured"}
+                ),
+            },
+            "rajee": {
+                "label": "RAJEE",
+                "url": runtime["rajee_endpoint"],
+                "health": (
+                    _probe_endpoint(runtime["rajee_endpoint"], ready_path="/ready")
+                    if runtime["rajee_endpoint"]
+                    else {"reachable": False, "status": "warn", "detail": "not configured"}
+                ),
+            },
+            "jwks": {
+                "label": "JWKS",
+                "url": jwks_url,
+                "kids": [str(key.get("kid") or "") for key in jwks.get("keys", [])],
+                "health": {"reachable": True, "status": "ok"},
+            },
+        },
+        "console_links": _build_console_links(request=request, region=region),
+    }
+
+
+@router.get("/admin/access-graph")
+def get_access_graph(
+    principal: str | None = Query(default=None),
+    _: None = Depends(dependencies.require_admin_auth),
+    datazone: Any = Depends(dependencies.get_datazone_client),
+) -> dict[str, Any]:
+    if not isinstance(principal, str):
+        principal = None
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        principals_response = list_principals(limit=None, datazone=datazone)
+        principals = principals_response["principals"]
+        principal_summary = principals_response["principal_summary"]
+        if principal:
+            principals = [item for item in principals if item.get("principal") == principal]
+            principal_summary = [
+                item for item in principal_summary if item.get("principal") == principal
+            ]
+        listings = service.list_package_listings()
+        domain_portal_url = (
+            str(datazone.get_domain(identifier=config.domain_id).get("portalUrl") or "")
+            if config.domain_id
+            else ""
+        )
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or ""
+    packages: list[dict[str, Any]] = []
+    subscriptions: list[dict[str, Any]] = []
+    access_rows: list[dict[str, Any]] = []
+    project_filter_ids = {str(item["datazone_project_id"]) for item in principals}
+    listing_index = {listing.listing_id: listing for listing in listings}
+
+    for listing in listings:
+        try:
+            subscription_count = 0
+            for project_id in _ordered_project_ids(config):
+                if project_id == listing.owner_project_id:
+                    continue
+                accepted = service.find_accepted_subscription(
+                    project_id=project_id,
+                    listing_id=listing.listing_id,
+                )
+                if accepted:
+                    subscription_count += 1
+        except DataZoneError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        packages.append(
+            {
+                "listing_id": listing.listing_id,
+                "package_name": listing.name,
+                "owner_project_id": listing.owner_project_id,
+                "owner_project_name": _project_name(listing.owner_project_id, config),
+                "asset_type": config.asset_type_name,
+                "subscriptions": subscription_count,
+                "owner_project_url": (
+                    _studio_project_url(
+                        portal_url=domain_portal_url,
+                        project_id=listing.owner_project_id,
+                    )
+                    if domain_portal_url and listing.owner_project_id
+                    else (
+                        _console_project_url(
+                            region=region,
+                            domain_id=config.domain_id,
+                            project_id=listing.owner_project_id,
+                        )
+                        if region and listing.owner_project_id
+                        else ""
+                    )
+                ),
+                "listing_url": (
+                    _console_listing_url(
+                        region=region,
+                        domain_id=config.domain_id,
+                        listing_id=listing.listing_id,
+                    )
+                    if region
+                    else ""
+                ),
+            }
+        )
+
+        for project_id in _ordered_project_ids(config):
+            if project_filter_ids and project_id not in project_filter_ids:
+                continue
+            if project_id == listing.owner_project_id:
+                access_rows.append(
+                    {
+                        "principal_project_id": project_id,
+                        "principal_project_name": _project_name(project_id, config),
+                        "package_name": listing.name,
+                        "access_mode": "OWNED",
+                        "source": "listing owner",
+                        "subscription_id": None,
+                    }
+                )
+                continue
+            try:
+                subscription = service.find_accepted_subscription(
+                    project_id=project_id,
+                    listing_id=listing.listing_id,
+                )
+            except DataZoneError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            if subscription is None:
+                continue
+            access_rows.append(
+                {
+                    "principal_project_id": project_id,
+                    "principal_project_name": _project_name(project_id, config),
+                    "package_name": listing.name,
+                    "access_mode": "GRANTED",
+                    "source": "accepted subscription",
+                    "subscription_id": str(subscription.get("id") or ""),
+                }
+            )
+
+    try:
+        subscription_requests = service.list_subscription_requests(
+            listing_ids=[listing.listing_id for listing in listings]
+        )
+    except DataZoneError as exc:
+        logger.warning("access_graph_subscription_requests_unavailable", error=str(exc))
+        subscription_requests = []
+
+    for item in subscription_requests:
+        request_id = str(item.get("id") or "")
+        status = str(item.get("status") or "UNKNOWN")
+        principals_data = item.get("subscribedPrincipals", [])
+        consumer_project_id = ""
+        if isinstance(principals_data, list):
+            for principal_data in principals_data:
+                if not isinstance(principal_data, dict):
+                    continue
+                project_data = principal_data.get("project")
+                if isinstance(project_data, dict) and project_data.get("id"):
+                    consumer_project_id = str(project_data["id"])
+                    break
+
+        listings_data = item.get("subscribedListings", [])
+        listing_id = ""
+        if isinstance(listings_data, list):
+            for listing_data in listings_data:
+                if not isinstance(listing_data, dict):
+                    continue
+                if listing_data.get("id"):
+                    listing_id = str(listing_data["id"])
+                    break
+
+        matched_listing: Any | None = listing_index.get(listing_id)
+        package_name = matched_listing.name if matched_listing else listing_id
+        owner_project_id = matched_listing.owner_project_id if matched_listing else ""
+        subscriptions.append(
+            {
+                "package_name": package_name,
+                "owner_project_id": owner_project_id,
+                "owner_project_name": _project_name(owner_project_id, config)
+                if owner_project_id
+                else "",
+                "consumer_project_id": consumer_project_id,
+                "consumer_project_name": _project_name(consumer_project_id, config)
+                if consumer_project_id
+                else "",
+                "status": status,
+                "subscription_id": request_id,
+                "subscription_url": (
+                    _studio_subscription_requests_url(
+                        portal_url=domain_portal_url,
+                        project_id=owner_project_id,
+                        status=status,
+                    )
+                    if domain_portal_url and owner_project_id
+                    else ""
+                ),
+            }
+        )
+
+    subscriptions.sort(
+        key=lambda item: (
+            str(item.get("package_name") or ""),
+            str(item.get("owner_project_name") or ""),
+            str(item.get("consumer_project_name") or ""),
+            str(item.get("status") or ""),
+            str(item.get("subscription_id") or ""),
+        )
+    )
+
+    return {
+        "principals": principals,
+        "principal_summary": principal_summary,
+        "packages": packages,
+        "subscriptions": subscriptions,
+        "access": access_rows,
+    }
+
+
+@router.get("/admin/rale/packages")
+def list_rale_packages(
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    registry = runtime["registry"]
+    if not registry:
+        raise HTTPException(status_code=503, detail="RAJA_REGISTRY is not configured")
+    try:
+        packages = _read_registry_packages(registry)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"registry": registry, "packages": packages}
+
+
+@router.get("/admin/rale/package-files")
+def list_rale_package_files(
+    package_name: str = Query(..., min_length=1),
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    registry = runtime["registry"]
+    if not registry:
+        raise HTTPException(status_code=503, detail="RAJA_REGISTRY is not configured")
+    try:
+        manifest_hash, files = _browse_package_files(registry, package_name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "registry": registry,
+        "package_name": package_name,
+        "manifest_hash": manifest_hash,
+        "files": files,
+    }
+
+
+@router.post("/admin/rale/authorize")
+def authorize_rale_request(
+    payload: RaleAuthorizeRequest,
+    _: None = Depends(dependencies.require_admin_auth),
+    secret: str = Depends(dependencies.get_jwt_secret),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    authorizer_url = runtime["rale_authorizer_url"]
+    if not authorizer_url:
+        raise HTTPException(status_code=503, detail="RALE_AUTHORIZER_URL is not configured")
+    try:
+        pinned_path, _unpinned_path = _build_rale_path(payload.usl)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target_url = f"{authorizer_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    try:
+        response = httpx.get(
+            target_url,
+            headers={"x-raja-principal": payload.principal},
+            timeout=20.0,
+        )
+        body = response.json()
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"RALE authorizer unreachable: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="RALE authorizer returned invalid JSON",
+        ) from exc
+
+    result: dict[str, Any] = {
+        "status_code": response.status_code,
+        "url": target_url,
+        "principal": payload.principal,
+        "usl": payload.usl,
+        "body": body,
+    }
+    token_value = body.get("token")
+    if response.status_code == 200 and isinstance(token_value, str):
+        claims = decode_token(token_value)
+        validate_taj_token(token_value, secret)
+        annotated = [
+            _render_claim_annotation(key, claims.get(key))
+            for key in ["sub", "grants", "manifest_hash", "package_name", "registry", "iat", "exp"]
+        ]
+        result["claims"] = claims
+        result["annotated_claims"] = annotated
+    return result
+
+
+@router.post("/admin/rale/deliver")
+def deliver_rale_request(
+    payload: RaleDeliverRequest,
+    _: None = Depends(dependencies.require_admin_auth),
+) -> dict[str, Any]:
+    runtime = _resolve_runtime_config()
+    router_url = runtime["rale_router_url"]
+    if not router_url:
+        raise HTTPException(status_code=503, detail="RALE_ROUTER_URL is not configured")
+    try:
+        pinned_path, _unpinned_path = _build_rale_path(payload.usl)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target_url = f"{router_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    try:
+        response = httpx.get(target_url, headers={"x-rale-taj": payload.taj}, timeout=20.0)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"RALE router unreachable: {exc}") from exc
+
+    content_type = response.headers.get("content-type", "")
+    preview = response.text[:500] if "text" in content_type or "json" in content_type else ""
+    try:
+        diagnostics = response.json() if "json" in content_type else {}
+    except ValueError:
+        diagnostics = {}
+    return {
+        "status_code": response.status_code,
+        "url": target_url,
+        "byte_count": len(response.content),
+        "content_type": content_type,
+        "preview": preview,
+        "diagnostics": diagnostics,
+        "headers": dict(response.headers.items()),
+    }
 
 
 @router.post("/principals")
@@ -570,24 +1457,29 @@ def create_principal(
 @router.delete("/principals/{principal}")
 def delete_principal(
     principal: str,
+    project_id: str | None = Query(default=None),
     _: None = Depends(dependencies.require_admin_auth),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, str]:
-    """Remove a principal from their DataZone project."""
-    logger.info("principal_delete_requested", principal=principal)
+    """Remove a principal from a DataZone project."""
+    if not isinstance(project_id, str):
+        project_id = None
+    logger.info("principal_delete_requested", principal=principal, project_id=project_id)
     try:
-        config = DataZoneConfig.from_env()
         service = _datazone_service(datazone)
-        project_id = service.find_project_for_principal(
-            principal, project_ids=_ordered_project_ids(config)
-        )
-        if project_id is None:
+        target_project_id = project_id
+        if target_project_id is None:
+            config = DataZoneConfig.from_env()
+            target_project_id = service.find_project_for_principal(
+                principal, project_ids=_ordered_project_ids(config)
+            )
+        if target_project_id is None:
             raise HTTPException(status_code=404, detail=f"Principal not found: {principal}")
-        service.delete_project_membership(project_id=project_id, user_identifier=principal)
+        service.delete_project_membership(project_id=target_project_id, user_identifier=principal)
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principal_deleted", principal=principal)
-    return {"message": f"Principal {principal} deleted"}
+    return {"message": f"Removed {principal} from project"}
 
 
 @router.get("/policies")

@@ -6,13 +6,34 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from dotenv import load_dotenv
+import httpx
 
 from .state import ResolvedConfig, RunMode
 
-load_dotenv()
+
+class _LoadDotenv(Protocol):
+    def __call__(
+        self,
+        dotenv_path: str | os.PathLike[str] | None = None,
+        stream: Any = None,
+        verbose: bool = False,
+        override: bool = False,
+        interpolate: bool = True,
+        encoding: str | None = "utf-8",
+    ) -> bool: ...
+
+
+try:
+    from dotenv import load_dotenv as _dotenv_loader
+except ImportError:  # pragma: no cover - exercised in deployed Lambda packaging
+    LOAD_DOTENV: _LoadDotenv | None = None
+else:
+    LOAD_DOTENV = _dotenv_loader
+
+if LOAD_DOTENV is not None:
+    LOAD_DOTENV()
 
 DEFAULT_SERVER_URL = ""
 DEFAULT_RAJEE_ENDPOINT = ""
@@ -90,6 +111,35 @@ def _extract_tf_value(raw: Any) -> str | None:
     if isinstance(raw, str):
         return raw
     return None
+
+
+def _load_principal_from_sts() -> str:
+    """Return the caller's IAM ARN from STS GetCallerIdentity, or '' on failure."""
+    try:
+        import boto3
+
+        return str(boto3.client("sts").get_caller_identity()["Arn"])
+    except Exception:
+        return ""
+
+
+def _load_default_principal_from_server(server_url: str) -> str:
+    if not server_url:
+        return ""
+    target = f"{server_url.rstrip('/')}/health"
+    try:
+        response = httpx.get(target, timeout=5.0)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        return ""
+    principal = config.get("default_principal")
+    return principal.strip() if isinstance(principal, str) else ""
 
 
 def load_terraform_outputs(tf_dir: str) -> dict[str, Any]:
@@ -178,6 +228,11 @@ def resolve_config(
         or os.getenv("RAJA_PRINCIPAL")
         or file_values.get("RAJA_PRINCIPAL")
         or file_values.get("principal")
+        or os.getenv("RAJA_DEFAULT_PRINCIPAL")
+        or file_values.get("RAJA_DEFAULT_PRINCIPAL")
+        or file_values.get("default_principal")
+        or _load_default_principal_from_server(server_url)
+        or _load_principal_from_sts()
         or DEFAULT_PRINCIPAL
     )
 
@@ -213,6 +268,11 @@ def resolve_config(
 
 def validate_config(config: ResolvedConfig) -> list[str]:
     errors: list[str] = []
+    if not config.principal:
+        errors.append(
+            "principal is required"
+            " (--principal flag, RAJA_PRINCIPAL env, config file, or AWS credentials via STS)"
+        )
     if not config.registry:
         errors.append("RAJA_REGISTRY is required (flag/env/config/terraform output)")
     if not config.admin_key:

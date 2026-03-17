@@ -54,6 +54,31 @@ def test_resolve_config_priority_env_over_file(
     assert resolved.principal == "User::env"
 
 
+def test_resolve_config_falls_back_to_server_default_principal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RAJA_SERVER_URL", "http://env-server")
+    monkeypatch.setenv("RAJA_REGISTRY", "env-registry")
+    monkeypatch.setenv("RAJEE_ENDPOINT", "http://env-rajee")
+    monkeypatch.setenv("RAJA_ADMIN_KEY", "env-admin")
+    monkeypatch.setenv("RAJA_TF_DIR", str(tmp_path / "missing-tf-dir"))
+    monkeypatch.delenv("RAJA_PRINCIPAL", raising=False)
+    monkeypatch.delenv("RAJA_DEFAULT_PRINCIPAL", raising=False)
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"config": {"default_principal": "arn:aws:iam::123456789012:user/tester"}}
+
+    monkeypatch.setattr("raja.rale.config.httpx.get", lambda *args, **kwargs: _Response())
+
+    resolved, _ = resolve_config()
+
+    assert resolved.principal == "arn:aws:iam::123456789012:user/tester"
+
+
 def test_validate_config_reports_required_values() -> None:
     missing = ResolvedConfig(
         server_url="",
@@ -73,6 +98,46 @@ def test_validate_config_reports_required_values() -> None:
     assert "RAJEE_ENDPOINT" in error_text
     assert "RALE_AUTHORIZER_URL" in error_text
     assert "RALE_ROUTER_URL" in error_text
+
+
+def test_validate_config_errors_on_missing_principal() -> None:
+    missing = ResolvedConfig(
+        server_url="http://server",
+        registry="s3://bucket",
+        rajee_endpoint="http://rajee",
+        admin_key="key",
+        principal="",
+        tf_dir="infra/terraform",
+        rale_authorizer_url="http://auth",
+        rale_router_url="http://router",
+    )
+
+    errors = validate_config(missing)
+    assert len(errors) == 1
+    assert "principal" in errors[0].lower()
+
+
+def test_resolve_config_falls_back_to_sts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("RAJA_SERVER_URL", "http://env-server")
+    monkeypatch.setenv("RAJA_REGISTRY", "env-registry")
+    monkeypatch.setenv("RAJEE_ENDPOINT", "http://env-rajee")
+    monkeypatch.setenv("RAJA_ADMIN_KEY", "env-admin")
+    monkeypatch.setenv("RAJA_TF_DIR", str(tmp_path / "missing-tf-dir"))
+    monkeypatch.delenv("RAJA_PRINCIPAL", raising=False)
+    monkeypatch.delenv("RAJA_DEFAULT_PRINCIPAL", raising=False)
+
+    monkeypatch.setattr(
+        "raja.rale.config.httpx.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(Exception("no server")),
+    )
+    monkeypatch.setattr(
+        "raja.rale.config._load_principal_from_sts",
+        lambda: "arn:aws:iam::123456789012:user/kmoore",
+    )
+
+    resolved, _ = resolve_config()
+
+    assert resolved.principal == "arn:aws:iam::123456789012:user/kmoore"
 
 
 def test_cli_check_reports_missing_required_values(

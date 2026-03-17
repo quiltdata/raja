@@ -203,6 +203,50 @@ def test_list_principals_without_limit():
 
     assert len(response["principals"]) == 1
     assert response["principals"][0]["principal"] == "alice"
+    assert response["principal_summary"] == [
+        {"principal": "alice", "project_ids": ["proj-owner"], "project_names": ["Owner"]}
+    ]
+
+
+def test_list_principals_preserves_multi_project_memberships():
+    """A principal in two projects should remain visible in both rows."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "_datazone_service") as factory:
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            config = MagicMock()
+            config.owner_project_id = "proj-owner"
+            config.users_project_id = "proj-users"
+            config.guests_project_id = ""
+            mock_config_cls.from_env.return_value = config
+            service = factory.return_value
+            service.list_project_members.side_effect = [["alice"], ["alice"]]
+            response = control_plane.list_principals(limit=None, datazone=datazone)
+
+    assert response["principals"] == [
+        {
+            "principal": "alice",
+            "datazone_project_id": "proj-owner",
+            "datazone_project_name": "Owner",
+            "scopes": ["*:*:*"],
+            "scope_count": 1,
+            "last_token_issued": None,
+        },
+        {
+            "principal": "alice",
+            "datazone_project_id": "proj-users",
+            "datazone_project_name": "Users",
+            "scopes": ["S3Object:*:*"],
+            "scope_count": 1,
+            "last_token_issued": None,
+        },
+    ]
+    assert response["principal_summary"] == [
+        {
+            "principal": "alice",
+            "project_ids": ["proj-owner", "proj-users"],
+            "project_names": ["Owner", "Users"],
+        }
+    ]
 
 
 def test_create_principal():
@@ -257,8 +301,27 @@ def test_delete_principal():
             service.find_project_for_principal.return_value = "proj-owner"
             response = control_plane.delete_principal("alice", datazone=datazone)
 
-    assert "deleted" in response["message"]
+    assert "Removed" in response["message"]
     service.delete_project_membership.assert_called_once()
+
+
+def test_delete_principal_respects_explicit_project_id():
+    """Deleting from a specific project must not re-resolve membership."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "_datazone_service") as factory:
+        service = factory.return_value
+        response = control_plane.delete_principal(
+            "alice",
+            project_id="proj-users",
+            datazone=datazone,
+        )
+
+    assert "Removed" in response["message"]
+    service.find_project_for_principal.assert_not_called()
+    service.delete_project_membership.assert_called_once_with(
+        project_id="proj-users",
+        user_identifier="alice",
+    )
 
 
 def test_list_policies_without_statements():
@@ -316,6 +379,209 @@ def test_list_policies_skips_missing_policy_id():
     assert len(response["policies"]) == 1
 
 
+def test_get_admin_structure_reads_domain_and_asset_type() -> None:
+    request = MagicMock()
+    request.headers = {"host": "api.example.com", "x-forwarded-proto": "https"}
+    request.url.scheme = "https"
+    request.url.netloc = "api.example.com"
+    request.url.hostname = "api.example.com"
+    request.scope = {"aws.event": {"requestContext": {"stage": "prod"}}}
+    datazone = MagicMock()
+    datazone.get_domain.return_value = {
+        "name": "demo-domain",
+        "portalUrl": "https://dzd-123.sagemaker.us-east-1.on.aws",
+    }
+    datazone.get_asset_type.return_value = {"name": "QuiltPackage", "revision": "2"}
+
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        config = MagicMock()
+        config.domain_id = "dzd-123"
+        config.owner_project_id = "proj-owner"
+        config.users_project_id = "proj-users"
+        config.guests_project_id = "proj-guests"
+        config.owner_environment_id = "env-owner"
+        config.users_environment_id = "env-users"
+        config.guests_environment_id = "env-guests"
+        config.asset_type_name = "QuiltPackage"
+        config.asset_type_revision = "2"
+        mock_config_cls.from_env.return_value = config
+        with patch.dict(
+            "os.environ",
+            {"AWS_REGION": "us-east-1"},
+            clear=False,
+        ):
+            with patch.object(
+                control_plane,
+                "_resolve_runtime_config",
+                return_value={
+                    "registry": "s3://demo-registry",
+                    "rajee_endpoint": "https://rajee.example.com",
+                    "rale_authorizer_url": "https://authorizer.example.com",
+                    "rale_router_url": "https://router.example.com",
+                },
+            ):
+                with patch.object(
+                    control_plane, "get_jwks", return_value={"keys": [{"kid": "kid-1"}]}
+                ):
+                    with patch.object(
+                        control_plane,
+                        "_probe_endpoint",
+                        return_value={"reachable": True, "status": "ok"},
+                    ):
+                        response = control_plane.get_admin_structure(
+                            request=request,
+                            datazone=datazone,
+                            secret="secret",
+                        )
+
+    datazone.get_domain.assert_called_once_with(identifier="dzd-123")
+    datazone.get_asset_type.assert_called_once_with(
+        domainIdentifier="dzd-123",
+        identifier="QuiltPackage",
+        revision="2",
+    )
+    assert response["datazone"]["domain"]["status"] == "ok"
+    assert response["datazone"]["asset_type"]["status"] == "ok"
+    assert (
+        response["datazone"]["domain"]["portal_url"] == "https://dzd-123.sagemaker.us-east-1.on.aws"
+    )
+    assert response["datazone"]["owner_project"]["portal_url"].endswith(
+        "/projects/proj-owner/overview"
+    )
+    assert response["datazone"]["owner_project"]["environment_id"] == "env-owner"
+    assert response["datazone"]["owner_project"]["environment_url"].endswith(
+        "/environments/env-owner"
+    )
+    assert response["datazone"]["users_project"]["portal_url"].endswith(
+        "/projects/proj-users/overview"
+    )
+    assert response["datazone"]["users_project"]["environment_id"] == "env-users"
+    assert response["datazone"]["users_project"]["environment_url"].endswith(
+        "/environments/env-users"
+    )
+    assert response["datazone"]["guests_project"]["portal_url"].endswith(
+        "/projects/proj-guests/overview"
+    )
+    assert response["datazone"]["guests_project"]["environment_id"] == "env-guests"
+    assert response["datazone"]["guests_project"]["environment_url"].endswith(
+        "/environments/env-guests"
+    )
+    assert response["stack"]["server"]["url"] == "https://api.example.com/prod"
+    assert response["stack"]["rale_authorizer"]["url"] == "https://authorizer.example.com"
+    assert response["stack"]["rale_router"]["url"] == "https://router.example.com"
+    assert response["stack"]["jwks"]["url"] == "https://api.example.com/prod/.well-known/jwks.json"
+
+
+def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
+    datazone = MagicMock()
+    listing = MagicMock()
+    listing.listing_id = "listing-1"
+    listing.name = "demo/package"
+    listing.owner_project_id = "proj-owner"
+
+    with patch.object(control_plane, "_datazone_service") as factory:
+        with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+            config = MagicMock()
+            config.domain_id = "dzd-123"
+            config.owner_project_id = "proj-owner"
+            config.users_project_id = "proj-users"
+            config.guests_project_id = "proj-guests"
+            config.asset_type_name = "QuiltPackage"
+            mock_config_cls.from_env.return_value = config
+            service = factory.return_value
+            service.list_package_listings.return_value = [listing]
+            service.find_accepted_subscription.return_value = None
+            service.list_subscription_requests.return_value = [
+                {
+                    "id": "sub-1",
+                    "status": "ACCEPTED",
+                    "subscribedPrincipals": [{"project": {"id": "proj-users"}}],
+                    "subscribedListings": [{"id": "listing-1"}],
+                }
+            ]
+            datazone.get_domain.return_value = {
+                "portalUrl": "https://dzd-123.sagemaker.us-east-1.on.aws"
+            }
+            with patch.object(
+                control_plane,
+                "list_principals",
+                return_value={
+                    "principals": [
+                        {
+                            "principal": "alice",
+                            "datazone_project_id": "proj-owner",
+                            "datazone_project_name": "Owner",
+                            "scopes": ["*:*:*"],
+                            "scope_count": 1,
+                            "last_token_issued": None,
+                        }
+                    ],
+                    "principal_summary": [
+                        {
+                            "principal": "alice",
+                            "project_ids": ["proj-owner"],
+                            "project_names": ["Owner"],
+                        }
+                    ],
+                },
+            ):
+                with patch.dict("os.environ", {"AWS_REGION": "us-east-1"}, clear=False):
+                    response = control_plane.get_access_graph(datazone=datazone)
+
+    assert response["principal_summary"] == [
+        {
+            "principal": "alice",
+            "project_ids": ["proj-owner"],
+            "project_names": ["Owner"],
+        }
+    ]
+    assert response["packages"][0]["owner_project_url"].endswith("/projects/proj-owner/overview")
+    assert response["subscriptions"] == [
+        {
+            "package_name": "demo/package",
+            "owner_project_id": "proj-owner",
+            "owner_project_name": "Owner",
+            "consumer_project_id": "proj-users",
+            "consumer_project_name": "Users",
+            "status": "ACCEPTED",
+            "subscription_id": "sub-1",
+            "subscription_url": "https://dzd-123.sagemaker.us-east-1.on.aws/projects/proj-owner/catalog/subscriptionRequests/incoming?status=APPROVED",
+        }
+    ]
+
+
+def test_studio_subscription_requests_url_maps_status() -> None:
+    result = control_plane._studio_subscription_requests_url(
+        portal_url="https://dzd-123.sagemaker.us-east-1.on.aws",
+        project_id="proj-owner",
+        status="ACCEPTED",
+    )
+
+    assert result == (
+        "https://dzd-123.sagemaker.us-east-1.on.aws/projects/proj-owner/"
+        "catalog/subscriptionRequests/incoming?status=APPROVED"
+    )
+
+
+def test_probe_endpoint_appends_ready_path_to_probe_url() -> None:
+    response = MagicMock()
+    response.status_code = 200
+
+    with patch.object(control_plane.httpx, "get", return_value=response) as get_mock:
+        result = control_plane._probe_endpoint(
+            "https://authorizer.example.com/",
+            ready_path="health",
+        )
+
+    get_mock.assert_called_once_with(
+        "https://authorizer.example.com/health",
+        timeout=5.0,
+        follow_redirects=False,
+    )
+    assert result["status"] == "ok"
+    assert result["url"] == "https://authorizer.example.com/health"
+
+
 def test_get_jwks():
     """Test JWKS endpoint returns correct format."""
     response = control_plane.get_jwks(secret="test-secret")
@@ -327,6 +593,18 @@ def test_get_jwks():
     assert key["kid"] == "raja-jwt-key"
     assert key["alg"] == "HS256"
     assert "k" in key
+
+
+def test_probe_endpoint_marks_client_errors_warn() -> None:
+    response = MagicMock()
+    response.status_code = 400
+
+    with patch.object(control_plane.httpx, "get", return_value=response):
+        result = control_plane._probe_endpoint("https://authorizer.example.com")
+
+    assert result["reachable"] is True
+    assert result["status"] == "warn"
+    assert result["status_code"] == 400
 
 
 def test_require_env_raises_when_missing():

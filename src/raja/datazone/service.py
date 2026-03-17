@@ -23,6 +23,9 @@ class DataZoneConfig:
     owner_project_id: str = ""
     users_project_id: str = ""
     guests_project_id: str = ""
+    owner_environment_id: str = ""
+    users_environment_id: str = ""
+    guests_environment_id: str = ""
     asset_type_name: str = "QuiltPackage"
     asset_type_revision: str = "1"
 
@@ -36,6 +39,9 @@ class DataZoneConfig:
             owner_project_id=os.environ.get("DATAZONE_OWNER_PROJECT_ID", "").strip(),
             users_project_id=os.environ.get("DATAZONE_USERS_PROJECT_ID", "").strip(),
             guests_project_id=os.environ.get("DATAZONE_GUESTS_PROJECT_ID", "").strip(),
+            owner_environment_id=os.environ.get("DATAZONE_OWNER_ENVIRONMENT_ID", "").strip(),
+            users_environment_id=os.environ.get("DATAZONE_USERS_ENVIRONMENT_ID", "").strip(),
+            guests_environment_id=os.environ.get("DATAZONE_GUESTS_ENVIRONMENT_ID", "").strip(),
             asset_type_name=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE", "QuiltPackage").strip()
             or "QuiltPackage",
             asset_type_revision=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "1").strip()
@@ -106,6 +112,28 @@ class DataZoneService:
                 owner_project_id=str(item.get("owningProjectId") or ""),
             )
         return None
+
+    def list_package_listings(self) -> list[DataZonePackageListing]:
+        """Return all DataZone listings matching the configured package asset type."""
+        listings: list[DataZonePackageListing] = []
+        for item in self._search_listings(""):
+            if item.get("entityType") != self._config.asset_type_name:
+                continue
+            listing_id = str(item.get("listingId") or "")
+            asset_id = str(item.get("entityId") or "")
+            if not listing_id or not asset_id:
+                continue
+            listings.append(
+                DataZonePackageListing(
+                    listing_id=listing_id,
+                    listing_revision=str(item.get("listingRevision") or ""),
+                    asset_id=asset_id,
+                    asset_revision=str(item.get("entityRevision") or ""),
+                    name=str(item.get("name") or ""),
+                    owner_project_id=str(item.get("owningProjectId") or ""),
+                )
+            )
+        return listings
 
     def has_package_grant(self, *, project_id: str, quilt_uri: str) -> bool:
         listing = self.find_package_listing(quilt_uri)
@@ -389,6 +417,64 @@ class DataZoneService:
             )
             is not None
         )
+
+    def find_accepted_subscription(
+        self,
+        *,
+        project_id: str,
+        listing_id: str,
+    ) -> dict[str, Any] | None:
+        return self._find_subscription_request(
+            project_id=project_id,
+            listing_id=listing_id,
+            status="ACCEPTED",
+        )
+
+    def list_subscription_requests(
+        self,
+        *,
+        listing_ids: list[str] | None = None,
+        statuses: tuple[str, ...] = ("ACCEPTED", "PENDING", "REJECTED"),
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        effective_listing_ids: list[str | None] = list(listing_ids) if listing_ids else [None]
+        for listing_id in effective_listing_ids:
+            for status in statuses:
+                next_token: str | None = None
+                while True:
+                    kwargs: dict[str, Any] = {
+                        "domainIdentifier": self._config.domain_id,
+                        "status": status,
+                        "maxResults": _SEARCH_PAGE_SIZE,
+                    }
+                    if listing_id:
+                        kwargs["subscribedListingId"] = listing_id
+                    elif self._config.owner_project_id:
+                        kwargs["owningProjectId"] = self._config.owner_project_id
+                    if next_token:
+                        kwargs["nextToken"] = next_token
+                    try:
+                        response = self._client.list_subscription_requests(**kwargs)
+                    except (ClientError, BotoCoreError) as exc:
+                        raise DataZoneError(
+                            "failed to list DataZone subscription requests"
+                        ) from exc
+                    for item in response.get("items", []):
+                        if not isinstance(item, dict):
+                            continue
+                        request_id = str(item.get("id") or "")
+                        if request_id and request_id in seen_ids:
+                            continue
+                        normalized = dict(item)
+                        normalized["status"] = str(item.get("status") or status)
+                        items.append(normalized)
+                        if request_id:
+                            seen_ids.add(request_id)
+                    next_token = response.get("nextToken")
+                    if not next_token:
+                        break
+        return items
 
     def _find_subscription_request(
         self,

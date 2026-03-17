@@ -72,9 +72,11 @@ def _subscription_item(
     request_id: str = "sub_abc",
     project_id: str = "prj_consumer",
     listing_id: str = "lst_abc",
+    status: str = "ACCEPTED",
 ) -> dict:
     return {
         "id": request_id,
+        "status": status,
         "subscribedPrincipals": [{"project": {"id": project_id}}],
         "subscribedListings": [{"id": listing_id}],
     }
@@ -141,6 +143,9 @@ def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAZONE_OWNER_PROJECT_ID", "prj_env_owner")
     monkeypatch.setenv("DATAZONE_USERS_PROJECT_ID", "prj_env_users")
     monkeypatch.setenv("DATAZONE_GUESTS_PROJECT_ID", "prj_env_guests")
+    monkeypatch.setenv("DATAZONE_OWNER_ENVIRONMENT_ID", "env_env_owner")
+    monkeypatch.setenv("DATAZONE_USERS_ENVIRONMENT_ID", "env_env_users")
+    monkeypatch.setenv("DATAZONE_GUESTS_ENVIRONMENT_ID", "env_env_guests")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE", "MyType")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "2")
     cfg = DataZoneConfig.from_env()
@@ -148,6 +153,9 @@ def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.owner_project_id == "prj_env_owner"
     assert cfg.users_project_id == "prj_env_users"
     assert cfg.guests_project_id == "prj_env_guests"
+    assert cfg.owner_environment_id == "env_env_owner"
+    assert cfg.users_environment_id == "env_env_users"
+    assert cfg.guests_environment_id == "env_env_guests"
     assert cfg.asset_type_name == "MyType"
     assert cfg.asset_type_revision == "2"
 
@@ -392,3 +400,31 @@ def test_ensure_grant_reuses_pending_request() -> None:
         identifier="sub_existing",
         decisionComment="Approved by RAJA POC bootstrap",
     )
+
+
+def test_list_subscription_requests_collects_all_statuses() -> None:
+    client = MagicMock()
+    client.list_subscription_requests.side_effect = [
+        {
+            "items": [_subscription_item(request_id="sub_accepted", status="ACCEPTED")],
+            "nextToken": None,
+        },
+        {
+            "items": [_subscription_item(request_id="sub_pending", status="PENDING")],
+            "nextToken": None,
+        },
+        {
+            "items": [_subscription_item(request_id="sub_rejected", status="REJECTED")],
+            "nextToken": None,
+        },
+    ]
+    svc = _service(client)
+
+    requests = svc.list_subscription_requests()
+
+    assert [item["id"] for item in requests] == [
+        "sub_accepted",
+        "sub_pending",
+        "sub_rejected",
+    ]
+    assert [item["status"] for item in requests] == ["ACCEPTED", "PENDING", "REJECTED"]

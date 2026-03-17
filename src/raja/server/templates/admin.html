@@ -1,290 +1,373 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script>document.write('<base href="'+location.href.replace(/\/?$/,'/')+'">'); </script>
+    <script>
+      document.write('<base href="' + location.href.replace(/\/?$/, "/") + '">');
+    </script>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RAJA Admin</title>
-    <link rel="stylesheet" href="https://www.w3.org/StyleSheets/Core/Swiss" type="text/css" />
     <link rel="stylesheet" href="static/admin.css" />
   </head>
   <body>
     <header class="app-header">
-      <div class="brand">RAJA Admin</div>
+      <div class="brand-block">
+        <div class="brand-kicker">Resource Authorization JWT Authority</div>
+        <div class="brand">RAJA Admin</div>
+      </div>
+
       <label class="admin-key-wrap" for="admin-key">
-        <span>Admin Key</span>
+        <span class="header-label">Admin key</span>
         <div class="key-input-row">
-          <input id="admin-key" type="password" autocomplete="off" placeholder="Enter ADMIN_KEY" />
-          <span id="auth-lock" class="auth-lock unknown" title="Not verified" aria-label="Not verified" data-tooltip="Not verified">
-            <svg class="lock-svg lock-closed" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0110 0v4"/>
-            </svg>
-            <svg class="lock-svg lock-open" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 019.9-1"/>
-            </svg>
-          </span>
+          <input id="admin-key" type="password" autocomplete="off" placeholder="Enter RAJA_ADMIN_KEY" />
+          <button type="button" id="admin-key-toggle" class="icon-button" aria-label="Toggle admin key visibility">Show</button>
+          <span id="auth-lock" class="auth-lock unknown" title="Not verified" aria-label="Not verified"></span>
         </div>
       </label>
-      <div class="health-chip" id="header-health-chip">
+
+      <button type="button" class="health-chip" id="header-health-chip">
         <span class="dot" id="header-health-dot" aria-hidden="true"></span>
-        <span id="header-health-text">checking...</span>
-      </div>
+        <span id="header-health-text">Admin key required</span>
+      </button>
+
+      <label class="principal-wrap" for="global-principal">
+        <span class="header-label">Principal filter</span>
+        <select id="global-principal">
+          <option value="">Loading principals...</option>
+        </select>
+      </label>
     </header>
 
     <div class="admin-auth-error" id="admin-auth-error" hidden>Invalid or missing admin key.</div>
 
-    <div class="layout">
-      <aside class="sidebar" aria-label="Primary navigation">
-        <nav id="side-nav">
-          <a href="#overview" data-view="overview">Overview</a>
-          <a href="#authority" data-view="authority">Access Policy</a>
-          <a href="#token" data-view="token">The Token</a>
-          <a href="#enforce" data-view="enforce">Enforcement</a>
-          <a href="#failures" data-view="failures">Failure Modes</a>
-          <a href="#incident" data-view="incident">Revocation</a>
-          <a href="#audit" data-view="audit">Audit</a>
-          <a href="#about" data-view="about">About</a>
-        </nav>
-      </aside>
+    <main class="page-shell">
+      <section class="page-intro">
+        <p>
+          The UI teaches the system by walking the same path the runtime takes:
+          inspect the deployed domain and projects, choose a live package target,
+          then run the RALE flow, failure probes, and stack diagnostics in one scroll.
+        </p>
+      </section>
 
-      <main class="content">
-        <section id="view-overview" class="view">
-          <h1>Overview</h1>
-          <p class="concept">Grant access to datasets by package listing, not by bucket. DataZone grants mint JWT tokens; enforcement is pure subset checking with no policy engine in the data path. <a href="#about">Why this matters →</a></p>
-
-          <section class="panel">
-            <h2>How It Works</h2>
-            <ol class="tour-steps">
-              <li><strong>Define who can access what</strong> — in DataZone package grants, by dataset name, not by bucket. <a href="#authority">See live listings →</a></li>
-              <li><strong>The system compiles that decision into a token</strong> — a signed JWT that carries the access grant, valid for a short window. <a href="#token">Mint a token and inspect it →</a></li>
-              <li><strong>The token is the only thing enforcement checks</strong> — no policy engine, no IAM, just: does this request fall inside the token's scope? <a href="#enforce">Run a live enforcement probe →</a></li>
-              <li><strong>Anything outside the boundary is denied</strong> — expired tokens, wrong audience, tampered claims. The system is fail-closed. <a href="#failures">See the failure suite →</a></li>
-              <li><strong>Revocation is immediate or eventual</strong> — remove a principal to stop new grants, or rotate the signing key to invalidate everything at once. <a href="#incident">Incident response →</a></li>
-              <li><strong>Every decision is traceable</strong> — each access traces back to a token, which traces back to a grant check. <a href="#audit">Browse the audit log →</a></li>
-            </ol>
-          </section>
-
-          <section class="panel">
-            <h2>System Status</h2>
-            <div class="pill-row" id="overview-status-pills"></div>
-          </section>
-        </section>
-
-        <section id="view-authority" class="view" hidden>
-          <h1>Access Policy</h1>
-          <p class="concept">Access in this system is defined by what a principal may do — not where data lives. Grant a DataZone project access to dataset X and that becomes the complete grant. This is the only place that decision gets made. Everything downstream enforces it; nothing downstream reconsiders it. — <a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></p>
-          <div class="actions">
-            <button type="button" id="authority-refresh">Refresh</button>
+      <section class="column-grid">
+        <div class="app-column" id="column-structure">
+          <div class="column-header">
+            <div class="column-kicker">SageMaker resources</div>
+            <h1>SageMaker Configuration</h1>
+            <p>Domain identity, linked SageMaker projects, and current project membership.</p>
           </div>
 
-          <section class="panel">
-            <h2>JWKS</h2>
-            <pre id="authority-jwks">Not loaded.</pre>
-          </section>
+          <details class="section-card" id="section-datazone">
+            <summary>
+              <span>Domain</span>
+              <span class="summary-meta" id="datazone-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <div class="actions">
+                <button type="button" id="structure-refresh">Refresh</button>
+              </div>
+              <div class="status-rows" id="datazone-status-rows"></div>
+            </div>
+          </details>
 
-          <section class="panel">
-            <h2>Active Principals</h2>
-            <table>
-              <thead>
-                <tr><th>Principal</th><th>Scope Count</th><th>DataZone Project</th></tr>
-              </thead>
-              <tbody id="authority-principals-body"></tbody>
-            </table>
-          </section>
+          <details class="section-card" id="section-projects">
+            <summary>
+              <span>Projects</span>
+              <span class="summary-meta" id="projects-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <div class="project-grid">
+                <section class="project-card" data-tier="owner">
+                  <div class="project-card-head">
+                    <div>
+                      <h3>Owner</h3>
+                      <div class="project-card-meta" id="project-owner-meta">Not loaded</div>
+                    </div>
+                    <a id="project-owner-link" target="_blank" rel="noopener">Open in SageMaker</a>
+                  </div>
+                  <p class="project-scope">Granted scopes: <span id="project-owner-scope">*:*:*</span></p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Principal ARN</th>
+                        <th>Last TAJ issued</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="project-owner-body"></tbody>
+                  </table>
+                  <form class="project-principal-form add-member-row" data-project-key="owner">
+                    <input
+                      name="principal"
+                      placeholder="arn:aws:iam::123456789012:user/example"
+                    />
+                    <button type="submit">Add to project</button>
+                  </form>
+                  <div class="inline-status" data-role="project-membership-status"></div>
+                </section>
 
-          <section class="panel">
-            <h2>DataZone Package Listings</h2>
-            <table>
-              <thead>
-                <tr><th>Listing ID</th><th>Name</th><th>Owner Project</th></tr>
-              </thead>
-              <tbody id="authority-policies-body"></tbody>
-            </table>
-          </section>
-        </section>
+                <section class="project-card" data-project-key="users">
+                  <div class="project-card-head">
+                    <div>
+                      <h3>Users</h3>
+                      <div class="project-card-meta" id="project-users-meta">Not loaded</div>
+                    </div>
+                    <a id="project-users-link" target="_blank" rel="noopener">Open in SageMaker</a>
+                  </div>
+                  <p class="project-scope">Granted scopes: <span id="project-users-scope">S3Object:*:*</span></p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Principal ARN</th>
+                        <th>Last TAJ issued</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="project-users-body"></tbody>
+                  </table>
+                  <form class="project-principal-form add-member-row" data-project-key="users">
+                    <input
+                      name="principal"
+                      placeholder="arn:aws:iam::123456789012:user/example"
+                    />
+                    <button type="submit">Add to project</button>
+                  </form>
+                  <div class="inline-status" data-role="project-membership-status"></div>
+                </section>
 
-        <section id="view-token" class="view" hidden>
-          <h1>The Access Token</h1>
-          <p class="concept">When a grant is checked, the result isn't a yes or a no alone — it's a signed token. The decision is compiled in: every scope represents a permission that was already decided. Mint one and read it. The authorization is in plain sight. — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
+                <section class="project-card" data-project-key="guests">
+                  <div class="project-card-head">
+                    <div>
+                      <h3>Guests</h3>
+                      <div class="project-card-meta" id="project-guests-meta">Not loaded</div>
+                    </div>
+                    <a id="project-guests-link" target="_blank" rel="noopener">Open in SageMaker</a>
+                  </div>
+                  <p class="project-scope">
+                    Granted scopes: <span id="project-guests-scope">S3Object:*:s3:GetObject</span>
+                  </p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Principal ARN</th>
+                        <th>Last TAJ issued</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="project-guests-body"></tbody>
+                  </table>
+                  <form class="project-principal-form add-member-row" data-project-key="guests">
+                    <input
+                      name="principal"
+                      placeholder="arn:aws:iam::123456789012:user/example"
+                    />
+                    <button type="submit">Add to project</button>
+                  </form>
+                  <div class="inline-status" data-role="project-membership-status"></div>
+                </section>
+              </div>
+            </div>
+          </details>
 
-          <section class="panel">
-            <h2>Mint</h2>
-            <form id="token-form">
-              <div class="field-grid">
-                <label>Principal
-                  <input id="token-principal" placeholder="User::alice" />
-                </label>
-                <label>Token Type
-                  <select id="token-type">
-                    <option value="raja">RAJ</option>
-                    <option value="rajee">RAJEE</option>
+          <details class="section-card" id="section-subscriptions">
+            <summary>
+              <span>Subscriptions</span>
+              <span class="summary-meta" id="subscriptions-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Package</th>
+                    <th>Owner</th>
+                    <th>Consumer</th>
+                    <th>Status</th>
+                    <th>ID</th>
+                  </tr>
+                </thead>
+                <tbody id="subscriptions-body"></tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="section-card" id="section-console">
+            <summary>
+              <span>AWS Console</span>
+              <span class="summary-meta" id="console-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <ul class="about-list" id="console-links-list"></ul>
+            </div>
+          </details>
+
+          <details class="section-card about-card" id="section-about">
+            <summary>
+              <span>About</span>
+              <span class="summary-meta">Reading list</span>
+            </summary>
+            <div class="section-body">
+              <ul class="about-list">
+                <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a></li>
+                <li><a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></li>
+                <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a></li>
+                <li><a href="https://ihack.us/2026/01/20/rajee-vs-iam-the-petty-life-of-secrets/" target="_blank" rel="noopener">RAJEE vs IAM</a></li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <div class="app-column" id="column-execution">
+          <div class="column-header">
+            <div class="column-kicker">Live system</div>
+            <h1>RAJ Execution</h1>
+            <p>Choose a package target, exercise the flow, then inspect live health.</p>
+          </div>
+
+          <details class="section-card" id="section-listings">
+            <summary>
+              <span>Package Listings</span>
+              <span class="summary-meta" id="packages-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Package</th>
+                    <th>Listing ID</th>
+                    <th>Owner project</th>
+                    <th>Asset type</th>
+                    <th>Subscriptions</th>
+                    <th>Use in flow</th>
+                  </tr>
+                </thead>
+                <tbody id="packages-body"></tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="section-card" id="section-rale">
+            <summary>
+              <span>RALE Flow</span>
+              <span class="summary-meta" id="rale-summary-meta">Reset</span>
+            </summary>
+            <div class="section-body">
+              <div class="step-card">
+                <div class="step-heading">Step 1. Select</div>
+                <div class="field-grid">
+                  <label class="field-stack">Package
+                    <select id="rale-package-select">
+                      <option value="">Choose a package</option>
+                    </select>
+                  </label>
+                  <label class="field-stack">File
+                    <select id="rale-file-select" disabled>
+                      <option value="">Choose a package first</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="field-stack" for="rale-usl">USL</label>
+                <input id="rale-usl" readonly />
+                <div id="rale-select-status" class="inline-status"></div>
+                <div class="mini-table" id="rale-file-list"></div>
+              </div>
+
+              <div class="step-card">
+                <div class="step-heading">Step 2. Authorize</div>
+                <form id="rale-authorize-form">
+                  <div class="field-grid">
+                    <label class="field-stack">Principal
+                      <input id="rale-principal" />
+                    </label>
+                    <div class="field-stack lock-note">
+                      <span>Source</span>
+                      <div id="rale-principal-note">Prefilled from the global selector.</div>
+                    </div>
+                  </div>
+                  <div class="actions">
+                    <button type="submit" id="rale-authorize-button" disabled>Request TAJ</button>
+                    <button type="button" class="secondary" id="rale-reset">Reset</button>
+                  </div>
+                </form>
+                <div id="rale-authorize-status" class="status-banner">Select a package and file first.</div>
+                <div class="claims-grid" id="rale-claims"></div>
+              </div>
+
+              <div class="step-card">
+                <div class="step-heading">Step 3. Deliver</div>
+                <div class="actions">
+                  <button type="button" id="rale-deliver-button" disabled>Fetch via RALE Router</button>
+                </div>
+                <div id="rale-deliver-status" class="status-banner">Authorize first to unlock delivery.</div>
+                <div class="deliver-grid">
+                  <div>
+                    <h3>Diagnostics</h3>
+                    <pre id="rale-deliver-diagnostics">No delivery attempted yet.</pre>
+                  </div>
+                  <div>
+                    <h3>Content preview</h3>
+                    <pre id="rale-deliver-preview">No content yet.</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="section-card" id="section-failures">
+            <summary>
+              <span>Failure Tests</span>
+              <span class="summary-meta" id="failures-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <div class="failure-toolbar">
+                <label class="field-stack">Category
+                  <select id="failure-category-select">
+                    <option value="">Choose a category</option>
                   </select>
                 </label>
+                <button type="button" class="secondary" id="failure-run-category">Run category</button>
+                <button type="button" class="secondary" id="failure-run-all">Run all</button>
+                <button type="button" class="secondary" id="failure-export-results" disabled>Export JSON</button>
               </div>
-              <div class="actions"><button type="submit">Mint token</button></div>
-            </form>
-            <label for="token-output">Token</label>
-            <textarea id="token-output" readonly></textarea>
-            <div id="token-mint-status"></div>
-            <h3>Annotated Claims</h3>
-            <div id="token-claims-annotated" class="claims"></div>
-          </section>
+              <div id="failure-summary" class="inline-status"></div>
+              <div class="failure-list" id="failure-list"></div>
+            </div>
+          </details>
 
-          <section class="panel">
-            <h2>Verify</h2>
-            <form id="verify-form">
-              <label for="verify-token">Token</label>
-              <textarea id="verify-token" placeholder="Paste token"></textarea>
-              <label for="verify-audience">Expected audience</label>
-              <input id="verify-audience" value="raja-s3" />
-              <div class="actions"><button type="submit">Verify token</button></div>
-            </form>
-            <div id="verify-status" class="status-banner">No token verified yet.</div>
-            <h3>Decoded Claims</h3>
-            <div id="verify-claims-annotated" class="claims"></div>
-          </section>
-        </section>
+          <details class="section-card" id="section-stack">
+            <summary>
+              <span>Stack Health</span>
+              <span class="summary-meta" id="stack-summary-meta">Not loaded</span>
+            </summary>
+            <div class="section-body">
+              <div class="status-rows" id="stack-status-rows"></div>
+            </div>
+          </details>
 
-        <section id="view-enforce" class="view" hidden>
-          <h1>Enforcement</h1>
-          <p class="concept">The claim: once a token exists, enforcement requires no policy engine. One check — does the requested scope fit inside the token's scopes? If yes, forward. If no, deny. No third outcome. This view lets you prove that against a live instance. — <a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a></p>
-
-          <section class="panel">
-            <form id="probe-form">
-              <label for="probe-endpoint">RAJEE endpoint URL</label>
-              <input id="probe-endpoint" placeholder="https://your-rajee-endpoint" />
-
-              <label for="probe-usl">Logical path (USL)</label>
-              <input id="probe-usl" placeholder="quilt+s3://registry#package=author/pkg@hash" />
-
-              <label for="probe-principal">Principal</label>
-              <input id="probe-principal" placeholder="User::alice" />
-
-              <div class="actions">
-                <button type="submit">Run live probe</button>
-                <button type="button" class="secondary" id="probe-health">RAJEE health check</button>
-              </div>
-            </form>
-            <div id="probe-status" class="status-banner">No probe run yet.</div>
-            <pre id="probe-output">Awaiting probe.</pre>
-          </section>
-        </section>
-
-        <section id="view-failures" class="view" hidden>
-          <h1>Failure Modes</h1>
-          <p class="concept">The system is fail-closed. That is a claim. These tests prove it. Expired tokens, wrong audience, tampered claims, missing scopes — every case should produce a denial. Run each scenario and see the actual system response. — <a href="https://ihack.us/2026/01/20/rajee-vs-iam-the-petty-life-of-secrets/" target="_blank" rel="noopener">RAJEE vs IAM</a></p>
-
-          <section class="panel failure-tests">
-            <div class="failure-header">
-              <div class="failure-header-actions">
-                <button class="secondary" id="failure-run-category" disabled>Run category</button>
-                <button class="secondary" id="failure-export-results" disabled>Export results</button>
+          <details class="section-card" id="section-rotation">
+            <summary>
+              <span>Secret Rotation</span>
+              <span class="summary-meta">Rotate and invalidate all tokens</span>
+            </summary>
+            <div class="section-body">
+              <div class="step-card">
+                <div class="step-heading">Hard revocation</div>
+                <div class="actions">
+                  <button type="button" id="rotate-secret">Rotate secret</button>
+                </div>
+                <ul class="timeline" id="rotate-timeline"></ul>
+                <pre id="revoke-hard-output">No rotation started.</pre>
+                <p class="inline-note">
+                  Per-token revocation is unsupported by design because deny-lists would
+                  reintroduce mutable runtime state into enforcement.
+                </p>
               </div>
             </div>
-            <div class="failure-category-selector" id="failure-category-selector">Loading failure test categories...</div>
-            <div class="failure-test-list" id="failure-test-list">Loading failure test definitions...</div>
-            <div class="failure-run-summary" id="failure-run-summary"></div>
-          </section>
-        </section>
+          </details>
+        </div>
+      </section>
 
-        <section id="view-incident" class="view" hidden>
-          <h1>Revocation</h1>
-          <p class="concept">Two levers with different blast radii. Remove a principal: new grants are blocked, existing tokens remain valid until they expire naturally. Rotate the signing key: every previously issued token becomes invalid immediately. The choice is between surgical and total.</p>
+    </main>
 
-          <section class="panel">
-            <h2>Soft Revocation</h2>
-            <div class="field-grid">
-              <label>Principal
-                <select id="incident-principal"></select>
-              </label>
-            </div>
-            <div class="actions">
-              <button type="button" class="secondary" id="incident-refresh-principals">Refresh principals</button>
-              <button type="button" id="incident-delete-principal">Delete principal</button>
-            </div>
-            <pre id="incident-soft-result">No action yet.</pre>
-          </section>
-
-          <section class="panel">
-            <h2>Hard Revocation</h2>
-            <div class="actions"><button type="button" id="incident-rotate-secret">Rotate Secret</button></div>
-            <ul id="rotate-timeline" class="timeline"></ul>
-            <pre id="incident-hard-result">No rotation started.</pre>
-          </section>
-
-          <section class="panel">
-            <h2>No per-token revocation</h2>
-            <p><code>POST /token/revoke</code> returns <code>{"status": "unsupported"}</code> by design. A denylist would force every enforcement call to hit mutable shared state; short TTLs bound exposure instead.</p>
-          </section>
-        </section>
-
-        <section id="view-audit" class="view" hidden>
-          <h1>Audit Log</h1>
-          <p class="concept">Because authorization is compiled into tokens at issuance, the audit trail is complete. Every access traces back to a specific token, which traces back to a specific grant check. Nothing is ambient — every decision has a receipt.</p>
-
-          <section class="panel">
-            <form id="audit-filter-form">
-              <div class="field-grid">
-                <label>Principal
-                  <input id="audit-principal" placeholder="User::alice" />
-                </label>
-                <label>Action
-                  <input id="audit-action" placeholder="token.issue" />
-                </label>
-                <label>Resource
-                  <input id="audit-resource" placeholder="quilt+s3://..." />
-                </label>
-                <label>Start Time (epoch)
-                  <input id="audit-start-time" type="number" min="0" />
-                </label>
-                <label>End Time (epoch)
-                  <input id="audit-end-time" type="number" min="0" />
-                </label>
-              </div>
-              <div class="actions"><button type="submit">Load audit</button></div>
-            </form>
-
-            <table>
-              <thead>
-                <tr><th>Time</th><th>Principal</th><th>Action</th><th>Resource</th><th>Decision</th></tr>
-              </thead>
-              <tbody id="audit-table-body"></tbody>
-            </table>
-            <pre id="audit-raw" hidden></pre>
-          </section>
-        </section>
-
-        <section id="view-about" class="view" hidden>
-          <h1>About RAJA</h1>
-
-          <section class="panel">
-            <p>A researcher wants a dataset. They should not have to know which bucket it lives in, which region, which account, or who to ask for an IAM role. They should just get the data — or a clear denial.</p>
-            <p>Today that is not how object storage works. Sharing data means exposing infrastructure. Granting access means managing IAM roles, bucket policies, and presigned URLs — all of which leak physical coordinates and require ongoing maintenance. Every request re-asks the same permission question, at runtime, under load.</p>
-            <p>This is a proof of concept that it does not have to work that way.</p>
-          </section>
-
-          <section class="panel">
-            <h2>The Idea</h2>
-            <p>Treat datasets as logical things with names, not physical locations. Grant access to the dataset — not to the bucket. Let the system figure out where the data lives and route the request there, invisibly.</p>
-            <p>Access control happens once, when a request is first made, and the decision is encoded into a short-lived signed token. After that, enforcement is mechanical: does this request fall within the boundary already drawn? No policy engine runs in the data path. No IAM call. No bucket name exposed.</p>
-            <p>"The hotel key contains the authority. The concierge never calls a policy engine." — <a href="https://ihack.us/2026/01/23/taj-mahalo-logical-s3-via-translated-access-jwts/" target="_blank" rel="noopener">TAJ Mahalo</a></p>
-          </section>
-
-          <section class="panel">
-            <h2>Further Reading</h2>
-            <ul class="narrative-list">
-              <li><a href="https://ihack.us/2026/02/05/rale-raj-authorizing-logical-endpoint/" target="_blank" rel="noopener">RALE: RAJ-Authorizing Logical Endpoint</a> — the full system architecture</li>
-              <li><a href="https://ihack.us/2026/01/20/iam-as-maharaja-how-raj-redeems-the-original-sin-of-cloud-authorization/" target="_blank" rel="noopener">IAM as Maharaja</a> — why category collapse is the original sin of cloud authorization</li>
-              <li><a href="https://ihack.us/2026/01/21/rajee-against-the-machine-snow-crashing-manifest-authority/" target="_blank" rel="noopener">RAJEE Against the Machine</a> — ambient authority vs. manifest authority</li>
-              <li><a href="https://ihack.us/2026/01/23/the-boy-who-ate-the-menu-raj-taj-as-software-defined-addressing-for-universal-storage-locators/" target="_blank" rel="noopener">The Boy Who Ate the Menu</a> — logical addressing for storage, without the infrastructure leak</li>
-            </ul>
-          </section>
-        </section>
-      </main>
-    </div>
-
-    <script src="static/admin.js"></script>
+    <script src="static/admin.js" type="module"></script>
   </body>
 </html>

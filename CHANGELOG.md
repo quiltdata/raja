@@ -6,7 +6,23 @@ All notable changes to the RAJA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-03-16
+
+### Added
+
+- **Subscription management in the Admin UI**: Admins can now review package subscription requests and approve or revoke access directly from the control plane.
+- **Automatic access provisioning for new principals**: Adding a principal now provisions the corresponding DataZone subscription grant automatically instead of requiring a separate manual step.
+- **SageMaker Studio domain support**: Deployments now provision and manage the Studio domain needed for DataZone-backed user workflows.
+
+### Changed
+
+- **Admin UI redesign**: The admin experience has been reorganized into a clearer two-column layout with dedicated sections for domain structure, test data, live execution, and operational links.
+- **RALE principal resolution**: RALE can now infer the caller principal from AWS STS when it is not configured explicitly, reducing setup friction for real AWS users.
+
+### Fixed
+
+- **Health reporting for RALE services**: Authorizer and router health checks now report correctly, preventing false unhealthy status in the Admin UI.
+- **Subscription request visibility**: Pending DataZone subscription requests are now detected and displayed correctly in the control plane.
 
 ## [0.9.0] - 2026-03-12
 
