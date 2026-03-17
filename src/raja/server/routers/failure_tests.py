@@ -242,15 +242,6 @@ CATEGORY_META: dict[str, CategoryMeta] = {
         "description": "Tokens should never validate when expired, malformed, or tampered with.",
         "order": 0,
     },
-    "cedar-compilation": {
-        "label": "Grant Modeling",
-        "priority": "CRITICAL",
-        "color": "#b72d2c",
-        "description": (
-            "Authorization inputs must model grants correctly without stale policy code paths."
-        ),
-        "order": 1,
-    },
     "scope-enforcement": {
         "label": "Scope Enforcement",
         "priority": "CRITICAL",
@@ -335,74 +326,6 @@ FAILURE_TEST_DEFINITIONS: list[FailureTestDefinition] = [
         priority="MEDIUM",
         expected_summary="DENY – revoked token",
         setup="Simulate revocation and ensure verification fails.",
-    ),
-    # Grant Modeling Failures
-    FailureTestDefinition(
-        id="2.1",
-        title="Forbid Policies",
-        description="Legacy policy-compiler paths should stay removed or explicitly unsupported.",
-        category="cedar-compilation",
-        priority="CRITICAL",
-        expected_summary="Unsupported legacy policy path stays disabled",
-        setup="Exercise the removed policy path and confirm the system fails closed.",
-    ),
-    FailureTestDefinition(
-        id="2.2",
-        title="Policy Syntax Errors",
-        description=(
-            "Direct policy syntax entry points should remain unavailable after the cutover."
-        ),
-        category="cedar-compilation",
-        priority="CRITICAL",
-        expected_summary="Legacy policy compiler remains unavailable",
-        setup="Confirm removed policy-compilation paths do not reappear.",
-    ),
-    FailureTestDefinition(
-        id="2.3",
-        title="Conflicting Policies",
-        description="Multiple policies for same resource must resolve correctly.",
-        category="cedar-compilation",
-        priority="HIGH",
-        expected_summary="Consistent resolution of conflicting policies",
-        setup="Create overlapping permit/forbid and verify precedence.",
-    ),
-    FailureTestDefinition(
-        id="2.4",
-        title="Wildcard Expansion",
-        description="Wildcard patterns in policies must expand correctly.",
-        category="cedar-compilation",
-        priority="HIGH",
-        expected_summary="Wildcards expand to correct scope set",
-        setup="Use wildcards in resource patterns and verify expansion.",
-    ),
-    FailureTestDefinition(
-        id="2.5",
-        title="Template Variables",
-        description=(
-            "Template-driven policy generation should not be part of the live authorization path."
-        ),
-        category="cedar-compilation",
-        priority="HIGH",
-        expected_summary="Template variables resolve correctly",
-        setup="Confirm grant issuance does not depend on policy templating.",
-    ),
-    FailureTestDefinition(
-        id="2.6",
-        title="Principal-Action Mismatch",
-        description="Policies referencing non-existent principals/actions must fail.",
-        category="cedar-compilation",
-        priority="MEDIUM",
-        expected_summary="ERROR – invalid principal or action reference",
-        setup="Reference undefined entities in policy.",
-    ),
-    FailureTestDefinition(
-        id="2.7",
-        title="Schema Validation",
-        description="Policies violating schema constraints must be rejected.",
-        category="cedar-compilation",
-        priority="MEDIUM",
-        expected_summary="ERROR – schema violation",
-        setup="Create policy that violates schema rules.",
     ),
     # Scope Enforcement Failures
     FailureTestDefinition(
@@ -609,11 +532,11 @@ FAILURE_TEST_DEFINITIONS: list[FailureTestDefinition] = [
     FailureTestDefinition(
         id="6.5",
         title="Policy Store Unavailability",
-        description="Authorization must fail closed when AVP is unreachable.",
+        description="Authorization must fail closed when DataZone is unreachable.",
         category="operational",
         priority="MEDIUM",
-        expected_summary="DENY when policy store unavailable",
-        setup="Simulate AVP service disruption.",
+        expected_summary="DENY when DataZone unavailable",
+        setup="Simulate DataZone service disruption.",
     ),
     FailureTestDefinition(
         id="6.6",
@@ -803,111 +726,6 @@ def _runner_revocation(secret: str) -> FailureTestRun:
                 "Per-token revocation is unsupported by design. Hard revocation is via "
                 "secret rotation + Lambda cold start. See specs/5-rale/08-incident-response.md."
             )
-        },
-        timestamp=time.time(),
-    )
-
-
-def _runner_forbid_policies(secret: str) -> FailureTestRun:
-    """Test forbid policies take precedence over permit."""
-    # TODO: Decide whether this legacy policy-path check should be removed entirely.
-    return FailureTestRun(
-        run_id="",
-        test_id="2.1",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="Unsupported legacy policy path stays disabled",
-        actual="Legacy policy compilation is no longer part of the live authorization path",
-        details={"note": "Legacy policy-compiler paths were retired with the DataZone cutover"},
-        timestamp=time.time(),
-    )
-
-
-def _runner_policy_syntax_errors(secret: str) -> FailureTestRun:
-    """Policy-syntax validation was removed with the DataZone cutover."""
-    return FailureTestRun(
-        run_id="",
-        test_id="2.2",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="No direct policy syntax entry point remains",
-        actual="Direct policy authoring was removed; package access is managed in DataZone",
-        details={"note": "Cedar policy compilation checks were retired with the DataZone cutover"},
-        timestamp=time.time(),
-    )
-
-
-def _runner_conflicting_policies(secret: str) -> FailureTestRun:
-    """Test multiple policies for same resource resolve correctly."""
-    # TODO: Create overlapping permit/forbid and verify precedence
-    return FailureTestRun(
-        run_id="",
-        test_id="2.3",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="Consistent resolution of conflicting policies",
-        actual="Policy conflict resolution not tested",
-        details={"note": "Requires forbid policy support and multi-policy compilation testing"},
-        timestamp=time.time(),
-    )
-
-
-def _runner_wildcard_expansion(secret: str) -> FailureTestRun:
-    """Test wildcard patterns in policies expand correctly."""
-    # TODO: Verify wildcard expansion in resource patterns
-    return FailureTestRun(
-        run_id="",
-        test_id="2.4",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="Wildcards expand to correct scope set",
-        actual="Wildcard expansion not validated",
-        details={"note": "Requires compiler integration to verify scope expansion"},
-        timestamp=time.time(),
-    )
-
-
-def _runner_template_variables(secret: str) -> FailureTestRun:
-    """Template-driven policy generation is no longer part of the live path."""
-    # TODO: Test template variable substitution
-    return FailureTestRun(
-        run_id="",
-        test_id="2.5",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="Template variables resolve correctly",
-        actual="Template instantiation not tested",
-        details={
-            "note": (
-                "Template-driven policy generation is no longer part of the live authorization path"
-            )
-        },
-        timestamp=time.time(),
-    )
-
-
-def _runner_principal_action_mismatch(secret: str) -> FailureTestRun:
-    """Test policies referencing non-existent principals/actions fail."""
-    # TODO: Submit invalid principal/action references to compiler
-    return FailureTestRun(
-        run_id="",
-        test_id="2.6",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="ERROR – invalid principal or action reference",
-        actual="Entity reference validation not exposed",
-        details={
-            "note": "Requires a replacement validation model if direct policy authoring returns"
-        },
-        timestamp=time.time(),
-    )
-
-
-def _runner_schema_validation(secret: str) -> FailureTestRun:
-    """Test policies violating schema constraints are rejected."""
-    # TODO: Create schema-violating policy and verify rejection
-    return FailureTestRun(
-        run_id="",
-        test_id="2.7",
-        status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="ERROR – schema violation",
-        actual="Schema validation not exposed via test harness",
-        details={
-            "note": "Requires a replacement validation model if direct policy authoring returns"
         },
         timestamp=time.time(),
     )
@@ -1525,7 +1343,7 @@ def _runner_schema_policy_consistency(secret: str) -> FailureTestRun:
         status=FailureTestStatus.NOT_IMPLEMENTED,
         expected="Schema entities match enforcement expectations",
         actual="Schema consistency validation not implemented",
-        details={"note": "Requires cross-validation between AVP schema and enforcement logic"},
+        details={"note": "Requires cross-validation between DataZone grant model and enforcement logic"},
         timestamp=time.time(),
     )
 
@@ -1678,15 +1496,15 @@ def _runner_large_token_payloads(secret: str) -> FailureTestRun:
 
 
 def _runner_policy_store_unavailability(secret: str) -> FailureTestRun:
-    """Test authorization fails closed when AVP is unreachable."""
-    # TODO: Simulate AVP service disruption
+    """Test authorization fails closed when DataZone is unreachable."""
+    # TODO: Simulate DataZone service disruption
     return FailureTestRun(
         run_id="",
         test_id="6.5",
         status=FailureTestStatus.NOT_IMPLEMENTED,
-        expected="DENY when policy store unavailable",
-        actual="Policy store unavailability simulation not implemented",
-        details={"note": "Requires mocking AVP unavailability and testing fail-closed behavior"},
+        expected="DENY when DataZone unavailable",
+        actual="DataZone unavailability simulation not implemented",
+        details={"note": "Requires mocking DataZone unavailability and testing fail-closed behavior"},
         timestamp=time.time(),
     )
 
@@ -1727,13 +1545,6 @@ RUNNERS: dict[str, Callable[[str], FailureTestRun]] = {
     "1.4": _runner_missing_scopes,
     "1.5": _runner_claim_validation,
     "1.6": _runner_revocation,
-    "2.1": _runner_forbid_policies,
-    "2.2": _runner_policy_syntax_errors,
-    "2.3": _runner_conflicting_policies,
-    "2.4": _runner_wildcard_expansion,
-    "2.5": _runner_template_variables,
-    "2.6": _runner_principal_action_mismatch,
-    "2.7": _runner_schema_validation,
     "3.1": _runner_prefix_attacks,
     "3.2": _runner_substring_attacks,
     "3.3": _runner_case_sensitivity,

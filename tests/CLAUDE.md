@@ -15,10 +15,12 @@ tests/
 │   ├── test_models.py             # Pydantic model tests
 │   ├── test_token.py              # JWT token operations
 │   ├── test_enforcer.py           # Authorization enforcement
-│   ├── test_compiler.py           # Policy compilation
 │   ├── test_scope.py              # Scope operations
-│   ├── test_cedar_parser.py       # Cedar policy parsing
-│   └── test_cedar_schema.py       # Cedar schema validation
+│   ├── test_scope_wildcards.py    # Wildcard scope matching
+│   ├── test_rajee_grants.py       # RAJEE grant conversion
+│   ├── test_datazone_service.py   # DataZone service
+│   ├── test_rale_cli.py           # RALE CLI
+│   └── test_rale_select.py        # RALE selection logic
 │
 ├── integration/                   # AWS integration tests
 │   ├── __init__.py
@@ -187,51 +189,7 @@ def test_enforce_wildcard():
     assert decision.decision == "ALLOW"
 ```
 
-#### 4. Compilation (`test_compiler.py`)
-
-Tests for Cedar policy compilation:
-
-```python
-def test_compile_simple_policy():
-    """Test compiling basic Cedar policy"""
-    policy = """
-    permit(
-        principal == User::"alice",
-        action == Action::"read",
-        resource == Document::"doc123"
-    );
-    """
-    result = compile_policy(policy)
-    assert result.principal == "User::alice"
-    assert "Document:doc123:read" in result.scopes
-
-def test_compile_wildcard_policy():
-    """Test compiling policy with wildcards"""
-    policy = """
-    permit(
-        principal == User::"alice",
-        action == Action::"read",
-        resource is Document
-    );
-    """
-    result = compile_policy(policy)
-    assert "Document:*:read" in result.scopes
-
-def test_compile_multiple_actions():
-    """Test compiling policy with multiple actions"""
-    policy = """
-    permit(
-        principal == User::"alice",
-        action in [Action::"read", Action::"write"],
-        resource == Document::"doc123"
-    );
-    """
-    result = compile_policy(policy)
-    assert "Document:doc123:read" in result.scopes
-    assert "Document:doc123:write" in result.scopes
-```
-
-#### 5. Scope Operations (`test_scope.py`)
+#### 4. Scope Operations (`test_scope.py`)
 
 Tests for scope parsing and subset checking:
 
@@ -271,7 +229,6 @@ Integration tests require **deployed AWS infrastructure** and test the full stac
 ./scripts/deploy.sh
 
 # Set environment variables (or use .env file)
-export POLICY_STORE_ID="..."
 export RAJA_API_URL="..."
 export AWS_REGION="us-east-1"
 # Seed test data
@@ -290,7 +247,7 @@ Control plane endpoints:
 ```python
 @pytest.mark.integration
 def test_control_plane_compiles_policies():
-    """Compile Cedar policies via POST /compile"""
+    """Compile policies via POST /compile"""
 
 @pytest.mark.integration
 def test_control_plane_lists_principals():
@@ -319,21 +276,7 @@ Property-based tests use the `hypothesis` library to validate core invariants ac
 
 ### Core Properties
 
-#### 1. Compilation Determinism (`test_compilation.py`)
-
-Same policy always produces same scopes:
-
-```python
-@pytest.mark.hypothesis
-@given(st.text(min_size=1))
-def test_compilation_determinism(policy_string):
-    """Same policy compiled twice produces identical scopes"""
-    result1 = compile_policy(policy_string)
-    result2 = compile_policy(policy_string)
-    assert result1.scopes == result2.scopes
-```
-
-#### 2. Token Determinism (`test_determinism.py`)
+#### 1. Token Determinism (`test_determinism.py`)
 
 Same inputs always produce same tokens (excluding timestamps):
 
@@ -414,17 +357,6 @@ def test_secret() -> str:
     return "test-secret-key-for-jwt"
 
 @pytest.fixture
-def sample_policy() -> str:
-    """Sample Cedar policy for tests"""
-    return """
-    permit(
-        principal == User::"alice",
-        action == Action::"read",
-        resource == Document::"doc123"
-    );
-    """
-
-@pytest.fixture
 def sample_token(test_secret) -> str:
     """Sample JWT token for tests"""
     return create_token(
@@ -437,7 +369,6 @@ def sample_token(test_secret) -> str:
 Integration tests read configuration from environment variables:
 
 - `RAJA_API_URL` for the API Gateway base URL
-- `POLICY_STORE_ID` for the Verified Permissions policy store
 
 ## Running Tests
 

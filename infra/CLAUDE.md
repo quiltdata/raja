@@ -30,13 +30,6 @@ The infrastructure is **optional** — the core `raja` library can be used stand
          │
          ▼
 ┌────────────────────────────────┐
-│  Amazon Verified Permissions   │
-│  - Cedar Policy Store          │
-│  - Cedar Schema                │
-└────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────┐
 │  ECS Fargate (RAJEE / RALE)    │
 │  - Envoy proxy (RALE routing)  │
 │  - ALB + target groups         │
@@ -67,7 +60,6 @@ infra/
 | `aws_api_gateway_rest_api` | REST API for control plane |
 | `aws_lambda_function.control_plane` | FastAPI control plane |
 | `aws_secretsmanager_secret.jwt` | JWT signing key |
-| `aws_verifiedpermissions_policy_store` | Cedar policy store + schema |
 
 ### RALE Stack
 

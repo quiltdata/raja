@@ -2,7 +2,6 @@
 
 This directory contains one Terraform root module that replaces all three CDK stacks:
 
-- `RajaAvpStack`
 - `RajaServicesStack`
 - `RajeeEnvoyStack`
 
@@ -10,7 +9,6 @@ This is a full-stack deployment, not a control-plane-only module.
 
 It provisions:
 
-- Amazon Verified Permissions policy store, Cedar schema, and Cedar policies
 - Control plane Lambda and shared RAJA Lambda layer
 - RALE Lambdas (`rale_authorizer`, `rale_router`) with Function URLs
 - API Gateway (`/` and `/{proxy+}` via Lambda proxy integration)
@@ -54,4 +52,3 @@ If you want HTTPS on RAJEE, set `certificate_arn` in `terraform.tfvars`.
 
 - Lambda artifacts are built locally during apply using `python3` (override with `python_bin`).
 - `./poe deploy` writes a flat `infra/tf-outputs.json` with all Terraform output values for use by scripts and tests.
-- The AWS Terraform provider does not currently expose policy store schema config, so apply runs a local post-create step that calls AVP APIs (`PutSchema`, `UpdatePolicyStore`) to set Cedar schema and enable `STRICT` validation before policy resources are created.

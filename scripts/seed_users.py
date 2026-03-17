@@ -4,9 +4,9 @@
 Users are read from two env vars:
 
   RAJA_USERS  — comma-separated usernames assigned to tiers by position:
-    - Tier 0 (owner):  first user  → owner_project  (scopes: ["*:*:*"])
-    - Tier 1 (users):  second user → users_project  (scopes: ["Package:*:write"])
-    - Tier 2 (guests): remaining   → guests_project (scopes: ["Package:*:read"])
+    - Tier 0 (owner):  first user  → owner_project  (PROJECT_OWNER)
+    - Tier 1 (users):  second user → users_project  (PROJECT_CONTRIBUTOR)
+    - Tier 2 (guests): remaining   → guests_project (PROJECT_CONTRIBUTOR)
   At least 2 users are needed to cover owner + users tiers.
 
   RAJA_GUESTS — optional comma-separated usernames all seeded into guests_project
@@ -25,19 +25,7 @@ from scripts.tf_outputs import get_tf_output
 
 _MIN_USERS = 2
 
-_TIER_SCOPES: list[list[str]] = [
-    ["*:*:*"],              # owner  — wildcard → owner_project
-    ["Package:*:write"],    # users  — write    → users_project
-    ["Package:*:read"],     # guests — read     → guests_project
-]
-
 _TIER_DESIGNATION = ["PROJECT_OWNER", "PROJECT_CONTRIBUTOR", "PROJECT_CONTRIBUTOR"]
-
-_TIER_PROJECT_ENV = [
-    "DATAZONE_OWNER_PROJECT_ID",
-    "DATAZONE_USERS_PROJECT_ID",
-    "DATAZONE_GUESTS_PROJECT_ID",
-]
 
 
 def _get_region() -> str:
@@ -146,7 +134,7 @@ def main() -> None:
     fail_count = 0
 
     for idx, username in enumerate(usernames):
-        tier = min(idx, len(_TIER_SCOPES) - 1)
+        tier = min(idx, len(_TIER_DESIGNATION) - 1)
         arn = _user_to_arn(username, account_id)
         designation = _TIER_DESIGNATION[tier]
         tier_name = ["owner", "users", "guests"][tier]

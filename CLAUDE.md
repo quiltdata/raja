@@ -8,8 +8,8 @@
 
 Authorization can be **compiled** once and **enforced** efficiently:
 
-- **Control Plane:** Cedar policies → JWT tokens with explicit scopes
-- **Data Plane:** Pure subset checking without policy evaluation
+- **Control Plane:** DataZone membership → TAJ tokens with S3 path grants
+- **Data Plane:** Pure subset checking without policy evaluation at runtime
 - **Result:** Predictable, transparent, fail-closed authorization
 
 ## Architecture
@@ -35,17 +35,17 @@ Authorization can be **compiled** once and **enforced** efficiently:
 
 ```
 ┌─────────────────┐
-│  Cedar Policies │  (Amazon Verified Permissions)
+│   DataZone      │  (Subscription grants / project membership)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│    Compiler     │  (Cedar → Scopes)
+│  RALE Authorizer│  (Verify membership → issue TAJ token)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  Token Service  │  (Issue JWTs with scopes)
+│  RALE Router    │  (Validate TAJ → stream S3 object)
 └────────┬────────┘
          │
          ▼
@@ -59,14 +59,14 @@ Authorization can be **compiled** once and **enforced** efficiently:
 ```
 raja/
 ├── src/raja/              # Core library (pure Python)
-│   ├── models.py          # Data models (Scope, AuthRequest, Decision, etc.)
+│   ├── models.py          # Data models (Scope, AuthRequest, TajToken, etc.)
 │   ├── token.py           # JWT token operations
 │   ├── enforcer.py        # Authorization enforcement (subset checking)
-│   ├── compiler.py        # Policy compilation to scopes
 │   ├── scope.py           # Scope parsing and operations
-│   └── cedar/             # Cedar policy handling
-│       ├── parser.py      # Parse Cedar policy strings
-│       └── schema.py      # Cedar schema validation
+│   ├── datazone/          # DataZone service integration
+│   ├── rajee/             # RAJEE grant conversion
+│   ├── rale/              # RALE authorization logic
+│   └── server/            # FastAPI control plane
 │
 ├── infra/                 # AWS infrastructure and deployment assets
 │   ├── terraform/         # Terraform root module
@@ -74,25 +74,22 @@ raja/
 │   └── layers/            # Shared Lambda layer requirements
 │
 ├── lambda_handlers/       # Lambda function handlers
-│   ├── compiler/          # Policy compiler
-│   ├── enforcer/          # Authorization enforcer
-│   ├── token_service/     # Token issuance
-│   └── introspect/        # Token introspection
+│   ├── control_plane/     # FastAPI control plane
+│   ├── rale_authorizer/   # Issues TAJ tokens
+│   ├── rale_router/       # Resolves USL → S3, streams object
+│   ├── authorizer/        # API Gateway authorizer
+│   └── package_resolver/  # Package resolution
 │
 ├── tests/                 # Test suite
 │   ├── unit/              # Unit tests (isolated)
 │   ├── integration/       # AWS integration tests
 │   └── hypothesis/        # Property-based tests
 │
-├── policies/              # Cedar policy definitions
-│   ├── schema.cedar       # Entity and action definitions
-│   └── policies/          # Policy files
-│
 ├── scripts/               # Utility scripts
 │   ├── version.py         # Version management and releases
-│   ├── load_policies.py   # Load policies to AVP
-│   ├── invoke_compiler.py # Trigger compiler Lambda
-│   └── seed_users.py      # Seed IAM users into DataZone projects for integration tests
+│   ├── seed_users.py      # Seed IAM users into DataZone projects for integration tests
+│   ├── seed_packages.py   # Seed packages and subscription grants
+│   └── sagemaker_gaps.py  # Fill DataZone gaps Terraform provider can't handle
 │
 └── specs/                 # Design specifications
     └── 1-mvp/             # MVP documentation
@@ -117,7 +114,7 @@ See child CLAUDE.md files for detailed documentation:
 
 - **Terraform** (>=1.5) - Infrastructure as Code (primary)
 - **boto3** (>=1.34.0) - AWS SDK
-- **Amazon Verified Permissions** - Cedar policy store
+- **Amazon DataZone** - Subscription grant management
 - ~~AWS CDK~~ — deprecated, use Terraform
 
 ### Development Tools
@@ -180,27 +177,6 @@ Scopes are the fundamental unit of authorization in RAJA:
 - `Document:*:read` - Read access to all documents
 - `*:*:*` - Admin access (all resources, all actions)
 
-### Compilation
-
-Cedar policies are compiled into scope strings:
-
-```python
-from raja import compile_policy
-
-# Cedar policy
-policy = """
-permit(
-    principal == User::"alice",
-    action == Action::"read",
-    resource == Document::"doc123"
-);
-"""
-
-# Compile to scopes
-result = compile_policy(policy)
-# result.scopes = ["Document:doc123:read"]
-```
-
 ### Token Issuance
 
 JWTs contain scopes as claims:
@@ -246,10 +222,9 @@ decision = enforce(
 
 RAJA uses hypothesis tests to validate core properties:
 
-1. **Compilation Determinism** - Same policy always produces same scopes
-2. **Token Determinism** - Same inputs always produce same tokens
-3. **Fail-Closed Semantics** - Unknown requests default to DENY
-4. **Output Transparency** - Decisions are fully explainable
+1. **Token Determinism** - Same inputs always produce same tokens
+2. **Fail-Closed Semantics** - Unknown requests default to DENY
+3. **Output Transparency** - Decisions are fully explainable
 
 ### Running Tests
 
@@ -296,7 +271,6 @@ pytest -m hypothesis tests/  # Property-based validation tests
 
 ### Environment Variables (Lambda)
 
-- `POLICY_STORE_ID` - AVP policy store identifier
 - `JWT_SECRET_ARN` - Secrets Manager ARN for JWT signing key
 
 ### Poe Tasks
@@ -469,8 +443,7 @@ When deployed to AWS, RAJA exposes these endpoints:
 ## Resources
 
 - **Specs:** See `specs/1-mvp/` for detailed design documents
-- **Cedar:** <https://www.cedarpolicy.com/>
-- **Amazon Verified Permissions:** <https://aws.amazon.com/verified-permissions/>
+- **Amazon DataZone:** <https://aws.amazon.com/datazone/>
 
 ## License
 

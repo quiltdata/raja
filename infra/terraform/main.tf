@@ -480,7 +480,7 @@ resource "aws_iam_role_policy" "datazone_environment_guests" {
 
 resource "aws_datazone_domain" "raja" {
   name                  = var.datazone_domain_name
-  description           = "Software-defined authorization for Quilt packages: Cedar policies compile to JWT scopes, DataZone enforces access via subscription grants"
+  description           = "Software-defined authorization for Quilt packages: DataZone enforces access via subscription grants, RALE issues TAJ tokens"
   domain_execution_role = aws_iam_role.datazone_domain_execution.arn
   domain_version        = "V2"
   service_role          = aws_iam_role.datazone_domain_service.arn
