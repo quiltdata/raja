@@ -6,7 +6,9 @@ This script patches the current Terraform provider gaps for RAJA's V2 domain:
 1. Ensure the default project profile exists and is ENABLED.
 2. Ensure the owner/users/guests projects exist in the V2 domain.
 3. Ensure the root domain unit grants CREATE_ASSET_TYPE to owner projects.
-4. Refresh infra/tf-outputs.json with discovered project IDs.
+4. If the deployed domain supports DataZone environments, provision the RAJA
+   custom-blueprint environment plumbing and environment IDs.
+5. Refresh infra/tf-outputs.json with discovered project and environment IDs.
 
 It is safe to rerun. Existing resources are reused.
 """
@@ -23,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ParamValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -36,6 +38,10 @@ ENV_PATH = REPO_ROOT / ".env"
 
 DEFAULT_PROFILE_NAME = "raja-default-profile"
 DEFAULT_PROFILE_DESCRIPTION = "Default project profile for RAJA Terraform-managed V2 projects"
+REGISTRY_ENVIRONMENT_PROFILE_NAME = "RAJA registry"
+REGISTRY_ENVIRONMENT_PROFILE_DESCRIPTION = (
+    "RAJA DataZone environment profile for the Quilt registry and test data buckets"
+)
 PROJECT_SPECS = {
     "owner": {
         "name": "raja-owner",
@@ -64,15 +70,30 @@ ENVIRONMENT_SPECS = {
     "users": "raja-users-env",
     "guests": "raja-guests-env",
 }
+ENVIRONMENT_DESCRIPTIONS = {
+    "owner": "Owner-tier DataZone environment for the Quilt registry and test bucket",
+    "users": "Users-tier DataZone environment for the Quilt registry and test bucket",
+    "guests": "Guests-tier DataZone environment for the Quilt registry and test bucket",
+}
+# Blueprint ID created via the SageMaker Unified Studio console for domain
+# dzd-45tgjtqytva0rr. Console-only creation; ID is stable after creation.
+RAJA_BLUEPRINT_ID = "4b1p5czd9uf9uv"
+
 CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
     "CustomAWS",
     "Custom AWS",
     "CustomAws",
 )
+ENVIRONMENT_ROLE_OUTPUTS = {
+    "owner": "datazone_owner_environment_role_arn",
+    "users": "datazone_users_environment_role_arn",
+    "guests": "datazone_guests_environment_role_arn",
+}
 
 
 @dataclass
 class Context:
+    account_id: str
     region: str
     domain_id: str
     domain_name: str
@@ -150,6 +171,7 @@ def _get_context(args: argparse.Namespace) -> Context:
     domain = client.get_domain(identifier=domain_id)
     outputs = load_tf_outputs()
     return Context(
+        account_id=str(boto3.client("sts", region_name=region).get_caller_identity()["Account"]),
         region=region,
         domain_id=domain_id,
         domain_name=str(domain["name"]),
@@ -283,6 +305,16 @@ def _ensure_asset_type_grant(client: Any, ctx: Context) -> None:
     print(f"  Added asset type grant {response['grantId']}")
 
 
+def _is_api_unsupported(exc: Exception) -> bool:
+    if isinstance(exc, ParamValidationError):
+        return False
+    if not isinstance(exc, ClientError):
+        return False
+    if exc.response.get("Error", {}).get("Code", "") != "ValidationException":
+        return False
+    return "API not supported for domain version" in str(exc)
+
+
 def _supports_environment_api(client: Any, ctx: Context, project_id: str) -> bool:
     try:
         client.list_environments(
@@ -291,9 +323,8 @@ def _supports_environment_api(client: Any, ctx: Context, project_id: str) -> boo
             maxResults=1,
         )
         return True
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code == "ValidationException":
+    except Exception as exc:
+        if _is_api_unsupported(exc):
             print("Environment API: unsupported for this DataZone domain version")
             return False
         raise
@@ -323,6 +354,218 @@ def _find_custom_blueprint_id(client: Any, ctx: Context) -> str:
 
     print("Custom blueprint: not found")
     return ""
+
+
+def _supports_environment_profile_api(client: Any, ctx: Context) -> bool:
+    try:
+        client.list_environment_profiles(domainIdentifier=ctx.domain_id, maxResults=1)
+        return True
+    except Exception as exc:
+        if _is_api_unsupported(exc):
+            print("Environment profile API: unsupported for this DataZone domain version")
+            return False
+        raise
+
+
+def _output_str(ctx: Context, key: str) -> str:
+    value = ctx.outputs.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _role_arn_for_tier(ctx: Context, tier: str) -> str:
+    return _output_str(ctx, ENVIRONMENT_ROLE_OUTPUTS[tier])
+
+
+def _list_environment_blueprint_configurations(client: Any, ctx: Context) -> list[dict[str, Any]]:
+    return _list_all(
+        client.list_environment_blueprint_configurations,
+        "items",
+        domainIdentifier=ctx.domain_id,
+    )
+
+
+def _ensure_custom_blueprint_configuration(client: Any, ctx: Context, blueprint_id: str) -> bool:
+    if not blueprint_id:
+        return False
+
+    try:
+        configurations = _list_environment_blueprint_configurations(client, ctx)
+    except Exception as exc:
+        if _is_api_unsupported(exc):
+            print("Blueprint configuration API: unsupported for this DataZone domain version")
+            return False
+        raise
+
+    for configuration in configurations:
+        if str(configuration.get("environmentBlueprintId") or "") != blueprint_id:
+            continue
+        enabled_regions = [str(region) for region in configuration.get("enabledRegions", [])]
+        if ctx.region in enabled_regions:
+            print(f"Blueprint configuration: present ({blueprint_id})")
+            return True
+        if ctx.dry_run:
+            print(
+                f"Blueprint configuration: [DRY-RUN] Would enable region {ctx.region} "
+                f"for {blueprint_id}"
+            )
+            return True
+        client.put_environment_blueprint_configuration(
+            domainIdentifier=ctx.domain_id,
+            environmentBlueprintIdentifier=blueprint_id,
+            enabledRegions=sorted(set(enabled_regions + [ctx.region])),
+        )
+        print(f"Blueprint configuration: enabled region {ctx.region} for {blueprint_id}")
+        return True
+
+    if ctx.dry_run:
+        print(f"Blueprint configuration: [DRY-RUN] Would create config for {blueprint_id}")
+        return True
+
+    client.put_environment_blueprint_configuration(
+        domainIdentifier=ctx.domain_id,
+        environmentBlueprintIdentifier=blueprint_id,
+        enabledRegions=[ctx.region],
+    )
+    print(f"Blueprint configuration: created for {blueprint_id}")
+    return True
+
+
+def _ensure_environment_profile(
+    client: Any,
+    ctx: Context,
+    blueprint_id: str,
+    project_ids: dict[str, str],
+) -> str:
+    if not blueprint_id:
+        return ""
+    if not _supports_environment_profile_api(client, ctx):
+        return ""
+
+    profiles = _list_all(client.list_environment_profiles, "items", domainIdentifier=ctx.domain_id)
+    owner_project_id = project_ids.get("owner", "")
+    for profile in profiles:
+        if str(profile.get("name") or "") != REGISTRY_ENVIRONMENT_PROFILE_NAME:
+            continue
+        if owner_project_id and str(profile.get("projectId") or "") not in {"", owner_project_id}:
+            continue
+        profile_id = str(profile.get("id") or "")
+        if profile_id:
+            print(f"Environment profile: {REGISTRY_ENVIRONMENT_PROFILE_NAME} ({profile_id})")
+            return profile_id
+
+    print(f"Environment profile: {REGISTRY_ENVIRONMENT_PROFILE_NAME} (missing)")
+    if ctx.dry_run:
+        print("  [DRY-RUN] Would create environment profile")
+        return "dry-run-environment-profile"
+
+    created = client.create_environment_profile(
+        awsAccountId=ctx.account_id,
+        awsAccountRegion=ctx.region,
+        description=REGISTRY_ENVIRONMENT_PROFILE_DESCRIPTION,
+        domainIdentifier=ctx.domain_id,
+        environmentBlueprintIdentifier=blueprint_id,
+        name=REGISTRY_ENVIRONMENT_PROFILE_NAME,
+        projectIdentifier=project_ids["owner"],
+    )
+    profile_id = str(created["id"])
+    print(f"  Created environment profile {profile_id}")
+    return profile_id
+
+
+def _wait_for_environment(client: Any, ctx: Context, project_id: str, environment_id: str) -> dict[str, Any]:
+    deadline = time.time() + 600
+    while time.time() < deadline:
+        response = client.get_environment(
+            domainIdentifier=ctx.domain_id,
+            identifier=environment_id,
+        )
+        status = str(response.get("status") or "")
+        if status == "ACTIVE":
+            return response
+        if status in {"CREATE_FAILED", "UPDATE_FAILED", "DELETE_FAILED", "VALIDATION_FAILED"}:
+            raise RuntimeError(f"environment {environment_id} entered terminal status {status}")
+        time.sleep(5)
+    raise RuntimeError(
+        f"timed out waiting for environment {environment_id} in project {project_id} to become active"
+    )
+
+
+def _ensure_environment(
+    client: Any,
+    ctx: Context,
+    tier: str,
+    project_id: str,
+    blueprint_id: str,
+) -> str:
+    environment_name = ENVIRONMENT_SPECS[tier]
+    role_arn = _role_arn_for_tier(ctx, tier)
+    if not project_id or not blueprint_id or not role_arn:
+        return ""
+
+    items = _list_all(
+        client.list_environments,
+        "items",
+        domainIdentifier=ctx.domain_id,
+        projectIdentifier=project_id,
+    )
+    for item in items:
+        if str(item.get("name") or "") != environment_name:
+            continue
+        environment_id = str(item.get("id") or "")
+        if environment_id:
+            print(f"Environment {tier}: {environment_name} ({environment_id})")
+            if not ctx.dry_run:
+                client.associate_environment_role(
+                    domainIdentifier=ctx.domain_id,
+                    environmentIdentifier=environment_id,
+                    environmentRoleArn=role_arn,
+                )
+            return environment_id
+
+    print(f"Environment {tier}: {environment_name} (missing)")
+    if ctx.dry_run:
+        print(f"  [DRY-RUN] Would create environment {environment_name}")
+        return f"dry-run-{tier}-environment"
+
+    created = client.create_environment(
+        domainIdentifier=ctx.domain_id,
+        environmentBlueprintIdentifier=blueprint_id,
+        name=environment_name,
+        description=ENVIRONMENT_DESCRIPTIONS[tier],
+        projectIdentifier=project_id,
+        userParameters=[
+            {"name": "RegistryBucketName", "value": _output_str(ctx, "rajee_registry_bucket_name")},
+            {"name": "TestBucketName", "value": _output_str(ctx, "rajee_test_bucket_name")},
+        ],
+    )
+    environment_id = str(created["id"])
+    client.associate_environment_role(
+        domainIdentifier=ctx.domain_id,
+        environmentIdentifier=environment_id,
+        environmentRoleArn=role_arn,
+    )
+    _wait_for_environment(client, ctx, project_id, environment_id)
+    print(f"  Created environment {environment_id}")
+    return environment_id
+
+
+def _ensure_environments(
+    client: Any,
+    ctx: Context,
+    project_ids: dict[str, str],
+) -> dict[str, str]:
+    owner_project_id = project_ids.get("owner", "")
+    if not owner_project_id or not _supports_environment_api(client, ctx, owner_project_id):
+        return {}
+
+    blueprint_id = RAJA_BLUEPRINT_ID
+    if not _ensure_custom_blueprint_configuration(client, ctx, blueprint_id):
+        return _discover_environment_ids(client, ctx, project_ids)
+
+    ensured: dict[str, str] = {}
+    for tier, project_id in project_ids.items():
+        ensured[tier] = _ensure_environment(client, ctx, tier, project_id, blueprint_id)
+    return ensured
 
 
 def _discover_environment_ids(
@@ -475,8 +718,7 @@ def main() -> None:
         profile_id = _ensure_project_profile(client, ctx)
         project_ids = _ensure_projects(client, ctx, profile_id)
         _ensure_asset_type_grant(client, ctx)
-        _find_custom_blueprint_id(client, ctx)
-        environment_ids = _discover_environment_ids(client, ctx, project_ids)
+        environment_ids = _ensure_environments(client, ctx, project_ids)
         _sync_lambda_environment_ids(ctx, environment_ids)
         _update_outputs(project_ids, environment_ids, ctx)
         _print_import_hints(ctx, project_ids)

@@ -239,3 +239,58 @@ Not implemented enough:
 - to claim that `specs/49-domain-ux/05-blueprint.md` is complete
 - to claim that DataZone environments are provisioned or active
 - to claim that the DataZone file browser issue is resolved
+
+---
+
+## Addendum: `sagemaker_gaps.py` Provisioning Attempt
+
+After the initial gap analysis, `scripts/sagemaker_gaps.py` was extended from discovery-only
+behavior to an actual provisioning path for domains that support the required APIs. The script now
+contains logic to:
+
+- discover the custom blueprint
+- configure the blueprint on the domain
+- create the environment profile
+- create the owner/users/guests environments
+- associate the tier-specific IAM roles
+- sync environment IDs back into Lambda configuration and `infra/tf-outputs.json`
+
+That implementation still cannot complete on the currently deployed domain.
+
+### Observed live failures
+
+The live domain remains `dzd-45tgjtqytva0rr` in `us-east-1`.
+
+The following direct API checks were run against that domain:
+
+1. `PutEnvironmentBlueprintConfiguration` with `environmentBlueprintIdentifier="CustomAWS"` failed:
+   `ValidationException: No EnvironmentBlueprint found with EnvironmentBlueprintId: CustomAWS`
+2. `GetEnvironmentBlueprint` with `CustomAWS` / `customaws` failed:
+   `ResourceNotFoundException`
+3. `CreateEnvironmentProfile` failed:
+   `ValidationException: API not supported for domain version`
+4. `CreateEnvironment` exists as an API on this domain, but a minimal create attempt failed:
+   `ValidationException: Invalid authorization request for CreateEnvironment action`
+
+### What this means
+
+This narrows the blocker further:
+
+- The script is no longer the missing piece.
+- The deployed domain does not expose the custom blueprint assumed by the blueprint spec.
+- The deployed domain version also does not expose the environment-profile API required by that
+  provisioning flow.
+- Because of those two service-side constraints, the new provisioning branch in
+  [scripts/sagemaker_gaps.py](/Users/ernest/GitHub/raja/scripts/sagemaker_gaps.py) cannot reach a
+  point where it can create the environments described in
+  [05-blueprint.md](/Users/ernest/GitHub/raja/specs/49-domain-ux/05-blueprint.md).
+
+### Revised status
+
+The status call remains `partial`, but with a sharper conclusion:
+
+- repo-side implementation for environment provisioning has now been attempted in both Terraform
+  and post-apply script form
+- the remaining gap is no longer just "missing code"
+- it is now a confirmed live-service incompatibility between the blueprint's assumed DataZone
+  feature set and the currently deployed domain/API surface

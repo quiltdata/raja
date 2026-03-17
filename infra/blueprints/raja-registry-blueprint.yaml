@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  RAJA bring-your-own-S3 DataZone environment blueprint.
+  Grants the DataZone project role read/write access to an existing S3 bucket
+  (rajee_registry) without provisioning new storage. Upload this template to the
+  SageMaker Unified Studio console under Blueprints → Create to register the custom
+  blueprint, then reference the resulting blueprint ID in Terraform.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+# DataZone injects the three reserved parameters below automatically at
+# environment creation time. Declare them but do not prompt users for them.
+# User-supplied parameters are passed via `userParameters` in CreateEnvironment.
+Parameters:
+
+  # ---- DataZone reserved (auto-injected) ------------------------------------
+
+  datazoneEnvironmentEnvironmentId:
+    Type: String
+    Description: DataZone environment ID — injected automatically by DataZone.
+
+  datazoneEnvironmentProjectId:
+    Type: String
+    Description: DataZone project ID — injected automatically by DataZone.
+
+  userRoleArn:
+    Type: String
+    Description: >
+      DataZone project role ARN — injected automatically by DataZone.
+      This is the per-project IAM role DataZone manages internally.
+      The RAJA tier-specific environment role (raja-dz-env-*) is associated
+      separately via aws_datazone_environment.environment_role_arn in Terraform.
+
+  # ---- User-supplied --------------------------------------------------------
+
+  RegistryBucketName:
+    Type: String
+    Description: >
+      Name of the existing S3 bucket that backs this environment.
+      For RAJA deployments this is the rajee_registry bucket (not its ARN).
+      Supplied at CreateEnvironment time via userParameters.
+
+  TestBucketName:
+    Type: String
+    Default: ""
+    Description: >
+      Name of the optional second bucket (rajee_test). Leave blank to skip.
+      Supplied at CreateEnvironment time via userParameters.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # Primary access policy — grants DataZone's project role read/write access to
+  # the registry bucket. DataZone automatically attaches any managed policy whose
+  # ARN is exported under the "datazone-managed-policy-*" naming convention.
+  RegistryAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "raja-dz-registry-${datazoneEnvironmentEnvironmentId}"
+      Description: !Sub >
+        RAJA DataZone environment ${datazoneEnvironmentEnvironmentId}:
+        read/write access to the registry bucket.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: RegistryBucketObjects
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:AbortMultipartUpload
+              - s3:ListMultipartUploadParts
+            Resource: !Sub "arn:aws:s3:::${RegistryBucketName}/*"
+          - Sid: RegistryBucketList
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource: !Sub "arn:aws:s3:::${RegistryBucketName}"
+
+  # Optional test-bucket policy — only effective when TestBucketName is provided.
+  # CloudFormation does not support conditional resource creation, so this policy
+  # is always created; when TestBucketName is blank the Resource ARN becomes
+  # "arn:aws:s3:::" which DataZone will reject at environment creation — callers
+  # must always supply a non-empty TestBucketName or omit this resource entirely
+  # by using a blueprint variant that excludes it.
+  TestBucketAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: HasTestBucket
+    Properties:
+      ManagedPolicyName: !Sub "raja-dz-test-${datazoneEnvironmentEnvironmentId}"
+      Description: !Sub >
+        RAJA DataZone environment ${datazoneEnvironmentEnvironmentId}:
+        read/write access to the test bucket.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TestBucketObjects
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub "arn:aws:s3:::${TestBucketName}/*"
+          - Sid: TestBucketList
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource: !Sub "arn:aws:s3:::${TestBucketName}"
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+Conditions:
+  HasTestBucket: !Not [!Equals [!Ref TestBucketName, ""]]
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+# DataZone scans CloudFormation exports matching the pattern:
+#   datazone-managed-policy-{label}-{environmentId}
+# and automatically attaches the referenced managed policy to the project role.
+Outputs:
+
+  RegistryPolicyArn:
+    Description: Managed policy ARN for registry bucket access.
+    Value: !Ref RegistryAccessPolicy
+    Export:
+      Name: !Sub "datazone-managed-policy-registry-${datazoneEnvironmentEnvironmentId}"
+
+  TestBucketPolicyArn:
+    Condition: HasTestBucket
+    Description: Managed policy ARN for test bucket access.
+    Value: !Ref TestBucketAccessPolicy
+    Export:
+      Name: !Sub "datazone-managed-policy-test-${datazoneEnvironmentEnvironmentId}"
+
+  # Informational outputs — consumed by sagemaker_gaps.py and the admin UI
+  # to confirm what this environment is backed by.
+  RegistryBucketName:
+    Description: Name of the registry bucket backing this environment.
+    Value: !Ref RegistryBucketName
+
+  RegistryS3Uri:
+    Description: S3 URI of the registry bucket root.
+    Value: !Sub "s3://${RegistryBucketName}/"

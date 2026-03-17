@@ -231,6 +231,55 @@ resource "aws_iam_role_policy_attachment" "datazone_domain_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/SageMakerStudioDomainExecutionRolePolicy"
 }
 
+resource "aws_iam_role_policy" "datazone_domain_execution_blueprint" {
+  name = "${var.stack_name}-datazone-blueprint-provisioning"
+  role = aws_iam_role.datazone_domain_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["s3:GetObject", "s3:GetObjectVersion"]
+        Resource = "arn:aws:s3:::amazon-sagemaker-cf-templates-${var.aws_region}-*/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["cloudformation:ValidateTemplate"]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudformation:CreateStack",
+          "cloudformation:UpdateStack",
+          "cloudformation:DeleteStack",
+          "cloudformation:DescribeStacks",
+          "cloudformation:DescribeStackEvents",
+          "cloudformation:DescribeStackResource",
+          "cloudformation:DescribeStackResources",
+          "cloudformation:GetTemplate",
+        ]
+        Resource = "arn:aws:cloudformation:${var.aws_region}:${data.aws_caller_identity.current.account_id}:stack/DataZone-Env-*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreatePolicy",
+          "iam:DeletePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListPolicyVersions",
+          "iam:DeletePolicyVersion",
+          "iam:TagPolicy",
+          "iam:UntagPolicy",
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/raja-dz-*"
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role" "datazone_domain_service" {
   name = local.datazone_domain_service_role
 
@@ -470,6 +519,23 @@ resource "aws_datazone_asset_type" "quilt_package" {
   lifecycle {
     ignore_changes = [description]
   }
+}
+
+
+locals {
+  raja_blueprint_id = "4b1p5czd9uf9uv"
+}
+
+# Enable the custom RAJA registry blueprint on this domain so that
+# sagemaker_gaps.py can create environments from it. The aws_datazone_environment
+# Terraform resource requires profile_identifier (not supported on V2 domains),
+# so environment creation is handled post-apply by sagemaker_gaps.py.
+resource "aws_datazone_environment_blueprint_configuration" "raja_registry" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = local.raja_blueprint_id
+  enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = aws_iam_role.datazone_domain_execution.arn
+  manage_access_role_arn   = aws_iam_role.datazone_domain_execution.arn
 }
 
 
