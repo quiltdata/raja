@@ -145,24 +145,6 @@ variable "datazone_guests_project_name" {
   default     = "raja-guests"
 }
 
-variable "datazone_owner_environment_id" {
-  description = "Optional Amazon DataZone environment identifier for the owner project."
-  type        = string
-  default     = ""
-}
-
-variable "datazone_users_environment_id" {
-  description = "Optional Amazon DataZone environment identifier for the users project."
-  type        = string
-  default     = ""
-}
-
-variable "datazone_guests_environment_id" {
-  description = "Optional Amazon DataZone environment identifier for the guests project."
-  type        = string
-  default     = ""
-}
-
 variable "datazone_package_asset_type" {
   description = "Custom Amazon DataZone asset type name used for Quilt package listings."
   type        = string

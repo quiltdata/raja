@@ -28,21 +28,6 @@ output "datazone_guests_project_id" {
   value       = aws_datazone_project.guests.id
 }
 
-output "datazone_owner_environment_id" {
-  description = "Amazon DataZone environment identifier for the owner project."
-  value       = var.datazone_owner_environment_id
-}
-
-output "datazone_users_environment_id" {
-  description = "Amazon DataZone environment identifier for the users project."
-  value       = var.datazone_users_environment_id
-}
-
-output "datazone_guests_environment_id" {
-  description = "Amazon DataZone environment identifier for the guests project."
-  value       = var.datazone_guests_environment_id
-}
-
 output "datazone_owner_environment_role_arn" {
   description = "IAM role ARN used by the owner DataZone environment."
   value       = aws_iam_role.datazone_environment_owner.arn

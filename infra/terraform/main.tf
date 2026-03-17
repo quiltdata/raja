@@ -522,23 +522,6 @@ resource "aws_datazone_asset_type" "quilt_package" {
 }
 
 
-locals {
-  raja_blueprint_id = "4b1p5czd9uf9uv"
-}
-
-# Enable the custom RAJA registry blueprint on this domain so that
-# sagemaker_gaps.py can create environments from it. The aws_datazone_environment
-# Terraform resource requires profile_identifier (not supported on V2 domains),
-# so environment creation is handled post-apply by sagemaker_gaps.py.
-resource "aws_datazone_environment_blueprint_configuration" "raja_registry" {
-  domain_id                = aws_datazone_domain.raja.id
-  environment_blueprint_id = local.raja_blueprint_id
-  enabled_regions          = [var.aws_region]
-  provisioning_role_arn    = aws_iam_role.datazone_domain_execution.arn
-  manage_access_role_arn   = aws_iam_role.datazone_domain_execution.arn
-}
-
-
 resource "random_password" "jwt_secret" {
   length  = 48
   special = false
@@ -686,9 +669,6 @@ resource "aws_lambda_function" "control_plane" {
       DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
       DATAZONE_USERS_PROJECT_ID            = aws_datazone_project.users.id
       DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
-      DATAZONE_OWNER_ENVIRONMENT_ID        = var.datazone_owner_environment_id
-      DATAZONE_USERS_ENVIRONMENT_ID        = var.datazone_users_environment_id
-      DATAZONE_GUESTS_ENVIRONMENT_ID       = var.datazone_guests_environment_id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
@@ -801,9 +781,6 @@ resource "aws_lambda_function" "rale_authorizer" {
       DATAZONE_OWNER_PROJECT_ID            = aws_datazone_project.owner.id
       DATAZONE_USERS_PROJECT_ID            = aws_datazone_project.users.id
       DATAZONE_GUESTS_PROJECT_ID           = aws_datazone_project.guests.id
-      DATAZONE_OWNER_ENVIRONMENT_ID        = var.datazone_owner_environment_id
-      DATAZONE_USERS_ENVIRONMENT_ID        = var.datazone_users_environment_id
-      DATAZONE_GUESTS_ENVIRONMENT_ID       = var.datazone_guests_environment_id
       DATAZONE_PACKAGE_ASSET_TYPE          = aws_datazone_asset_type.quilt_package.name
       DATAZONE_PACKAGE_ASSET_TYPE_REVISION = aws_datazone_asset_type.quilt_package.revision
       JWT_SECRET_ARN                       = aws_secretsmanager_secret.jwt.arn
