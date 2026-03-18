@@ -14,8 +14,10 @@ def _pause_if_manual(mode: RunMode) -> None:
         click.prompt("Press Enter to continue", default="", show_default=False)
 
 
-def run_all(state: SessionState, mode: RunMode, console: Console) -> None:
-    run_select(state, mode, console)
+def run_all(
+    state: SessionState, mode: RunMode, console: Console, *, package_index: int | None = None
+) -> None:
+    run_select(state, mode, console, package_index=package_index)
     _pause_if_manual(mode)
 
     run_authorize(state, console)

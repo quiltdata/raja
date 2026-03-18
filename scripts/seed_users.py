@@ -31,9 +31,7 @@ def _get_region() -> str:
 def _hydrate_datazone_env() -> None:
     mapping = {
         "DATAZONE_DOMAIN_ID": "datazone_domain_id",
-        "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
-        "DATAZONE_USERS_PROJECT_ID": "datazone_users_project_id",
-        "DATAZONE_GUESTS_PROJECT_ID": "datazone_guests_project_id",
+        "DATAZONE_PROJECTS": "datazone_projects",
         "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
         "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
     }
@@ -69,13 +67,6 @@ def _get_raja_users() -> list[str]:
     return users
 
 
-def _get_raja_guests() -> list[str]:
-    raw = os.environ.get("RAJA_GUESTS", "").strip()
-    if not raw:
-        return []
-    return [u.strip() for u in raw.split(",") if u.strip()]
-
-
 def _user_to_arn(username: str, account_id: str) -> str:
     return f"arn:aws:iam::{account_id}:user/{username}"
 
@@ -86,13 +77,12 @@ def main() -> None:
     region = _get_region()
     _hydrate_datazone_env()
     usernames = _get_raja_users()
-    guests = _get_raja_guests()
     seed_config = load_seed_config()
     account_id = _get_account_id(region)
 
     print(f"{'=' * 60}")
     print(
-        f"Seeding {len(usernames)} RAJA user(s) + {len(guests)} guest(s) from account {account_id}"
+        f"Seeding {len(usernames)} RAJA user(s) from account {account_id}"
     )
     print(f"Region: {region}")
     if dry_run:
@@ -155,45 +145,6 @@ def main() -> None:
             print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
             fail_count += 1
 
-    # Preserve RAJA_GUESTS as optional overflow into the last configured project.
-    if guests:
-        overflow_project = seed_config.projects[-1]
-        overflow_project_id = project_ids.get(overflow_project.key, "")
-        print(
-            f"\nSeeding {len(guests)} extra principal(s) → "
-            f"{overflow_project.display_name} ({overflow_project_id})"
-        )
-        for idx, username in enumerate(guests):
-            arn = _user_to_arn(username, account_id)
-            print(
-                f"[{idx + 1}/{len(guests)}] {username}"
-                f"  logical_project={overflow_project.display_name}"
-                f"  project={overflow_project_id}"
-            )
-            if dry_run:
-                print(
-                    f"  [DRY-RUN] Would add: {arn} → project={overflow_project_id} "
-                    "as PROJECT_CONTRIBUTOR"
-                )
-                success_count += 1
-                continue
-            if not overflow_project_id:
-                print("  ⚠ No overflow project ID, skipping", file=sys.stderr)
-                fail_count += 1
-                continue
-            try:
-                datazone_service.ensure_project_membership(
-                    project_id=overflow_project_id,
-                    user_identifier=arn,
-                    designation="PROJECT_CONTRIBUTOR",
-                )
-                print(f"  ✓ DataZone: added {arn} to project {overflow_project_id}")
-                project_principals[overflow_project.key].append(arn)
-                success_count += 1
-            except Exception as e:
-                print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
-                fail_count += 1
-
     if not dry_run:
         state = load_seed_state()
         existing_projects = state.get("projects", {})
@@ -223,7 +174,7 @@ def main() -> None:
                     else {}
                 ),
                 "display_name": project.display_name,
-                "slot": project.slot,
+                "project_name": project.project_name,
                 "project_id": project_ids.get(project.key, ""),
                 "principals": project_principals.get(project.key, []),
             }
@@ -231,7 +182,7 @@ def main() -> None:
         }
         write_seed_state(state)
 
-    total = len(usernames) + len(guests)
+    total = len(usernames)
     print(f"\n{'=' * 60}")
     if dry_run:
         print(f"✓ DRY-RUN: Would seed {total} principal(s)")

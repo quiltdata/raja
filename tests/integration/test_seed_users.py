@@ -20,9 +20,7 @@ from .helpers import require_raja_users
 
 _DATAZONE_ENV_MAP = {
     "DATAZONE_DOMAIN_ID": "datazone_domain_id",
-    "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
-    "DATAZONE_USERS_PROJECT_ID": "datazone_users_project_id",
-    "DATAZONE_GUESTS_PROJECT_ID": "datazone_guests_project_id",
+    "DATAZONE_PROJECTS": "datazone_projects",
     "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
     "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
 }
@@ -52,16 +50,10 @@ def test_seeded_users_are_found_in_datazone_projects() -> None:
     service, config = _make_service()
 
     project_ids = [
-        p
-        for p in [
-            config.owner_project_id,
-            config.users_project_id,
-            config.guests_project_id,
-        ]
-        if p
+        project.project_id for _, project in config.ordered_projects() if project.project_id
     ]
 
-    assert project_ids, "No DataZone project IDs configured (check DATAZONE_*_PROJECT_ID env vars)"
+    assert project_ids, "No DataZone project IDs configured (check DATAZONE_PROJECTS)"
 
     failures: list[str] = []
     for principal in principals:
@@ -112,13 +104,7 @@ def test_unknown_principal_returns_none() -> None:
     # Use an account that definitely does not exist
     fake_arn = "arn:aws:iam::000000000000:user/nobody-fake-xyzzy"
     project_ids = [
-        p
-        for p in [
-            config.owner_project_id,
-            config.users_project_id,
-            config.guests_project_id,
-        ]
-        if p
+        project.project_id for _, project in config.ordered_projects() if project.project_id
     ]
 
     result = service.find_project_for_principal(fake_arn, project_ids=project_ids)

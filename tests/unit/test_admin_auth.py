@@ -8,6 +8,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from raja.datazone import DataZoneConfig, ProjectConfig
+
 server_app = importlib.import_module("raja.server.app")
 dependencies = importlib.import_module("raja.server.dependencies")
 
@@ -74,14 +76,10 @@ def test_protected_principals_correct_key_returns_200() -> None:
 
     with mpatch("raja.server.routers.control_plane._datazone_service") as factory:
         with mpatch("raja.server.routers.control_plane.DataZoneConfig") as mock_cfg_cls:
-            config = MagicMock()
-            config.owner_project_id = "proj-alpha"
-            config.users_project_id = ""
-            config.guests_project_id = ""
-            config.owner_project_label = "Alpha"
-            config.users_project_label = "Bio"
-            config.guests_project_label = "Compute"
-            mock_cfg_cls.from_env.return_value = config
+            mock_cfg_cls.from_env.return_value = DataZoneConfig(
+                domain_id="dzd-123",
+                projects={"slot-a": ProjectConfig(project_id="proj-alpha", project_label="Alpha")},
+            )
             service = factory.return_value
             service.list_project_members.return_value = []
             app.dependency_overrides[dependencies.get_datazone_client] = lambda: MagicMock()
