@@ -20,6 +20,7 @@ coverage.xml
 # Environments
 .env
 .envrc
+.python-version
 .venv
 venv/
 

@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Dr. Ernie Prabhakar", email = "ernest@quilt.bio" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "awscrt>=0.20.0",
     "click>=8.1.0",
