@@ -122,11 +122,6 @@ function statusDetailText(value) {
   return raw;
 }
 
-function scopesForProject(project) {
-  if (Array.isArray(project?.scopes) && project.scopes.length) return project.scopes;
-  return [];
-}
-
 function dedupePrincipals() {
   const summary = state.accessGraph?.principal_summary;
   if (Array.isArray(summary) && summary.length) return summary;
@@ -353,10 +348,6 @@ function renderStatusRows() {
   select("stack-summary-meta").textContent = `${Object.keys(stack).length} components`;
 }
 
-function principalScopeMarkup(scopes = []) {
-  return scopes.map((scope) => `<span class="scope-chip">${escapeHtml(scope)}</span>`).join("");
-}
-
 function renderPrincipalSelectors() {
   const principals = dedupePrincipals();
   const options = ['<option value="">Choose a principal</option>']
@@ -403,7 +394,6 @@ function renderProjects() {
                 <tr>
                   <td>
                     <div>${escapeHtml(item.principal)}</div>
-                    <div class="principal-scopes">${principalScopeMarkup(item.scopes || [])}</div>
                   </td>
                   <td>${escapeHtml(lastIssued ? formatTimestamp(lastIssued) : "Never")}</td>
                   <td>
@@ -434,7 +424,6 @@ function renderProjects() {
                 : ""
             }
           </div>
-          <p class="project-scope">Granted scopes: ${escapeHtml(scopesForProject(project).join(", "))}</p>
           <table>
             <thead>
               <tr>

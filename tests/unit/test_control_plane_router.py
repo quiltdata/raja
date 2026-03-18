@@ -21,13 +21,6 @@ def _make_request(request_id: str | None = None) -> Request:
     return Request(scope)
 
 
-def _mock_datazone_with_scopes(scopes: list[str]) -> MagicMock:
-    """Return a datazone mock whose find_project_for_principal returns the first project."""
-    datazone = MagicMock()
-    with patch.object(control_plane, "_derive_principal_scopes", return_value=scopes):
-        return datazone
-
-
 def _config(
     *,
     include_second: bool = True,
@@ -58,23 +51,26 @@ def _config(
 def test_issue_token_raja_type():
     """Test issuing a RAJA token."""
     payload = control_plane.TokenRequest(principal="alice", token_type="raja")
-    with patch.object(
-        control_plane, "_derive_principal_scopes", return_value=["Document:doc1:read"]
-    ):
-        response = control_plane.issue_token(
-            _make_request(),
-            payload,
-            datazone=MagicMock(),
-            secret="secret",
-        )
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_second=False, include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-alpha"
+            response = control_plane.issue_token(
+                _make_request(),
+                payload,
+                datazone=datazone,
+                secret="secret",
+            )
 
     assert response["principal"] == "alice"
     assert "token" in response
-    assert response["scopes"] == ["Document:doc1:read"]
+    assert "scopes" not in response
 
 
 def test_issue_token_rajee_type():
-    """Test issuing a RAJEE token with scopes."""
+    """Test issuing a RAJEE token."""
     request = MagicMock()
     request.headers = MagicMock()
     request.headers.get = Mock(return_value=None)
@@ -83,34 +79,40 @@ def test_issue_token_rajee_type():
     request.base_url = base_url_mock
 
     payload = control_plane.TokenRequest(principal="alice", token_type="rajee")
-    with patch.object(
-        control_plane, "_derive_principal_scopes", return_value=["S3Object:bucket:key:s3:GetObject"]
-    ):
-        response = control_plane.issue_token(
-            request,
-            payload,
-            datazone=MagicMock(),
-            secret="secret",
-        )
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_second=False, include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-alpha"
+            response = control_plane.issue_token(
+                request,
+                payload,
+                datazone=datazone,
+                secret="secret",
+            )
 
     assert response["principal"] == "alice"
     assert "token" in response
-    assert "scopes" in response
+    assert "scopes" not in response
 
 
 def test_issue_token_invalid_type():
     """Test that issuing a token with invalid type raises HTTPException."""
     payload = control_plane.TokenRequest(principal="alice", token_type="invalid")
-    with patch.object(
-        control_plane, "_derive_principal_scopes", return_value=["Document:doc1:read"]
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            control_plane.issue_token(
-                _make_request(),
-                payload,
-                datazone=MagicMock(),
-                secret="secret",
-            )
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_second=False, include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-alpha"
+            with pytest.raises(HTTPException) as exc_info:
+                control_plane.issue_token(
+                    _make_request(),
+                    payload,
+                    datazone=datazone,
+                    secret="secret",
+                )
 
     assert exc_info.value.status_code == 400
     assert "Unsupported token_type" in exc_info.value.detail
@@ -246,16 +248,12 @@ def test_list_principals_preserves_multi_project_memberships():
             "principal": "alice",
             "datazone_project_id": "proj-alpha",
             "datazone_project_name": "Alpha",
-            "scopes": ["*:*:*"],
-            "scope_count": 1,
             "last_token_issued": None,
         },
         {
             "principal": "alice",
             "datazone_project_id": "proj-bio",
             "datazone_project_name": "Bio",
-            "scopes": ["S3Object:*:*"],
-            "scope_count": 1,
             "last_token_issued": None,
         },
     ]
@@ -275,7 +273,6 @@ def test_create_principal():
     request = control_plane.PrincipalRequest(
         principal="alice",
         project_id="proj-bio",
-        scopes=["Document:doc1:read", "Document:doc2:write"],
     )
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
@@ -287,10 +284,10 @@ def test_create_principal():
     assert "datazone_project_id" in response
 
 
-def test_create_principal_empty_scopes():
+def test_create_principal_missing_project_id():
     """Test creating a principal without a target project is rejected."""
     datazone = MagicMock()
-    request = control_plane.PrincipalRequest(principal="alice", scopes=[])
+    request = control_plane.PrincipalRequest(principal="alice")
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             mock_config_cls.from_env.return_value = _config()
@@ -519,8 +516,6 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
                             "principal": "alice",
                             "datazone_project_id": "proj-alpha",
                             "datazone_project_name": "Alpha",
-                            "scopes": ["*:*:*"],
-                            "scope_count": 1,
                             "last_token_issued": None,
                         }
                     ],

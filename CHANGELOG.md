@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`--package N` CLI flag**: Pass `--package <number>` to pre-select a package by index (1-based), skipping the interactive prompt entirely.
-- **`RAJA_PROJECT_SCOPES` env var**: Slot-keyed JSON override for per-slot scopes (replaces the fixed `RAJA_OWNER_SCOPES` / `RAJA_USERS_SCOPES` / `RAJA_GUESTS_SCOPES` vars).
 - **`project_id` field on `PrincipalRequest`**: Callers can now pin a specific DataZone project ID when creating a principal, bypassing slot-discovery.
 
 ### Changed
@@ -23,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **`project_id_for_scopes()`**: Hardcoded scope-to-project mapping removed from `datazone/service.py`; replaced by slot-order defaults with `RAJA_PROJECT_SCOPES` overrides.
+- **Scope derivation dead code**: All scope-assignment logic removed from the control plane — `_scopes_for_slot()`, `_scopes_for_project()`, `_slot_scope_overrides()`, `RAJA_PROJECT_SCOPES` env var, and the `scopes` field on `PrincipalRequest`. Authorization is DataZone subscriptions; tokens are issued with empty scopes.
+- **`project_id_for_scopes()`**: Hardcoded scope-to-project mapping removed from `datazone/service.py`.
 - **Hardcoded `owner/users/guests` slot env vars** (`DATAZONE_OWNER_PROJECT_ID`, etc.): Consolidated into `DATAZONE_SLOTS`.
 
 ## [1.1.0] - 2026-03-18

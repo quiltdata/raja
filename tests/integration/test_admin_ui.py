@@ -445,7 +445,6 @@ def test_token_issuance_for_known_principal():
     status, body = request_json("POST", "/token", {"principal": principal})
     assert status == 200, f"Token issuance failed: {status}: {body}"
     assert "token" in body, "Response missing 'token'"
-    assert "scopes" in body, "Response missing 'scopes'"
     assert body.get("principal") == principal
 
 

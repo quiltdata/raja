@@ -51,7 +51,9 @@ def _sorted_packages_for_principal(packages: list[str], principal: str) -> list[
     )
 
 
-def run_select(state: SessionState, mode: RunMode, console: Console, *, package_index: int | None = None) -> None:
+def run_select(
+    state: SessionState, mode: RunMode, console: Console, *, package_index: int | None = None
+) -> None:
     quilt3 = _load_quilt3()
     registry = state.config.registry
 
@@ -73,7 +75,9 @@ def run_select(state: SessionState, mode: RunMode, console: Console, *, package_
         package_table.add_row(str(idx), package)
     console.print(package_table)
 
-    package_index = _select_index(count=len(packages), mode=mode, label="package", preselected=package_index)
+    package_index = _select_index(
+        count=len(packages), mode=mode, label="package", preselected=package_index
+    )
     package_name = packages[package_index]
 
     try:

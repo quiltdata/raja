@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import os
 import re
 import secrets
@@ -56,7 +55,6 @@ class PrincipalRequest(BaseModel):
 
     principal: str
     project_id: str | None = None
-    scopes: list[str] = []
 
 
 class RevokeTokenRequest(BaseModel):
@@ -165,56 +163,6 @@ def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
     return [slot.project_id for _, slot in _ordered_slots(config)]
 
 
-def _slot_scope_overrides() -> dict[str, list[str]]:
-    raw = os.environ.get("RAJA_PROJECT_SCOPES", "").strip()
-    if not raw:
-        return {}
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    overrides: dict[str, list[str]] = {}
-    for slot_name, scopes in payload.items():
-        if not isinstance(slot_name, str):
-            continue
-        if isinstance(scopes, str):
-            parsed = [scope.strip() for scope in scopes.split(",") if scope.strip()]
-        elif isinstance(scopes, list):
-            parsed = [str(scope).strip() for scope in scopes if str(scope).strip()]
-        else:
-            continue
-        overrides[slot_name] = parsed
-    return overrides
-
-
-def _default_scopes_for_index(index: int) -> list[str]:
-    if index == 0:
-        return ["*:*:*"]
-    if index == 1:
-        return ["S3Object:*:*"]
-    return ["S3Object:*:s3:GetObject"]
-
-
-def _scopes_for_slot(slot_name: str, config: DataZoneConfig) -> list[str]:
-    overrides = _slot_scope_overrides()
-    if slot_name in overrides:
-        return overrides[slot_name]
-    for index, (candidate_name, _slot) in enumerate(_ordered_slots(config)):
-        if candidate_name == slot_name:
-            return _default_scopes_for_index(index)
-    return []
-
-
-def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
-    """Derive scopes from which DataZone project the principal belongs to."""
-    slot_name = config.slot_name_for_project(project_id)
-    if slot_name is None:
-        return []
-    return _scopes_for_slot(slot_name, config)
-
-
 def _project_name(project_id: str, config: DataZoneConfig) -> str:
     slot_name = config.slot_name_for_project(project_id)
     if slot_name is not None:
@@ -222,24 +170,6 @@ def _project_name(project_id: str, config: DataZoneConfig) -> str:
         if slot.project_label:
             return slot.project_label
     return project_id
-
-
-def _derive_principal_scopes(datazone_client: Any, principal: str) -> list[str] | None:
-    """Look up which DataZone project the principal belongs to and return scopes.
-
-    Returns None if principal is not a member of any configured project.
-    """
-    try:
-        config = DataZoneConfig.from_env()
-        service = _datazone_service(datazone_client)
-        project_id = service.find_project_for_principal(
-            principal, project_ids=_ordered_project_ids(config)
-        )
-    except DataZoneError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if project_id is None:
-        return None
-    return _scopes_for_project(project_id, config)
 
 
 def _authorize_package_with_datazone(
@@ -458,7 +388,6 @@ def _project_structure(
         "slot_name": slot_name,
         "name": _project_name(project_id, config),
         "id": project_id,
-        "scopes": _scopes_for_slot(slot_name, config),
         "portal_url": (
             _studio_project_url(
                 portal_url=domain_portal_url,
@@ -784,13 +713,13 @@ def _resolve_rotation_targets() -> list[str]:
 def _run_rotation_probes(old_secret: str, new_secret: str) -> None:
     old_token = create_token(
         subject="rotation-probe",
-        scopes=["*:*:*"],
+        scopes=[],
         ttl=60,
         secret=old_secret,
     )
     new_token = create_token(
         subject="rotation-probe",
-        scopes=["*:*:*"],
+        scopes=[],
         ttl=60,
         secret=new_secret,
     )
@@ -846,8 +775,16 @@ def issue_token(
 ) -> dict[str, Any]:
     logger.info("token_requested", principal=payload.principal)
 
-    scopes = _derive_principal_scopes(datazone, payload.principal)
-    if scopes is None:
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        project_id = service.find_project_for_principal(
+            payload.principal, project_ids=_ordered_project_ids(config)
+        )
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if project_id is None:
         logger.warning("token_request_principal_not_found", principal=payload.principal)
         raise HTTPException(status_code=404, detail=f"Principal not found: {payload.principal}")
 
@@ -857,7 +794,7 @@ def issue_token(
         issuer = str(request.base_url).rstrip("/")
         token = create_token(
             subject=payload.principal,
-            scopes=scopes,
+            scopes=[],
             ttl=TOKEN_TTL,
             secret=secret,
             issuer=issuer,
@@ -866,7 +803,7 @@ def issue_token(
     elif token_type == "raja":
         token = create_token(
             subject=payload.principal,
-            scopes=scopes,
+            scopes=[],
             ttl=TOKEN_TTL,
             secret=secret,
         )
@@ -876,11 +813,10 @@ def issue_token(
     logger.info(
         "token_issued",
         principal=payload.principal,
-        scopes_count=len(scopes),
         ttl=TOKEN_TTL,
     )
 
-    return {"token": token, "principal": payload.principal, "scopes": scopes}
+    return {"token": token, "principal": payload.principal}
 
 
 @router.post("/token/package")
@@ -1002,7 +938,6 @@ def list_principals(
         principals: list[dict[str, Any]] = []
         for project_id in _ordered_project_ids(config):
             members = service.list_project_members(project_id)
-            scopes = _scopes_for_project(project_id, config)
             for user_id in members:
                 if limit and len(principals) >= limit:
                     break
@@ -1011,8 +946,6 @@ def list_principals(
                         "principal": user_id,
                         "datazone_project_id": project_id,
                         "datazone_project_name": _project_name(project_id, config),
-                        "scopes": scopes,
-                        "scope_count": len(scopes),
                         "last_token_issued": None,
                     }
                 )
@@ -1482,7 +1415,6 @@ def create_principal(
     logger.info(
         "principal_create_requested",
         principal=request.principal,
-        scopes_count=len(request.scopes),
     )
     if not datazone_enabled():
         raise HTTPException(status_code=503, detail="DataZone is not configured")
@@ -1507,7 +1439,6 @@ def create_principal(
     return {
         "principal": request.principal,
         "project_id": project_id,
-        "scopes": _scopes_for_project(project_id, config),
         "datazone_project_id": project_id,
     }
 
