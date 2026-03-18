@@ -19,6 +19,13 @@ from raja.rale.state import SessionState
 @click.group(invoke_without_command=True)
 @click.option("--auto", "requested_auto", is_flag=True, help="Run phases without pauses")
 @click.option("--manual", "requested_manual", is_flag=True, help="Pause between phases")
+@click.option(
+    "--package",
+    "package_index",
+    type=int,
+    default=None,
+    help="Pre-select package by number (1-based), skipping the prompt",
+)
 @click.option("--server-url", type=str, default=None, help="RAJA control-plane URL")
 @click.option("--registry", type=str, default=None, help="Default Quilt registry")
 @click.option("--rajee-endpoint", type=str, default=None, help="RAJEE endpoint URL")
@@ -29,6 +36,7 @@ def main(
     ctx: click.Context,
     requested_auto: bool,
     requested_manual: bool,
+    package_index: int | None,
     server_url: str | None,
     registry: str | None,
     rajee_endpoint: str | None,
@@ -51,6 +59,7 @@ def main(
         "console": console,
         "requested_auto": requested_auto,
         "requested_manual": requested_manual,
+        "package_index": package_index,
     }
 
     if ctx.invoked_subcommand is not None:
@@ -72,7 +81,7 @@ def main(
 
     state = SessionState(config=config, tf_outputs=tf_outputs)
     try:
-        run_all(state, mode, console)
+        run_all(state, mode, console, package_index=package_index)
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 

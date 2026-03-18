@@ -37,7 +37,7 @@ _DATAZONE_FIELDS = [
     ("Domain ID", "datazone_domain_id", ""),
     ("Portal URL", "datazone_portal_url", ""),
     *[
-        (f"{project.display_name} Project ID", f"datazone_{project.slot}_project_id", "")
+        (f"{project.display_name} Project ID", f"datazone_{project.project_name}_project_id", "")
         for project in _SEED_CONFIG.projects
     ],
     ("Asset Type", "datazone_package_asset_type", ""),

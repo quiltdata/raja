@@ -209,13 +209,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
             config=config,
         )
         project_ids = [
-            p
-            for p in [
-                config.owner_project_id,
-                config.users_project_id,
-                config.guests_project_id,
-            ]
-            if p
+            project.project_id for _, project in config.ordered_projects() if project.project_id
         ]
         project_id = service.find_project_for_principal(principal, project_ids=project_ids)
     except DataZoneError:

@@ -64,9 +64,7 @@ def _get_region() -> str:
 def _hydrate_datazone_env() -> None:
     mapping = {
         "DATAZONE_DOMAIN_ID": "datazone_domain_id",
-        "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
-        "DATAZONE_USERS_PROJECT_ID": "datazone_users_project_id",
-        "DATAZONE_GUESTS_PROJECT_ID": "datazone_guests_project_id",
+        "DATAZONE_PROJECTS": "datazone_projects",
         "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
         "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
     }

@@ -24,7 +24,6 @@ from raja.datazone import (
     DataZoneError,
     DataZoneService,
     datazone_enabled,
-    project_id_for_scopes,
 )
 from raja.exceptions import TokenInvalidError
 from raja.manifest import _load_quilt3
@@ -49,13 +48,6 @@ class TokenRequest(BaseModel):
 
     principal: str
     token_type: str = "raja"
-
-
-class PrincipalRequest(BaseModel):
-    """Request model for principal creation."""
-
-    principal: str
-    scopes: list[str] = []
 
 
 class RevokeTokenRequest(BaseModel):
@@ -155,50 +147,22 @@ def _datazone_service(client: Any) -> DataZoneService:
     return DataZoneService(client=client, config=DataZoneConfig.from_env())
 
 
+def _ordered_projects(config: DataZoneConfig) -> list[tuple[str, Any]]:
+    return config.ordered_projects()
+
+
 def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
-    """Return non-empty configured project IDs in slot order."""
-    return [
-        p for p in [config.owner_project_id, config.users_project_id, config.guests_project_id] if p
-    ]
-
-
-def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
-    """Derive scopes from which DataZone project the principal belongs to."""
-    if project_id == config.owner_project_id:
-        raw = os.environ.get("RAJA_OWNER_SCOPES", "*:*:*")
-    elif project_id == config.users_project_id:
-        raw = os.environ.get("RAJA_USERS_SCOPES", "S3Object:*:*")
-    else:
-        raw = os.environ.get("RAJA_GUESTS_SCOPES", "S3Object:*:s3:GetObject")
-    return [s.strip() for s in raw.split(",") if s.strip()]
+    """Return non-empty configured project IDs in project order."""
+    return [project.project_id for _, project in _ordered_projects(config)]
 
 
 def _project_name(project_id: str, config: DataZoneConfig) -> str:
-    if project_id == config.owner_project_id:
-        return config.owner_project_label
-    if project_id == config.users_project_id:
-        return config.users_project_label
-    if project_id == config.guests_project_id:
-        return config.guests_project_label
+    project_name = config.project_name_for_id(project_id)
+    if project_name is not None:
+        project = config.project(project_name)
+        if project.project_label:
+            return project.project_label
     return project_id
-
-
-def _derive_principal_scopes(datazone_client: Any, principal: str) -> list[str] | None:
-    """Look up which DataZone project the principal belongs to and return scopes.
-
-    Returns None if principal is not a member of any configured project.
-    """
-    try:
-        config = DataZoneConfig.from_env()
-        service = _datazone_service(datazone_client)
-        project_id = service.find_project_for_principal(
-            principal, project_ids=_ordered_project_ids(config)
-        )
-    except DataZoneError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if project_id is None:
-        return None
-    return _scopes_for_project(project_id, config)
 
 
 def _authorize_package_with_datazone(
@@ -398,17 +362,15 @@ def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str
 
 
 def _project_environment_id(project_id: str, config: DataZoneConfig) -> str:
-    if project_id == config.owner_project_id:
-        return config.owner_environment_id
-    if project_id == config.users_project_id:
-        return config.users_environment_id
-    if project_id == config.guests_project_id:
-        return config.guests_environment_id
+    project_name = config.project_name_for_id(project_id)
+    if project_name is not None:
+        return config.project(project_name).environment_id
     return ""
 
 
 def _project_structure(
     *,
+    project_name: str,
     project_id: str,
     config: DataZoneConfig,
     region: str,
@@ -416,6 +378,7 @@ def _project_structure(
 ) -> dict[str, Any]:
     environment_id = _project_environment_id(project_id, config)
     return {
+        "project_name": project_name,
         "name": _project_name(project_id, config),
         "id": project_id,
         "portal_url": (
@@ -446,6 +409,24 @@ def _project_structure(
         ),
         "status": "ok" if project_id else "warn",
     }
+
+
+def _project_structures(
+    *,
+    config: DataZoneConfig,
+    region: str,
+    domain_portal_url: str,
+) -> list[dict[str, Any]]:
+    return [
+        _project_structure(
+            project_name=project_name,
+            project_id=project.project_id,
+            config=config,
+            region=region,
+            domain_portal_url=domain_portal_url,
+        )
+        for project_name, project in _ordered_projects(config)
+    ]
 
 
 def _summarize_principals(principals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -725,13 +706,13 @@ def _resolve_rotation_targets() -> list[str]:
 def _run_rotation_probes(old_secret: str, new_secret: str) -> None:
     old_token = create_token(
         subject="rotation-probe",
-        scopes=["*:*:*"],
+        scopes=[],
         ttl=60,
         secret=old_secret,
     )
     new_token = create_token(
         subject="rotation-probe",
-        scopes=["*:*:*"],
+        scopes=[],
         ttl=60,
         secret=new_secret,
     )
@@ -787,8 +768,16 @@ def issue_token(
 ) -> dict[str, Any]:
     logger.info("token_requested", principal=payload.principal)
 
-    scopes = _derive_principal_scopes(datazone, payload.principal)
-    if scopes is None:
+    try:
+        config = DataZoneConfig.from_env()
+        service = _datazone_service(datazone)
+        project_id = service.find_project_for_principal(
+            payload.principal, project_ids=_ordered_project_ids(config)
+        )
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if project_id is None:
         logger.warning("token_request_principal_not_found", principal=payload.principal)
         raise HTTPException(status_code=404, detail=f"Principal not found: {payload.principal}")
 
@@ -798,7 +787,7 @@ def issue_token(
         issuer = str(request.base_url).rstrip("/")
         token = create_token(
             subject=payload.principal,
-            scopes=scopes,
+            scopes=[],
             ttl=TOKEN_TTL,
             secret=secret,
             issuer=issuer,
@@ -807,7 +796,7 @@ def issue_token(
     elif token_type == "raja":
         token = create_token(
             subject=payload.principal,
-            scopes=scopes,
+            scopes=[],
             ttl=TOKEN_TTL,
             secret=secret,
         )
@@ -817,11 +806,10 @@ def issue_token(
     logger.info(
         "token_issued",
         principal=payload.principal,
-        scopes_count=len(scopes),
         ttl=TOKEN_TTL,
     )
 
-    return {"token": token, "principal": payload.principal, "scopes": scopes}
+    return {"token": token, "principal": payload.principal}
 
 
 @router.post("/token/package")
@@ -943,7 +931,6 @@ def list_principals(
         principals: list[dict[str, Any]] = []
         for project_id in _ordered_project_ids(config):
             members = service.list_project_members(project_id)
-            scopes = _scopes_for_project(project_id, config)
             for user_id in members:
                 if limit and len(principals) >= limit:
                     break
@@ -952,8 +939,6 @@ def list_principals(
                         "principal": user_id,
                         "datazone_project_id": project_id,
                         "datazone_project_name": _project_name(project_id, config),
-                        "scopes": scopes,
-                        "scope_count": len(scopes),
                         "last_token_issued": None,
                     }
                 )
@@ -1026,20 +1011,7 @@ def get_admin_structure(
                 ),
                 "status": domain_status,
             },
-            "owner_project": _project_structure(
-                project_id=config.owner_project_id,
-                config=config,
-                region=region,
-                domain_portal_url=domain_portal_url,
-            ),
-            "users_project": _project_structure(
-                project_id=config.users_project_id,
-                config=config,
-                region=region,
-                domain_portal_url=domain_portal_url,
-            ),
-            "guests_project": _project_structure(
-                project_id=config.guests_project_id,
+            "projects": _project_structures(
                 config=config,
                 region=region,
                 domain_portal_url=domain_portal_url,
@@ -1426,65 +1398,100 @@ def deliver_rale_request(
     }
 
 
-@router.post("/principals")
-def create_principal(
-    request: PrincipalRequest,
+@router.get("/principals/projects/{project_id}")
+def list_principals_by_project(
+    project_id: str,
     _: None = Depends(dependencies.require_admin_auth),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
-    """Add a principal to the appropriate DataZone project based on their scopes."""
+    """List all members of a single DataZone project."""
+    config = DataZoneConfig.from_env()
+    if project_id not in _ordered_project_ids(config):
+        raise HTTPException(status_code=404, detail=f"Unknown DataZone project: {project_id}")
+    try:
+        service = _datazone_service(datazone)
+        members = service.list_project_members(project_id)
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"project_id": project_id, "principals": members}
+
+
+@router.get("/principals/{principal}/projects")
+def list_projects_for_principal(
+    principal: str,
+    _: None = Depends(dependencies.require_admin_auth),
+    datazone: Any = Depends(dependencies.get_datazone_client),
+) -> dict[str, Any]:
+    """List all configured projects that the principal is a member of."""
+    config = DataZoneConfig.from_env()
+    projects: list[dict[str, Any]] = []
+    try:
+        service = _datazone_service(datazone)
+        for project_id in _ordered_project_ids(config):
+            members = service.list_project_members(project_id)
+            if principal in members:
+                projects.append(
+                    {
+                        "project_id": project_id,
+                        "project_name": _project_name(project_id, config),
+                    }
+                )
+    except DataZoneError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"principal": principal, "projects": projects}
+
+
+@router.post("/principals/{principal}/projects/{project_id}")
+def add_principal_to_project(
+    principal: str,
+    project_id: str,
+    _: None = Depends(dependencies.require_admin_auth),
+    datazone: Any = Depends(dependencies.get_datazone_client),
+) -> dict[str, Any]:
+    """Add a principal to the specified DataZone project."""
     logger.info(
         "principal_create_requested",
-        principal=request.principal,
-        scopes_count=len(request.scopes),
+        principal=principal,
     )
     if not datazone_enabled():
         raise HTTPException(status_code=503, detail="DataZone is not configured")
 
     config = DataZoneConfig.from_env()
-    project_id = project_id_for_scopes(request.scopes, config)
-    if not project_id:
-        raise HTTPException(status_code=400, detail="No DataZone project configured for scopes")
+    if project_id not in _ordered_project_ids(config):
+        raise HTTPException(status_code=404, detail=f"Unknown DataZone project: {project_id}")
 
     try:
         service = _datazone_service(datazone)
         service.ensure_project_membership(
             project_id=project_id,
-            user_identifier=request.principal,
+            user_identifier=principal,
         )
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    logger.info("principal_created", principal=request.principal)
+    logger.info("principal_created", principal=principal)
     return {
-        "principal": request.principal,
-        "scopes": _scopes_for_project(project_id, config),
+        "principal": principal,
+        "project_id": project_id,
         "datazone_project_id": project_id,
     }
 
 
-@router.delete("/principals/{principal}")
-def delete_principal(
+@router.delete("/principals/{principal}/projects/{project_id}")
+def remove_principal_from_project(
     principal: str,
-    project_id: str | None = Query(default=None),
+    project_id: str,
     _: None = Depends(dependencies.require_admin_auth),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, str]:
-    """Remove a principal from a DataZone project."""
-    if not isinstance(project_id, str):
-        project_id = None
+    """Remove a principal from a specific DataZone project."""
     logger.info("principal_delete_requested", principal=principal, project_id=project_id)
+    config = DataZoneConfig.from_env()
+    if project_id not in _ordered_project_ids(config):
+        raise HTTPException(status_code=404, detail=f"Unknown DataZone project: {project_id}")
     try:
         service = _datazone_service(datazone)
-        target_project_id = project_id
-        if target_project_id is None:
-            config = DataZoneConfig.from_env()
-            target_project_id = service.find_project_for_principal(
-                principal, project_ids=_ordered_project_ids(config)
-            )
-        if target_project_id is None:
-            raise HTTPException(status_code=404, detail=f"Principal not found: {principal}")
-        service.delete_project_membership(project_id=target_project_id, user_identifier=principal)
+        service.delete_project_membership(project_id=project_id, user_identifier=principal)
     except DataZoneError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info("principal_deleted", principal=principal)

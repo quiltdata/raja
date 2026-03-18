@@ -583,7 +583,7 @@ resource "aws_datazone_asset_type" "quilt_package" {
   description               = "One Quilt package (bucket + logical key); listed by raja-owner so principals can request JWT-scoped read/write access"
 
   lifecycle {
-    ignore_changes = [description]
+    ignore_changes = [description, owning_project_identifier]
   }
 }
 

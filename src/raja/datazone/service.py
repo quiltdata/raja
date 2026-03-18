@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -18,41 +19,59 @@ class DataZoneError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ProjectConfig:
+    project_id: str = ""
+    project_label: str = ""
+    environment_id: str = ""
+
+
+@dataclass(frozen=True)
 class DataZoneConfig:
     domain_id: str
-    owner_project_id: str = ""
-    users_project_id: str = ""
-    guests_project_id: str = ""
-    owner_project_label: str = "Project A"
-    users_project_label: str = "Project B"
-    guests_project_label: str = "Project C"
-    owner_environment_id: str = ""
-    users_environment_id: str = ""
-    guests_environment_id: str = ""
+    projects: dict[str, ProjectConfig] = field(default_factory=dict)
     asset_type_name: str = "QuiltPackage"
     asset_type_revision: str = "1"
+
+    def project(self, name: str) -> ProjectConfig:
+        return self.projects.get(name, ProjectConfig())
+
+    def ordered_projects(self) -> list[tuple[str, ProjectConfig]]:
+        return [(name, project) for name, project in self.projects.items() if project.project_id]
+
+    def project_name_for_id(self, project_id: str) -> str | None:
+        for project_name, project in self.ordered_projects():
+            if project.project_id == project_id:
+                return project_name
+        return None
+
+    def default_project(self) -> tuple[str, ProjectConfig] | None:
+        ordered = self.ordered_projects()
+        return ordered[0] if ordered else None
 
     @classmethod
     def from_env(cls) -> DataZoneConfig:
         domain_id = os.environ.get("DATAZONE_DOMAIN_ID", "").strip()
         if not domain_id:
             raise DataZoneError("DATAZONE_DOMAIN_ID is required")
+        projects_payload = os.environ.get("DATAZONE_PROJECTS", "{}").strip() or "{}"
+        try:
+            raw_projects = json.loads(projects_payload)
+        except json.JSONDecodeError as exc:
+            raise DataZoneError("DATAZONE_PROJECTS must be valid JSON") from exc
+        if not isinstance(raw_projects, dict):
+            raise DataZoneError("DATAZONE_PROJECTS must be a JSON object")
+        projects: dict[str, ProjectConfig] = {}
+        for project_name, project_data in raw_projects.items():
+            if not isinstance(project_name, str) or not isinstance(project_data, dict):
+                continue
+            projects[project_name] = ProjectConfig(
+                project_id=str(project_data.get("project_id") or "").strip(),
+                project_label=str(project_data.get("project_label") or "").strip(),
+                environment_id=str(project_data.get("environment_id") or "").strip(),
+            )
         return cls(
             domain_id=domain_id,
-            owner_project_id=os.environ.get("DATAZONE_OWNER_PROJECT_ID", "").strip(),
-            users_project_id=os.environ.get("DATAZONE_USERS_PROJECT_ID", "").strip(),
-            guests_project_id=os.environ.get("DATAZONE_GUESTS_PROJECT_ID", "").strip(),
-            owner_project_label=os.environ.get("DATAZONE_OWNER_PROJECT_LABEL", "Project A").strip()
-            or "Project A",
-            users_project_label=os.environ.get("DATAZONE_USERS_PROJECT_LABEL", "Project B").strip()
-            or "Project B",
-            guests_project_label=os.environ.get(
-                "DATAZONE_GUESTS_PROJECT_LABEL", "Project C"
-            ).strip()
-            or "Project C",
-            owner_environment_id=os.environ.get("DATAZONE_OWNER_ENVIRONMENT_ID", "").strip(),
-            users_environment_id=os.environ.get("DATAZONE_USERS_ENVIRONMENT_ID", "").strip(),
-            guests_environment_id=os.environ.get("DATAZONE_GUESTS_ENVIRONMENT_ID", "").strip(),
+            projects=projects,
             asset_type_name=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE", "QuiltPackage").strip()
             or "QuiltPackage",
             asset_type_revision=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "1").strip()
@@ -72,25 +91,6 @@ class DataZonePackageListing:
 
 def datazone_enabled() -> bool:
     return bool(os.environ.get("DATAZONE_DOMAIN_ID", "").strip())
-
-
-def project_id_for_scopes(scopes: list[str], config: DataZoneConfig) -> str:
-    """Return the configured DataZone project ID for a principal based on scopes.
-
-    Classification rules:
-    - Any scope containing a wildcard (*) -> first configured project slot
-    - Any scope with a non-read action -> second configured project slot
-    - Otherwise -> third configured project slot
-    """
-    has_wildcard = any("*" in s for s in scopes)
-    if has_wildcard:
-        return config.owner_project_id
-
-    has_write = any(not s.rsplit(":", 1)[-1].lower().startswith("read") for s in scopes if ":" in s)
-    if has_write:
-        return config.users_project_id
-
-    return config.guests_project_id
 
 
 class DataZoneService:
@@ -172,9 +172,12 @@ class DataZoneService:
         *,
         owner_project_id: str | None = None,
     ) -> DataZonePackageListing:
-        effective_owner_project_id = owner_project_id or self._config.owner_project_id
+        default_project = self._config.default_project()
+        effective_owner_project_id = owner_project_id or (
+            default_project[1].project_id if default_project else ""
+        )
         if not effective_owner_project_id:
-            raise DataZoneError("DATAZONE_OWNER_PROJECT_ID is required")
+            raise DataZoneError("DATAZONE_PROJECTS must define at least one project_id")
 
         existing = self.find_package_listing(quilt_uri, owner_project_id=effective_owner_project_id)
         if existing is not None:
@@ -535,8 +538,10 @@ class DataZoneService:
                     }
                     if listing_id:
                         kwargs["subscribedListingId"] = listing_id
-                    elif self._config.owner_project_id:
-                        kwargs["owningProjectId"] = self._config.owner_project_id
+                    else:
+                        default_project = self._config.default_project()
+                        if default_project is not None:
+                            kwargs["owningProjectId"] = default_project[1].project_id
                     if next_token:
                         kwargs["nextToken"] = next_token
                     try:

@@ -22,7 +22,7 @@ REGION = "us-east-1"
 
 SEED_CONFIG = load_seed_config()
 ROLES = [
-    (project.display_name, f"datazone_{project.slot}_environment_role_arn")
+    (project.display_name, f"datazone_{project.project_name}_environment_role_arn")
     for project in SEED_CONFIG.projects
 ]
 

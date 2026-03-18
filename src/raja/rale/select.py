@@ -20,9 +20,13 @@ def _load_quilt3() -> Any:
     return quilt3
 
 
-def _select_index(*, count: int, mode: RunMode, label: str) -> int:
+def _select_index(*, count: int, mode: RunMode, label: str, preselected: int | None = None) -> int:
     if count == 0:
         raise RuntimeError(f"No {label} available")
+    if preselected is not None:
+        if preselected < 1 or preselected > count:
+            raise RuntimeError(f"Invalid {label} selection: {preselected} (must be 1-{count})")
+        return preselected - 1
     if mode == "auto":
         return 0
 
@@ -47,7 +51,9 @@ def _sorted_packages_for_principal(packages: list[str], principal: str) -> list[
     )
 
 
-def run_select(state: SessionState, mode: RunMode, console: Console) -> None:
+def run_select(
+    state: SessionState, mode: RunMode, console: Console, *, package_index: int | None = None
+) -> None:
     quilt3 = _load_quilt3()
     registry = state.config.registry
 
@@ -69,7 +75,9 @@ def run_select(state: SessionState, mode: RunMode, console: Console) -> None:
         package_table.add_row(str(idx), package)
     console.print(package_table)
 
-    package_index = _select_index(count=len(packages), mode=mode, label="package")
+    package_index = _select_index(
+        count=len(packages), mode=mode, label="package", preselected=package_index
+    )
     package_name = packages[package_index]
 
     try:

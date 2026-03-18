@@ -14,10 +14,10 @@ from .helpers import (
 
 @pytest.mark.integration
 def test_token_service_issues_token_for_known_principal():
+    """A 200 response proves the principal is a member of a DataZone project."""
     principal = require_test_principal()
-    token, scopes = issue_token(principal)
+    token = issue_token(principal)
     assert token
-    assert len(scopes) >= 1
 
 
 @pytest.mark.integration
@@ -32,7 +32,7 @@ def test_token_service_rejects_unknown_principal():
 @pytest.mark.integration
 def test_rajee_token_validates_against_jwks():
     principal = require_test_principal()
-    token, scopes = issue_rajee_token(principal)
+    token = issue_rajee_token(principal)
     status, body = request_json("GET", "/.well-known/jwks.json")
     assert status == 200
 
@@ -52,4 +52,3 @@ def test_rajee_token_validates_against_jwks():
         issuer=require_api_issuer(),
     )
     assert payload.get("sub") == principal
-    assert payload.get("scopes") == scopes

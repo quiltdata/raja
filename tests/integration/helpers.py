@@ -441,16 +441,15 @@ def require_test_principal() -> str:
     return require_raja_users()[0]
 
 
-def issue_token(principal: str) -> tuple[str, list[str]]:
+def issue_token(principal: str) -> str:
     status, body = request_json("POST", "/token", {"principal": principal})
     assert status == 200, body
     token = body.get("token")
-    scopes = body.get("scopes", [])
     assert token, "token missing in response"
-    return token, scopes
+    return token
 
 
-def issue_rajee_token(principal: str) -> tuple[str, list[str]]:
+def issue_rajee_token(principal: str) -> str:
     """Issue a RAJEE token via the control plane (signed by JWKS secret)."""
     status, body = request_json(
         "POST",
@@ -459,9 +458,8 @@ def issue_rajee_token(principal: str) -> tuple[str, list[str]]:
     )
     assert status == 200, body
     token = body.get("token")
-    scopes = body.get("scopes", [])
     assert token, "token missing in response"
-    return token, scopes
+    return token
 
 
 def fetch_jwks_secret() -> str:

@@ -88,13 +88,7 @@ def test_unknown_principal_denied_package() -> None:
     service, config = _make_service()
 
     project_ids = [
-        p
-        for p in [
-            config.owner_project_id,
-            config.users_project_id,
-            config.guests_project_id,
-        ]
-        if p
+        project.project_id for _, project in config.ordered_projects() if project.project_id
     ]
 
     fake_arn = "arn:aws:iam::000000000000:user/nobody-fake-xyzzy"

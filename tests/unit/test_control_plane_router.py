@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from raja.datazone import DataZoneConfig, ProjectConfig
 from raja.server.routers import control_plane
 
 
@@ -20,33 +21,56 @@ def _make_request(request_id: str | None = None) -> Request:
     return Request(scope)
 
 
-def _mock_datazone_with_scopes(scopes: list[str]) -> MagicMock:
-    """Return a datazone mock whose find_project_for_principal returns the first project."""
-    datazone = MagicMock()
-    with patch.object(control_plane, "_derive_principal_scopes", return_value=scopes):
-        return datazone
+def _config(
+    *,
+    include_second: bool = True,
+    include_third: bool = True,
+) -> DataZoneConfig:
+    projects = {
+        "slot-a": ProjectConfig(
+            project_id="proj-alpha",
+            project_label="Alpha",
+            environment_id="env-alpha",
+        ),
+    }
+    if include_second:
+        projects["slot-b"] = ProjectConfig(
+            project_id="proj-bio",
+            project_label="Bio",
+            environment_id="env-bio",
+        )
+    if include_third:
+        projects["slot-c"] = ProjectConfig(
+            project_id="proj-compute",
+            project_label="Compute",
+            environment_id="env-compute",
+        )
+    return DataZoneConfig(domain_id="dzd-123", projects=projects)
 
 
 def test_issue_token_raja_type():
     """Test issuing a RAJA token."""
     payload = control_plane.TokenRequest(principal="alice", token_type="raja")
-    with patch.object(
-        control_plane, "_derive_principal_scopes", return_value=["Document:doc1:read"]
-    ):
-        response = control_plane.issue_token(
-            _make_request(),
-            payload,
-            datazone=MagicMock(),
-            secret="secret",
-        )
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_second=False, include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-alpha"
+            response = control_plane.issue_token(
+                _make_request(),
+                payload,
+                datazone=datazone,
+                secret="secret",
+            )
 
     assert response["principal"] == "alice"
     assert "token" in response
-    assert response["scopes"] == ["Document:doc1:read"]
+    assert "scopes" not in response
 
 
 def test_issue_token_rajee_type():
-    """Test issuing a RAJEE token with scopes."""
+    """Test issuing a RAJEE token."""
     request = MagicMock()
     request.headers = MagicMock()
     request.headers.get = Mock(return_value=None)
@@ -55,34 +79,40 @@ def test_issue_token_rajee_type():
     request.base_url = base_url_mock
 
     payload = control_plane.TokenRequest(principal="alice", token_type="rajee")
-    with patch.object(
-        control_plane, "_derive_principal_scopes", return_value=["S3Object:bucket:key:s3:GetObject"]
-    ):
-        response = control_plane.issue_token(
-            request,
-            payload,
-            datazone=MagicMock(),
-            secret="secret",
-        )
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_second=False, include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-alpha"
+            response = control_plane.issue_token(
+                request,
+                payload,
+                datazone=datazone,
+                secret="secret",
+            )
 
     assert response["principal"] == "alice"
     assert "token" in response
-    assert "scopes" in response
+    assert "scopes" not in response
 
 
 def test_issue_token_invalid_type():
     """Test that issuing a token with invalid type raises HTTPException."""
     payload = control_plane.TokenRequest(principal="alice", token_type="invalid")
-    with patch.object(
-        control_plane, "_derive_principal_scopes", return_value=["Document:doc1:read"]
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            control_plane.issue_token(
-                _make_request(),
-                payload,
-                datazone=MagicMock(),
-                secret="secret",
-            )
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_second=False, include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.find_project_for_principal.return_value = "proj-alpha"
+            with pytest.raises(HTTPException) as exc_info:
+                control_plane.issue_token(
+                    _make_request(),
+                    payload,
+                    datazone=datazone,
+                    secret="secret",
+                )
 
     assert exc_info.value.status_code == 400
     assert "Unsupported token_type" in exc_info.value.detail
@@ -174,14 +204,7 @@ def test_list_principals_with_limit():
     datazone = MagicMock()
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-            config = MagicMock()
-            config.owner_project_id = "proj-alpha"
-            config.users_project_id = "proj-bio"
-            config.guests_project_id = "proj-compute"
-            config.owner_project_label = "Alpha"
-            config.users_project_label = "Bio"
-            config.guests_project_label = "Compute"
-            mock_config_cls.from_env.return_value = config
+            mock_config_cls.from_env.return_value = _config()
             service = factory.return_value
             service.list_project_members.return_value = ["alice", "bob"]
             response = control_plane.list_principals(limit=10, datazone=datazone)
@@ -195,14 +218,10 @@ def test_list_principals_without_limit():
     datazone = MagicMock()
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-            config = MagicMock()
-            config.owner_project_id = "proj-alpha"
-            config.users_project_id = ""
-            config.guests_project_id = ""
-            config.owner_project_label = "Alpha"
-            config.users_project_label = "Bio"
-            config.guests_project_label = "Compute"
-            mock_config_cls.from_env.return_value = config
+            mock_config_cls.from_env.return_value = _config(
+                include_second=False,
+                include_third=False,
+            )
             service = factory.return_value
             service.list_project_members.return_value = ["alice"]
             response = control_plane.list_principals(limit=None, datazone=datazone)
@@ -219,14 +238,7 @@ def test_list_principals_preserves_multi_project_memberships():
     datazone = MagicMock()
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-            config = MagicMock()
-            config.owner_project_id = "proj-alpha"
-            config.users_project_id = "proj-bio"
-            config.guests_project_id = ""
-            config.owner_project_label = "Alpha"
-            config.users_project_label = "Bio"
-            config.guests_project_label = "Compute"
-            mock_config_cls.from_env.return_value = config
+            mock_config_cls.from_env.return_value = _config(include_third=False)
             service = factory.return_value
             service.list_project_members.side_effect = [["alice"], ["alice"]]
             response = control_plane.list_principals(limit=None, datazone=datazone)
@@ -236,16 +248,12 @@ def test_list_principals_preserves_multi_project_memberships():
             "principal": "alice",
             "datazone_project_id": "proj-alpha",
             "datazone_project_name": "Alpha",
-            "scopes": ["*:*:*"],
-            "scope_count": 1,
             "last_token_issued": None,
         },
         {
             "principal": "alice",
             "datazone_project_id": "proj-bio",
             "datazone_project_name": "Bio",
-            "scopes": ["S3Object:*:*"],
-            "scope_count": 1,
             "last_token_issued": None,
         },
     ]
@@ -259,71 +267,69 @@ def test_list_principals_preserves_multi_project_memberships():
 
 
 def test_create_principal():
-    """Test creating a principal adds them to the correct DataZone project."""
+    """Test adding a principal to a project via path params."""
     datazone = MagicMock()
 
-    request = control_plane.PrincipalRequest(
-        principal="alice", scopes=["Document:doc1:read", "Document:doc2:write"]
-    )
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-            config = MagicMock()
-            config.owner_project_id = "proj-alpha"
-            config.users_project_id = "proj-bio"
-            config.guests_project_id = "proj-compute"
-            mock_config_cls.from_env.return_value = config
-            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-bio"):
-                with patch.object(control_plane, "_datazone_service"):
-                    response = control_plane.create_principal(request, datazone=datazone)
+            mock_config_cls.from_env.return_value = _config()
+            with patch.object(control_plane, "_datazone_service"):
+                response = control_plane.add_principal_to_project(
+                    principal="alice",
+                    project_id="proj-bio",
+                    datazone=datazone,
+                )
 
     assert response["principal"] == "alice"
     assert "datazone_project_id" in response
 
 
-def test_create_principal_empty_scopes():
-    """Test creating a principal with no scopes lands in the third configured project."""
+def test_create_principal_unknown_project_id():
+    """Test adding a principal with an unknown project_id returns 404."""
     datazone = MagicMock()
-    request = control_plane.PrincipalRequest(principal="alice", scopes=[])
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-            config = MagicMock()
-            config.guests_project_id = "proj-compute"
-            mock_config_cls.from_env.return_value = config
-            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-compute"):
-                with patch.object(control_plane, "_datazone_service"):
-                    response = control_plane.create_principal(request, datazone=datazone)
+            mock_config_cls.from_env.return_value = _config()
+            with patch.object(control_plane, "_datazone_service"):
+                with pytest.raises(HTTPException) as exc_info:
+                    control_plane.add_principal_to_project(
+                        principal="alice",
+                        project_id="proj-does-not-exist",
+                        datazone=datazone,
+                    )
 
-    assert response["principal"] == "alice"
+    assert exc_info.value.status_code == 404
 
 
 def test_delete_principal():
-    """Test deleting a principal removes them from their DataZone project."""
+    """Test removing a principal from a specific project via path params."""
     datazone = MagicMock()
     with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-        config = MagicMock()
-        config.owner_project_id = "proj-alpha"
-        config.users_project_id = "proj-bio"
-        config.guests_project_id = "proj-compute"
-        mock_config_cls.from_env.return_value = config
+        mock_config_cls.from_env.return_value = _config()
         with patch.object(control_plane, "_datazone_service") as factory:
             service = factory.return_value
-            service.find_project_for_principal.return_value = "proj-alpha"
-            response = control_plane.delete_principal("alice", datazone=datazone)
+            response = control_plane.remove_principal_from_project(
+                principal="alice",
+                project_id="proj-alpha",
+                datazone=datazone,
+            )
 
     assert "Removed" in response["message"]
     service.delete_project_membership.assert_called_once()
 
 
 def test_delete_principal_respects_explicit_project_id():
-    """Deleting from a specific project must not re-resolve membership."""
+    """Removing from an explicit project calls delete directly without resolving membership."""
     datazone = MagicMock()
-    with patch.object(control_plane, "_datazone_service") as factory:
-        service = factory.return_value
-        response = control_plane.delete_principal(
-            "alice",
-            project_id="proj-bio",
-            datazone=datazone,
-        )
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config()
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            response = control_plane.remove_principal_from_project(
+                principal="alice",
+                project_id="proj-bio",
+                datazone=datazone,
+            )
 
     assert "Removed" in response["message"]
     service.find_project_for_principal.assert_not_called()
@@ -331,6 +337,56 @@ def test_delete_principal_respects_explicit_project_id():
         project_id="proj-bio",
         user_identifier="alice",
     )
+
+
+def test_list_principals_by_project():
+    """Test listing members of a specific project."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config()
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.list_project_members.return_value = ["alice", "bob"]
+            response = control_plane.list_principals_by_project(
+                project_id="proj-alpha",
+                datazone=datazone,
+            )
+
+    assert response["project_id"] == "proj-alpha"
+    assert response["principals"] == ["alice", "bob"]
+
+
+def test_list_principals_by_project_unknown_returns_404():
+    """Test that an unknown project_id returns 404."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config()
+        with pytest.raises(HTTPException) as exc_info:
+            control_plane.list_principals_by_project(
+                project_id="proj-does-not-exist",
+                datazone=datazone,
+            )
+
+    assert exc_info.value.status_code == 404
+
+
+def test_list_projects_for_principal():
+    """Test listing all projects a principal belongs to."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            # alice is in proj-alpha but not proj-bio
+            service.list_project_members.side_effect = [["alice", "bob"], ["bob"]]
+            response = control_plane.list_projects_for_principal(
+                principal="alice",
+                datazone=datazone,
+            )
+
+    assert response["principal"] == "alice"
+    assert len(response["projects"]) == 1
+    assert response["projects"][0]["project_id"] == "proj-alpha"
 
 
 def test_list_policies_without_statements():
@@ -403,19 +459,13 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     datazone.get_asset_type.return_value = {"name": "QuiltPackage", "revision": "2"}
 
     with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-        config = MagicMock()
-        config.domain_id = "dzd-123"
-        config.owner_project_id = "proj-alpha"
-        config.users_project_id = "proj-bio"
-        config.guests_project_id = "proj-compute"
-        config.owner_project_label = "Alpha"
-        config.users_project_label = "Bio"
-        config.guests_project_label = "Compute"
-        config.owner_environment_id = "env-alpha"
-        config.users_environment_id = "env-bio"
-        config.guests_environment_id = "env-compute"
-        config.asset_type_name = "QuiltPackage"
-        config.asset_type_revision = "2"
+        config = _config()
+        config = DataZoneConfig(
+            domain_id=config.domain_id,
+            projects=config.projects,
+            asset_type_name="QuiltPackage",
+            asset_type_revision="2",
+        )
         mock_config_cls.from_env.return_value = config
         with patch.dict(
             "os.environ",
@@ -457,25 +507,26 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     assert (
         response["datazone"]["domain"]["portal_url"] == "https://dzd-123.sagemaker.us-east-1.on.aws"
     )
-    assert response["datazone"]["owner_project"]["portal_url"].endswith(
+    assert [project["project_name"] for project in response["datazone"]["projects"]] == [
+        "slot-a",
+        "slot-b",
+        "slot-c",
+    ]
+    assert response["datazone"]["projects"][0]["portal_url"].endswith(
         "/projects/proj-alpha/overview"
     )
-    assert response["datazone"]["owner_project"]["environment_id"] == "env-alpha"
-    assert response["datazone"]["owner_project"]["environment_url"].endswith(
+    assert response["datazone"]["projects"][0]["environment_id"] == "env-alpha"
+    assert response["datazone"]["projects"][0]["environment_url"].endswith(
         "/environments/env-alpha"
     )
-    assert response["datazone"]["users_project"]["portal_url"].endswith(
-        "/projects/proj-bio/overview"
-    )
-    assert response["datazone"]["users_project"]["environment_id"] == "env-bio"
-    assert response["datazone"]["users_project"]["environment_url"].endswith(
-        "/environments/env-bio"
-    )
-    assert response["datazone"]["guests_project"]["portal_url"].endswith(
+    assert response["datazone"]["projects"][1]["portal_url"].endswith("/projects/proj-bio/overview")
+    assert response["datazone"]["projects"][1]["environment_id"] == "env-bio"
+    assert response["datazone"]["projects"][1]["environment_url"].endswith("/environments/env-bio")
+    assert response["datazone"]["projects"][2]["portal_url"].endswith(
         "/projects/proj-compute/overview"
     )
-    assert response["datazone"]["guests_project"]["environment_id"] == "env-compute"
-    assert response["datazone"]["guests_project"]["environment_url"].endswith(
+    assert response["datazone"]["projects"][2]["environment_id"] == "env-compute"
+    assert response["datazone"]["projects"][2]["environment_url"].endswith(
         "/environments/env-compute"
     )
     assert response["stack"]["server"]["url"] == "https://api.example.com/prod"
@@ -493,16 +544,12 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
 
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
-            config = MagicMock()
-            config.domain_id = "dzd-123"
-            config.owner_project_id = "proj-alpha"
-            config.users_project_id = "proj-bio"
-            config.guests_project_id = "proj-compute"
-            config.owner_project_label = "Alpha"
-            config.users_project_label = "Bio"
-            config.guests_project_label = "Compute"
-            config.asset_type_name = "QuiltPackage"
-            mock_config_cls.from_env.return_value = config
+            config = _config()
+            mock_config_cls.from_env.return_value = DataZoneConfig(
+                domain_id=config.domain_id,
+                projects=config.projects,
+                asset_type_name="QuiltPackage",
+            )
             service = factory.return_value
             service.list_package_listings.return_value = [listing]
             service.find_accepted_subscription.return_value = None
@@ -526,8 +573,6 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
                             "principal": "alice",
                             "datazone_project_id": "proj-alpha",
                             "datazone_project_name": "Alpha",
-                            "scopes": ["*:*:*"],
-                            "scope_count": 1,
                             "last_token_issued": None,
                         }
                     ],
