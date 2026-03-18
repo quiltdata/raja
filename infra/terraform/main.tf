@@ -20,6 +20,7 @@ locals {
   rale_authorizer_build_dir    = "${local.build_dir}/rale_authorizer"
   rale_router_build_dir        = "${local.build_dir}/rale_router"
   layer_build_dir              = "${local.build_dir}/raja_layer"
+  raja_blueprint_id            = "4ohtukj8welxd3"
 
   layer_source_hash = sha256(join("", concat(
     [filesha256(local.layer_requirements)],
@@ -518,6 +519,13 @@ resource "aws_datazone_domain" "raja" {
   service_role          = aws_iam_role.datazone_domain_service.arn
   skip_deletion_check   = true
 
+  # domain_execution_role and service_role are ForceNew in the provider — importing a
+  # console-created domain (which has AWS-managed roles) would cause replacement.
+  # Ignore these so the console-created domain is preserved with its SageMaker Studio infra.
+  lifecycle {
+    ignore_changes = [domain_execution_role, service_role, name, description]
+  }
+
   depends_on = [
     aws_iam_role_policy_attachment.datazone_domain_execution,
     aws_iam_role_policy_attachment.datazone_domain_service,
@@ -530,13 +538,21 @@ resource "aws_datazone_environment_blueprint_configuration" "default_data_lake" 
   enabled_regions          = [var.aws_region]
 }
 
+resource "aws_datazone_environment_blueprint_configuration" "raja_registry" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = local.raja_blueprint_id
+  enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = aws_iam_role.datazone_domain_execution.arn
+  manage_access_role_arn   = aws_iam_role.datazone_domain_execution.arn
+}
+
 resource "aws_datazone_project" "owner" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_owner_project_name
   description       = "Publishes QuiltPackage asset listings; RAJA control plane creates listings here and accepts subscriber requests on behalf of principals"
 
   lifecycle {
-    ignore_changes = [name]
+    ignore_changes = [name, description]
   }
 }
 
@@ -546,7 +562,7 @@ resource "aws_datazone_project" "users" {
   description       = "Subscriber project for authenticated principals; principals are added as members by the control plane"
 
   lifecycle {
-    ignore_changes = [name]
+    ignore_changes = [name, description]
   }
 }
 
@@ -556,7 +572,7 @@ resource "aws_datazone_project" "guests" {
   description       = "Subscriber project for unauthenticated/public read-only access; subscriptions are auto-approved"
 
   lifecycle {
-    ignore_changes = [name]
+    ignore_changes = [name, description]
   }
 }
 

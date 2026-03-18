@@ -61,6 +61,8 @@ ENVIRONMENT_SPECS = {
     for project in SEED_CONFIG.projects
 }
 CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
+    "raja-registry-blueprint",
+    "raja-poc",
     "CustomAWS",
     "Custom AWS",
     "CustomAws",
@@ -76,6 +78,7 @@ class Context:
     project_profile_name: str
     outputs: dict[str, Any]
     dry_run: bool
+    custom_blueprint_id: str = ""
 
 
 def _load_dotenv() -> None:
@@ -323,6 +326,107 @@ def _find_custom_blueprint_id(client: Any, ctx: Context) -> str:
     return ""
 
 
+def _get_project_profile_id(client: Any, ctx: Context, project_id: str) -> str:
+    try:
+        resp = client.get_project(
+            domainIdentifier=ctx.domain_id,
+            identifier=project_id,
+        )
+        return str(resp.get("projectProfileId") or "")
+    except ClientError:
+        return ""
+
+
+def _get_registry_env_config_id(client: Any, ctx: Context, profile_id: str) -> str:
+    """Return the raja-registry environment configuration ID for a project profile."""
+    try:
+        resp = client.get_project_profile(
+            domainIdentifier=ctx.domain_id,
+            identifier=profile_id,
+        )
+    except ClientError:
+        return ""
+    for ec in resp.get("environmentConfigurations") or []:
+        if ec.get("environmentBlueprintId") == ctx.custom_blueprint_id:
+            return str(ec.get("id") or "")
+    return ""
+
+
+def _ensure_environments(
+    client: Any,
+    ctx: Context,
+    project_ids: dict[str, str],
+    registry_bucket: str,
+    test_bucket: str,
+) -> None:
+    """Create raja-registry environments for each project if not already present.
+
+    Requires the project to use a profile that includes the raja-registry blueprint.
+    Projects using the AWS-managed 'All capabilities' profile are skipped with a warning.
+    """
+    if not ctx.custom_blueprint_id:
+        print("Environments: skipped (custom blueprint not found)")
+        return
+
+    for key, environment_name in ENVIRONMENT_SPECS.items():
+        project_id = project_ids.get(key, "")
+        if not project_id:
+            continue
+
+        # Check whether environment already exists
+        items = _list_all(
+            client.list_environments,
+            "items",
+            domainIdentifier=ctx.domain_id,
+            projectIdentifier=project_id,
+        )
+        existing = next(
+            (i for i in items if str(i.get("name") or "") == environment_name),
+            None,
+        )
+        if existing:
+            env_id = str(existing.get("id") or "")
+            env_status = str(existing.get("status") or "")
+            print(f"Environment {key}: {environment_name} ({env_id}) [{env_status}]")
+            continue
+
+        # Determine the environment configuration ID from the project's profile
+        project_profile_id = _get_project_profile_id(client, ctx, project_id)
+        env_config_id = (
+            _get_registry_env_config_id(client, ctx, project_profile_id)
+            if project_profile_id
+            else ""
+        )
+        if not env_config_id:
+            print(
+                f"Environment {key}: {environment_name} (skipped — project profile "
+                f"{project_profile_id!r} has no raja-registry env config; "
+                "re-create project with raja-default-profile to enable)"
+            )
+            continue
+
+        print(f"Environment {key}: {environment_name} (missing)")
+        if ctx.dry_run:
+            print("  [DRY-RUN] Would create environment")
+            continue
+
+        try:
+            created = client.create_environment(
+                domainIdentifier=ctx.domain_id,
+                projectIdentifier=project_id,
+                name=environment_name,
+                environmentConfigurationId=env_config_id,
+                userParameters=[
+                    {"name": "RegistryBucketName", "value": registry_bucket},
+                    {"name": "TestBucketName", "value": test_bucket},
+                ],
+            )
+            env_id = str(created.get("id") or "")
+            print(f"  Created environment {env_id}")
+        except ClientError as exc:
+            print(f"  WARNING: failed to create {environment_name}: {exc}")
+
+
 def _discover_environment_ids(
     client: Any,
     ctx: Context,
@@ -379,7 +483,11 @@ def _wait_for_lambda_update(lambda_client: Any, function_name: str) -> None:
     raise RuntimeError(f"timed out waiting for lambda update: {function_name}")
 
 
-def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) -> None:
+def _sync_lambda_environment_ids(
+    ctx: Context,
+    project_ids: dict[str, str],
+    environment_ids: dict[str, str],
+) -> None:
     lambda_arns = [
         str(ctx.outputs.get("control_plane_lambda_arn") or ""),
         str(ctx.outputs.get("rale_authorizer_arn") or ""),
@@ -390,6 +498,9 @@ def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) 
         return
 
     env_updates = {
+        "DATAZONE_OWNER_PROJECT_ID": project_ids.get("owner", ""),
+        "DATAZONE_USERS_PROJECT_ID": project_ids.get("users", ""),
+        "DATAZONE_GUESTS_PROJECT_ID": project_ids.get("guests", ""),
         "DATAZONE_OWNER_ENVIRONMENT_ID": environment_ids.get("owner", ""),
         "DATAZONE_USERS_ENVIRONMENT_ID": environment_ids.get("users", ""),
         "DATAZONE_GUESTS_ENVIRONMENT_ID": environment_ids.get("guests", ""),
@@ -573,9 +684,12 @@ def main() -> None:
         project_ids = _ensure_projects(client, ctx, profile_id)
         _ensure_asset_type_grant(client, ctx)
         _ensure_default_subscription_grants(client, ctx, project_ids)
-        _find_custom_blueprint_id(client, ctx)
+        ctx.custom_blueprint_id = _find_custom_blueprint_id(client, ctx)
+        registry_bucket = str(ctx.outputs.get("rajee_registry_bucket_name") or "")
+        test_bucket = str(ctx.outputs.get("rajee_test_bucket_name") or "")
+        _ensure_environments(client, ctx, project_ids, registry_bucket, test_bucket)
         environment_ids = _discover_environment_ids(client, ctx, project_ids)
-        _sync_lambda_environment_ids(ctx, environment_ids)
+        _sync_lambda_environment_ids(ctx, project_ids, environment_ids)
         _update_outputs(project_ids, environment_ids, ctx)
         _print_import_hints(ctx, project_ids)
     except ClientError as exc:
