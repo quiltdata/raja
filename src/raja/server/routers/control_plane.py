@@ -280,12 +280,8 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             {
                 "label": "Control Plane Lambda",
                 "url": _console_lambda_url(region=region, fn_name=cp_fn),
-            }
-        )
-        links.append(
-            {
-                "label": "Control Plane Logs",
-                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{cp_fn}"),
+                "logs_url": _console_logs_url(region=region, log_group=f"/aws/lambda/{cp_fn}"),
+                "group": "Lambda",
             }
         )
 
@@ -296,12 +292,8 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             {
                 "label": "RALE Authorizer Lambda",
                 "url": _console_lambda_url(region=region, fn_name=auth_fn),
-            }
-        )
-        links.append(
-            {
-                "label": "RALE Authorizer Logs",
-                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{auth_fn}"),
+                "logs_url": _console_logs_url(region=region, log_group=f"/aws/lambda/{auth_fn}"),
+                "group": "Lambda",
             }
         )
 
@@ -312,12 +304,8 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             {
                 "label": "RALE Router Lambda",
                 "url": _console_lambda_url(region=region, fn_name=router_fn),
-            }
-        )
-        links.append(
-            {
-                "label": "RALE Router Logs",
-                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{router_fn}"),
+                "logs_url": _console_logs_url(region=region, log_group=f"/aws/lambda/{router_fn}"),
+                "group": "Lambda",
             }
         )
 
@@ -327,15 +315,6 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
         links.append(
             {"label": "JWT Secret", "url": _console_secret_url(region=region, secret_arn=jwt_arn)}
         )
-
-    # S3 buckets
-    registry = os.environ.get("RAJA_REGISTRY", "").strip().removeprefix("s3://")
-    if registry:
-        links.append({"label": "Registry Bucket (S3)", "url": _console_s3_url(bucket=registry)})
-
-    test_bucket = os.environ.get("RAJEE_TEST_BUCKET_NAME", "").strip()
-    if test_bucket:
-        links.append({"label": "Test Bucket (S3)", "url": _console_s3_url(bucket=test_bucket)})
 
     # ECS service
     cluster = os.environ.get("ECS_CLUSTER_NAME", "").strip()
@@ -348,6 +327,22 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             }
         )
 
+    # S3 buckets
+    registry = os.environ.get("RAJA_REGISTRY", "").strip().removeprefix("s3://")
+    if registry:
+        links.append(
+            {"label": "Registry Bucket", "url": _console_s3_url(bucket=registry), "group": "S3"}
+        )
+
+    test_bucket = os.environ.get("RAJEE_TEST_BUCKET_NAME", "").strip()
+    if test_bucket:
+        links.append(
+            {"label": "Test Bucket", "url": _console_s3_url(bucket=test_bucket), "group": "S3"}
+        )
+
+    # Sort: group items sort by their group name; ungrouped items sort by label.
+    # Both interleave alphabetically (e.g. "Lambda" slots between "JWT Secret" and "RAJEE ECS").
+    links.sort(key=lambda x: (x.get("group", x["label"]).casefold(), x["label"].casefold()))
     return links
 
 
