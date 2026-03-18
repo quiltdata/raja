@@ -19,7 +19,7 @@ class DataZoneError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class SlotConfig:
+class ProjectConfig:
     project_id: str = ""
     project_label: str = ""
     environment_id: str = ""
@@ -28,24 +28,24 @@ class SlotConfig:
 @dataclass(frozen=True)
 class DataZoneConfig:
     domain_id: str
-    slots: dict[str, SlotConfig] = field(default_factory=dict)
+    projects: dict[str, ProjectConfig] = field(default_factory=dict)
     asset_type_name: str = "QuiltPackage"
     asset_type_revision: str = "1"
 
-    def slot(self, name: str) -> SlotConfig:
-        return self.slots.get(name, SlotConfig())
+    def project(self, name: str) -> ProjectConfig:
+        return self.projects.get(name, ProjectConfig())
 
-    def ordered_slots(self) -> list[tuple[str, SlotConfig]]:
-        return [(name, slot) for name, slot in self.slots.items() if slot.project_id]
+    def ordered_projects(self) -> list[tuple[str, ProjectConfig]]:
+        return [(name, project) for name, project in self.projects.items() if project.project_id]
 
-    def slot_name_for_project(self, project_id: str) -> str | None:
-        for slot_name, slot in self.ordered_slots():
-            if slot.project_id == project_id:
-                return slot_name
+    def project_name_for_id(self, project_id: str) -> str | None:
+        for project_name, project in self.ordered_projects():
+            if project.project_id == project_id:
+                return project_name
         return None
 
-    def default_slot(self) -> tuple[str, SlotConfig] | None:
-        ordered = self.ordered_slots()
+    def default_project(self) -> tuple[str, ProjectConfig] | None:
+        ordered = self.ordered_projects()
         return ordered[0] if ordered else None
 
     @classmethod
@@ -53,25 +53,25 @@ class DataZoneConfig:
         domain_id = os.environ.get("DATAZONE_DOMAIN_ID", "").strip()
         if not domain_id:
             raise DataZoneError("DATAZONE_DOMAIN_ID is required")
-        slots_payload = os.environ.get("DATAZONE_SLOTS", "{}").strip() or "{}"
+        projects_payload = os.environ.get("DATAZONE_PROJECTS", "{}").strip() or "{}"
         try:
-            raw_slots = json.loads(slots_payload)
+            raw_projects = json.loads(projects_payload)
         except json.JSONDecodeError as exc:
-            raise DataZoneError("DATAZONE_SLOTS must be valid JSON") from exc
-        if not isinstance(raw_slots, dict):
-            raise DataZoneError("DATAZONE_SLOTS must be a JSON object")
-        slots: dict[str, SlotConfig] = {}
-        for slot_name, slot_data in raw_slots.items():
-            if not isinstance(slot_name, str) or not isinstance(slot_data, dict):
+            raise DataZoneError("DATAZONE_PROJECTS must be valid JSON") from exc
+        if not isinstance(raw_projects, dict):
+            raise DataZoneError("DATAZONE_PROJECTS must be a JSON object")
+        projects: dict[str, ProjectConfig] = {}
+        for project_name, project_data in raw_projects.items():
+            if not isinstance(project_name, str) or not isinstance(project_data, dict):
                 continue
-            slots[slot_name] = SlotConfig(
-                project_id=str(slot_data.get("project_id") or "").strip(),
-                project_label=str(slot_data.get("project_label") or "").strip(),
-                environment_id=str(slot_data.get("environment_id") or "").strip(),
+            projects[project_name] = ProjectConfig(
+                project_id=str(project_data.get("project_id") or "").strip(),
+                project_label=str(project_data.get("project_label") or "").strip(),
+                environment_id=str(project_data.get("environment_id") or "").strip(),
             )
         return cls(
             domain_id=domain_id,
-            slots=slots,
+            projects=projects,
             asset_type_name=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE", "QuiltPackage").strip()
             or "QuiltPackage",
             asset_type_revision=os.environ.get("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "1").strip()
@@ -172,12 +172,12 @@ class DataZoneService:
         *,
         owner_project_id: str | None = None,
     ) -> DataZonePackageListing:
-        default_slot = self._config.default_slot()
+        default_project = self._config.default_project()
         effective_owner_project_id = owner_project_id or (
-            default_slot[1].project_id if default_slot else ""
+            default_project[1].project_id if default_project else ""
         )
         if not effective_owner_project_id:
-            raise DataZoneError("DATAZONE_SLOTS must define at least one project_id")
+            raise DataZoneError("DATAZONE_PROJECTS must define at least one project_id")
 
         existing = self.find_package_listing(quilt_uri, owner_project_id=effective_owner_project_id)
         if existing is not None:
@@ -539,9 +539,9 @@ class DataZoneService:
                     if listing_id:
                         kwargs["subscribedListingId"] = listing_id
                     else:
-                        default_slot = self._config.default_slot()
-                        if default_slot is not None:
-                            kwargs["owningProjectId"] = default_slot[1].project_id
+                        default_project = self._config.default_project()
+                        if default_project is not None:
+                            kwargs["owningProjectId"] = default_project[1].project_id
                     if next_token:
                         kwargs["nextToken"] = next_token
                     try:

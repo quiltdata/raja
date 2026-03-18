@@ -3,7 +3,7 @@ from .service import (
     DataZoneError,
     DataZonePackageListing,
     DataZoneService,
-    SlotConfig,
+    ProjectConfig,
     datazone_enabled,
 )
 
@@ -12,6 +12,6 @@ __all__ = [
     "DataZoneError",
     "DataZonePackageListing",
     "DataZoneService",
-    "SlotConfig",
+    "ProjectConfig",
     "datazone_enabled",
 ]

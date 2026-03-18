@@ -20,7 +20,7 @@ DEFAULT_TEST_URI_PATH = _REPO_ROOT / ".rale-test-uri"
 class SeedProject:
     key: str
     display_name: str
-    slot: str
+    project_name: str
     designation: str = "PROJECT_CONTRIBUTOR"
 
 
@@ -76,11 +76,11 @@ class SeedConfig:
 
     def project_id_map(self, datazone_config: DataZoneConfig) -> dict[str, str]:
         return {
-            project.key: datazone_config.slot(project.slot).project_id for project in self.projects
+            project.key: datazone_config.project(project.project_name).project_id for project in self.projects
         }
 
-    def slot_label_map(self) -> dict[str, str]:
-        return {project.slot: project.display_name for project in self.projects}
+    def project_label_map(self) -> dict[str, str]:
+        return {project.project_name: project.display_name for project in self.projects}
 
 
 def load_seed_config(path: Path = DEFAULT_SEED_CONFIG_PATH) -> SeedConfig:
@@ -97,7 +97,7 @@ def load_seed_config(path: Path = DEFAULT_SEED_CONFIG_PATH) -> SeedConfig:
         SeedProject(
             key=str(item["key"]),
             display_name=str(item["display_name"]),
-            slot=str(item["slot"]),
+            project_name=str(item["project_name"]),
             designation=str(item.get("designation") or "PROJECT_CONTRIBUTOR"),
         )
         for item in raw_projects

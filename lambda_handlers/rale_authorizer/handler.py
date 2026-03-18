@@ -208,7 +208,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
             client=boto3.client("datazone", region_name=region),
             config=config,
         )
-        project_ids = [slot.project_id for _, slot in config.ordered_slots() if slot.project_id]
+        project_ids = [
+            project.project_id for _, project in config.ordered_projects() if project.project_id
+        ]
         project_id = service.find_project_for_principal(principal, project_ids=project_ids)
     except DataZoneError:
         return _response(503, {"error": "authorization service unavailable"})

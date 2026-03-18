@@ -273,7 +273,7 @@ function renderStatusRows() {
     ...((datazone.projects || []).map((project) => ({
       label: `${project.name} project`,
       value: `${project.name} (${project.id || "unset"})`,
-      meta: `Slot ${project.slot_name || "unknown"}`,
+      meta: `Project ${project.project_name || "unknown"}`,
       status: project.status,
       href: project.portal_url,
     }))),
@@ -413,7 +413,7 @@ function renderProjects() {
         <section class="project-card" data-project-id="${escapeHtml(project.id || "")}">
           <div class="project-card-head">
             <div>
-              <h3>${escapeHtml(project.name || project.slot_name || "Project")}</h3>
+              <h3>${escapeHtml(project.name || project.project_name || "Project")}</h3>
               <div class="project-card-meta">${
                 project.id ? `${escapeHtml(project.name)} (${escapeHtml(project.id)})` : "Project not configured"
               }</div>

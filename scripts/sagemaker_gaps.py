@@ -40,7 +40,7 @@ DEFAULT_PROFILE_NAME = "raja-default-profile"
 DEFAULT_PROFILE_DESCRIPTION = "Default project profile for RAJA Terraform-managed V2 projects"
 SEED_CONFIG = load_seed_config()
 PROJECT_SPECS = {
-    project.slot: {
+    project.project_name: {
         "name": project.display_name,
         "description": (
             f"{project.display_name} project in the RAJA symmetric seed topology. "
@@ -51,7 +51,7 @@ PROJECT_SPECS = {
     for project in SEED_CONFIG.projects
 }
 ENVIRONMENT_SPECS = {
-    project.slot: f"raja-{project.key}-env"
+    project.project_name: f"raja-{project.key}-env"
     for project in SEED_CONFIG.projects
 }
 CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
@@ -149,31 +149,31 @@ def _get_context(args: argparse.Namespace) -> Context:
     )
 
 
-def _existing_project_id_from_outputs(outputs: dict[str, Any], slot_name: str) -> str:
-    raw_slots = outputs.get("datazone_slot_project_ids")
-    if isinstance(raw_slots, dict):
-        value = raw_slots.get(slot_name)
+def _existing_project_id_from_outputs(outputs: dict[str, Any], project_name: str) -> str:
+    raw_projects = outputs.get("datazone_project_ids")
+    if isinstance(raw_projects, dict):
+        value = raw_projects.get(project_name)
         if isinstance(value, str) and value:
             return value
-    raw_legacy = outputs.get(f"datazone_{slot_name}_project_id")
+    raw_legacy = outputs.get(f"datazone_{project_name}_project_id")
     if isinstance(raw_legacy, str) and raw_legacy:
         return raw_legacy
     return ""
 
 
-def _build_datazone_slots_json(
+def _build_datazone_projects_json(
     project_ids: dict[str, str],
     environment_ids: dict[str, str],
 ) -> str:
-    slots = {
-        project.slot: {
-            "project_id": project_ids.get(project.slot, ""),
+    projects = {
+        project.project_name: {
+            "project_id": project_ids.get(project.project_name, ""),
             "project_label": project.display_name,
-            "environment_id": environment_ids.get(project.slot, ""),
+            "environment_id": environment_ids.get(project.project_name, ""),
         }
         for project in SEED_CONFIG.projects
     }
-    return json.dumps(slots)
+    return json.dumps(projects)
 
 
 def _ensure_project_profile(client: Any, ctx: Context) -> str:
@@ -520,7 +520,7 @@ def _sync_lambda_environment_ids(
 
     env_updates = {
         "DATAZONE_DOMAIN_ID": ctx.domain_id,
-        "DATAZONE_SLOTS": _build_datazone_slots_json(project_ids, environment_ids),
+        "DATAZONE_PROJECTS": _build_datazone_projects_json(project_ids, environment_ids),
     }
     lambda_client = boto3.client("lambda", region_name=ctx.region)
 
@@ -550,9 +550,9 @@ def _update_outputs(
     outputs = dict(ctx.outputs)
     updates = {
         "datazone_domain_id": ctx.domain_id,
-        "datazone_slots": _build_datazone_slots_json(project_ids, environment_ids),
-        "datazone_slot_project_ids": project_ids,
-        "datazone_slot_environment_ids": environment_ids,
+        "datazone_projects": _build_datazone_projects_json(project_ids, environment_ids),
+        "datazone_project_ids": project_ids,
+        "datazone_project_environment_ids": environment_ids,
     }
     changed = False
     for key, value in updates.items():

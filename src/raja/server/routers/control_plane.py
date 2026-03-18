@@ -147,21 +147,21 @@ def _datazone_service(client: Any) -> DataZoneService:
     return DataZoneService(client=client, config=DataZoneConfig.from_env())
 
 
-def _ordered_slots(config: DataZoneConfig) -> list[tuple[str, Any]]:
-    return config.ordered_slots()
+def _ordered_projects(config: DataZoneConfig) -> list[tuple[str, Any]]:
+    return config.ordered_projects()
 
 
 def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
-    """Return non-empty configured project IDs in slot order."""
-    return [slot.project_id for _, slot in _ordered_slots(config)]
+    """Return non-empty configured project IDs in project order."""
+    return [project.project_id for _, project in _ordered_projects(config)]
 
 
 def _project_name(project_id: str, config: DataZoneConfig) -> str:
-    slot_name = config.slot_name_for_project(project_id)
-    if slot_name is not None:
-        slot = config.slot(slot_name)
-        if slot.project_label:
-            return slot.project_label
+    project_name = config.project_name_for_id(project_id)
+    if project_name is not None:
+        project = config.project(project_name)
+        if project.project_label:
+            return project.project_label
     return project_id
 
 
@@ -362,15 +362,15 @@ def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str
 
 
 def _project_environment_id(project_id: str, config: DataZoneConfig) -> str:
-    slot_name = config.slot_name_for_project(project_id)
-    if slot_name is not None:
-        return config.slot(slot_name).environment_id
+    project_name = config.project_name_for_id(project_id)
+    if project_name is not None:
+        return config.project(project_name).environment_id
     return ""
 
 
 def _project_structure(
     *,
-    slot_name: str,
+    project_name: str,
     project_id: str,
     config: DataZoneConfig,
     region: str,
@@ -378,7 +378,7 @@ def _project_structure(
 ) -> dict[str, Any]:
     environment_id = _project_environment_id(project_id, config)
     return {
-        "slot_name": slot_name,
+        "project_name": project_name,
         "name": _project_name(project_id, config),
         "id": project_id,
         "portal_url": (
@@ -419,13 +419,13 @@ def _project_structures(
 ) -> list[dict[str, Any]]:
     return [
         _project_structure(
-            slot_name=slot_name,
-            project_id=slot.project_id,
+            project_name=project_name,
+            project_id=project.project_id,
             config=config,
             region=region,
             domain_portal_url=domain_portal_url,
         )
-        for slot_name, slot in _ordered_slots(config)
+        for project_name, project in _ordered_projects(config)
     ]
 
 

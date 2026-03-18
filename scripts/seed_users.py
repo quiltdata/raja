@@ -31,7 +31,7 @@ def _get_region() -> str:
 def _hydrate_datazone_env() -> None:
     mapping = {
         "DATAZONE_DOMAIN_ID": "datazone_domain_id",
-        "DATAZONE_SLOTS": "datazone_slots",
+        "DATAZONE_PROJECTS": "datazone_projects",
         "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
         "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
     }
@@ -174,7 +174,7 @@ def main() -> None:
                     else {}
                 ),
                 "display_name": project.display_name,
-                "slot": project.slot,
+                "project_name": project.project_name,
                 "project_id": project_ids.get(project.key, ""),
                 "principals": project_principals.get(project.key, []),
             }
