@@ -87,7 +87,9 @@ def test_unknown_principal_denied_package() -> None:
     """A principal in no project must not resolve to any package grant path."""
     service, config = _make_service()
 
-    project_ids = [slot.project_id for _, slot in config.ordered_slots() if slot.project_id]
+    project_ids = [
+        project.project_id for _, project in config.ordered_projects() if project.project_id
+    ]
 
     fake_arn = "arn:aws:iam::000000000000:user/nobody-fake-xyzzy"
     project_id = service.find_project_for_principal(fake_arn, project_ids=project_ids)

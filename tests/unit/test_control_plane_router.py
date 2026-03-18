@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from raja.datazone import DataZoneConfig, SlotConfig
+from raja.datazone import DataZoneConfig, ProjectConfig
 from raja.server.routers import control_plane
 
 
@@ -26,26 +26,26 @@ def _config(
     include_second: bool = True,
     include_third: bool = True,
 ) -> DataZoneConfig:
-    slots = {
-        "slot-a": SlotConfig(
+    projects = {
+        "slot-a": ProjectConfig(
             project_id="proj-alpha",
             project_label="Alpha",
             environment_id="env-alpha",
         ),
     }
     if include_second:
-        slots["slot-b"] = SlotConfig(
+        projects["slot-b"] = ProjectConfig(
             project_id="proj-bio",
             project_label="Bio",
             environment_id="env-bio",
         )
     if include_third:
-        slots["slot-c"] = SlotConfig(
+        projects["slot-c"] = ProjectConfig(
             project_id="proj-compute",
             project_label="Compute",
             environment_id="env-compute",
         )
-    return DataZoneConfig(domain_id="dzd-123", slots=slots)
+    return DataZoneConfig(domain_id="dzd-123", projects=projects)
 
 
 def test_issue_token_raja_type():
@@ -462,7 +462,7 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
         config = _config()
         config = DataZoneConfig(
             domain_id=config.domain_id,
-            slots=config.slots,
+            projects=config.projects,
             asset_type_name="QuiltPackage",
             asset_type_revision="2",
         )
@@ -507,7 +507,7 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     assert (
         response["datazone"]["domain"]["portal_url"] == "https://dzd-123.sagemaker.us-east-1.on.aws"
     )
-    assert [project["slot_name"] for project in response["datazone"]["projects"]] == [
+    assert [project["project_name"] for project in response["datazone"]["projects"]] == [
         "slot-a",
         "slot-b",
         "slot-c",
@@ -547,7 +547,7 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
             config = _config()
             mock_config_cls.from_env.return_value = DataZoneConfig(
                 domain_id=config.domain_id,
-                slots=config.slots,
+                projects=config.projects,
                 asset_type_name="QuiltPackage",
             )
             service = factory.return_value

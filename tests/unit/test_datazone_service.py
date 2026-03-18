@@ -12,7 +12,7 @@ from raja.datazone import (
     DataZoneConfig,
     DataZoneError,
     DataZoneService,
-    SlotConfig,
+    ProjectConfig,
     datazone_enabled,
 )
 
@@ -35,10 +35,10 @@ _GUESTS_PROJECT = "prj_guests"
 def _config(**kwargs: str) -> DataZoneConfig:
     defaults: dict[str, object] = {
         "domain_id": _DOMAIN,
-        "slots": {
-            "slot-a": SlotConfig(project_id=_OWNER_PROJECT, project_label="Alpha"),
-            "slot-b": SlotConfig(project_id=_USERS_PROJECT, project_label="Bio"),
-            "slot-c": SlotConfig(project_id=_GUESTS_PROJECT, project_label="Compute"),
+        "projects": {
+            "slot-a": ProjectConfig(project_id=_OWNER_PROJECT, project_label="Alpha"),
+            "slot-b": ProjectConfig(project_id=_USERS_PROJECT, project_label="Bio"),
+            "slot-c": ProjectConfig(project_id=_GUESTS_PROJECT, project_label="Compute"),
         },
         "asset_type_name": _ASSET_TYPE,
         "asset_type_revision": _ASSET_TYPE_REV,
@@ -103,7 +103,7 @@ def test_datazone_enabled_false(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAZONE_DOMAIN_ID", "dzd_env")
     monkeypatch.setenv(
-        "DATAZONE_SLOTS",
+        "DATAZONE_PROJECTS",
         json.dumps(
             {
                 "slot-a": {
@@ -128,12 +128,12 @@ def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "2")
     cfg = DataZoneConfig.from_env()
     assert cfg.domain_id == "dzd_env"
-    assert cfg.slot("slot-a").project_id == "prj_env_owner"
-    assert cfg.slot("slot-b").project_id == "prj_env_users"
-    assert cfg.slot("slot-c").project_id == "prj_env_guests"
-    assert cfg.slot("slot-a").environment_id == "env_env_owner"
-    assert cfg.slot("slot-b").environment_id == "env_env_users"
-    assert cfg.slot("slot-c").environment_id == "env_env_guests"
+    assert cfg.project("slot-a").project_id == "prj_env_owner"
+    assert cfg.project("slot-b").project_id == "prj_env_users"
+    assert cfg.project("slot-c").project_id == "prj_env_guests"
+    assert cfg.project("slot-a").environment_id == "env_env_owner"
+    assert cfg.project("slot-b").environment_id == "env_env_users"
+    assert cfg.project("slot-c").environment_id == "env_env_guests"
     assert cfg.asset_type_name == "MyType"
     assert cfg.asset_type_revision == "2"
 
@@ -421,8 +421,8 @@ def test_ensure_package_listing_returns_existing() -> None:
 def test_ensure_package_listing_requires_owner_project() -> None:
     client = MagicMock()
     client.search_listings.return_value = {"items": [], "nextToken": None}
-    svc = _service(client, slots={})
-    with pytest.raises(DataZoneError, match="DATAZONE_SLOTS"):
+    svc = _service(client, projects={})
+    with pytest.raises(DataZoneError, match="DATAZONE_PROJECTS"):
         svc.ensure_package_listing(_QUILT_URI)
 
 

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from raja.datazone import DataZoneConfig, SlotConfig
+from raja.datazone import DataZoneConfig, ProjectConfig
 
 server_app = importlib.import_module("raja.server.app")
 dependencies = importlib.import_module("raja.server.dependencies")
@@ -78,7 +78,7 @@ def test_protected_principals_correct_key_returns_200() -> None:
         with mpatch("raja.server.routers.control_plane.DataZoneConfig") as mock_cfg_cls:
             mock_cfg_cls.from_env.return_value = DataZoneConfig(
                 domain_id="dzd-123",
-                slots={"slot-a": SlotConfig(project_id="proj-alpha", project_label="Alpha")},
+                projects={"slot-a": ProjectConfig(project_id="proj-alpha", project_label="Alpha")},
             )
             service = factory.return_value
             service.list_project_members.return_value = []

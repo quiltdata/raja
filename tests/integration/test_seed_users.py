@@ -20,7 +20,7 @@ from .helpers import require_raja_users
 
 _DATAZONE_ENV_MAP = {
     "DATAZONE_DOMAIN_ID": "datazone_domain_id",
-    "DATAZONE_SLOTS": "datazone_slots",
+    "DATAZONE_PROJECTS": "datazone_projects",
     "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
     "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
 }
@@ -49,9 +49,11 @@ def test_seeded_users_are_found_in_datazone_projects() -> None:
     principals = require_raja_users()
     service, config = _make_service()
 
-    project_ids = [slot.project_id for _, slot in config.ordered_slots() if slot.project_id]
+    project_ids = [
+        project.project_id for _, project in config.ordered_projects() if project.project_id
+    ]
 
-    assert project_ids, "No DataZone project IDs configured (check DATAZONE_SLOTS)"
+    assert project_ids, "No DataZone project IDs configured (check DATAZONE_PROJECTS)"
 
     failures: list[str] = []
     for principal in principals:
@@ -101,7 +103,9 @@ def test_unknown_principal_returns_none() -> None:
 
     # Use an account that definitely does not exist
     fake_arn = "arn:aws:iam::000000000000:user/nobody-fake-xyzzy"
-    project_ids = [slot.project_id for _, slot in config.ordered_slots() if slot.project_id]
+    project_ids = [
+        project.project_id for _, project in config.ordered_projects() if project.project_id
+    ]
 
     result = service.find_project_for_principal(fake_arn, project_ids=project_ids)
     assert result is None, (
