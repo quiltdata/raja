@@ -19,16 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Dynamic DataZone slots**: `DataZoneConfig` now stores an arbitrary `slots: dict[str, SlotConfig]` map instead of three hardcoded `owner/users/guests` fields. Configuration is read from a single `DATAZONE_SLOTS` JSON env var.
-- **`sagemaker_gaps.py` and seed scripts updated**: Lambda env sync now writes `DATAZONE_SLOTS` (one JSON blob) instead of nine individual `DATAZONE_*_PROJECT_ID / ENVIRONMENT_ID / PROJECT_LABEL` variables. `.env` outputs use `datazone_slots` and `datazone_slot_project_ids`.
+- **Dynamic DataZone projects**: `DataZoneConfig` now stores an arbitrary `projects: dict[str, ProjectConfig]` map instead of three hardcoded `owner/users/guests` fields. Configuration is read from a single `DATAZONE_PROJECTS` JSON env var.
+- **`sagemaker_gaps.py` and seed scripts updated**: Lambda env sync now writes `DATAZONE_PROJECTS` (one JSON blob) instead of nine individual `DATAZONE_*_PROJECT_ID / ENVIRONMENT_ID / PROJECT_LABEL` variables. `.env` outputs use `datazone_projects` and `datazone_project_ids`.
 - **`seed_users.py`: `RAJA_GUESTS` overflow removed**: The separate guest seeding path (`RAJA_GUESTS` env var, overflow into the last project) has been removed; all principals are seeded via the unified `RAJA_USERS` path.
 - **Terraform: ignore `owning_project_identifier` drift** on the `QuiltPackage` asset type to prevent unwanted plan noise after domain recreation.
 
 ### Removed
 
-- **Scope derivation dead code**: All scope-assignment logic removed from the control plane — `_scopes_for_slot()`, `_scopes_for_project()`, `_slot_scope_overrides()`, `RAJA_PROJECT_SCOPES` env var, and the `scopes` field on `PrincipalRequest`. Authorization is DataZone subscriptions; tokens are issued with empty scopes.
+- **Scope derivation dead code**: All scope-assignment logic removed from the control plane — `_scopes_for_project()`, `RAJA_PROJECT_SCOPES` env var, and the `scopes` field on `PrincipalRequest`. Authorization is DataZone subscriptions; tokens are issued with empty scopes.
 - **`project_id_for_scopes()`**: Hardcoded scope-to-project mapping removed from `datazone/service.py`.
-- **Hardcoded `owner/users/guests` slot env vars** (`DATAZONE_OWNER_PROJECT_ID`, etc.): Consolidated into `DATAZONE_SLOTS`.
+- **Hardcoded `owner/users/guests` project env vars** (`DATAZONE_OWNER_PROJECT_ID`, etc.): Consolidated into `DATAZONE_PROJECTS`.
 
 ## [1.1.0] - 2026-03-18
 
