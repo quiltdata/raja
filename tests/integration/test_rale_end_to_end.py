@@ -7,7 +7,7 @@ from urllib.parse import quote
 import jwt
 import pytest
 
-from scripts.seed_packages import SEED_FILES
+from scripts.seed_packages import seed_files_for_package
 
 from .helpers import (
     fetch_jwks_secret,
@@ -97,7 +97,7 @@ def test_rale_router_fetches_real_s3_object() -> None:
         sigv4=True,
     )
     assert status == 200, body.decode("utf-8", errors="replace")
-    assert body == SEED_FILES["data.csv"]
+    assert body == seed_files_for_package(parts["package_name"])["data.csv"]
 
 
 @pytest.mark.integration
@@ -132,4 +132,4 @@ def test_rale_complete_flow_no_preseeding() -> None:
         headers={"x-rale-taj": taj},
     )
     assert status == 200, body.decode("utf-8", errors="replace")
-    assert body == SEED_FILES["README.md"]
+    assert body == seed_files_for_package(parts["package_name"])["README.md"]

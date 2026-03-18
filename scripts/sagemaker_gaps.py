@@ -4,10 +4,9 @@
 This script patches the current Terraform provider gaps for RAJA's V2 domain:
 
 1. Ensure the default project profile exists and is ENABLED.
-2. Ensure the owner/users/guests projects exist in the V2 domain.
-3. Ensure the root domain unit grants CREATE_ASSET_TYPE to owner projects.
-4. Ensure the users project has subscription grants to owner project listings.
-5. Refresh infra/tf-outputs.json with discovered project IDs.
+2. Resolve the three configured seed projects in the V2 domain.
+3. Ensure the root domain unit grants CREATE_ASSET_TYPE to project owners.
+4. Refresh infra/tf-outputs.json with discovered project IDs.
 
 It is safe to rerun. Existing resources are reused.
 """
@@ -31,40 +30,35 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.tf_outputs import load_tf_outputs
+from scripts.seed_config import load_seed_config  # noqa: E402
+from scripts.tf_outputs import load_tf_outputs  # noqa: E402
 
 OUTPUTS_PATH = REPO_ROOT / "infra" / "tf-outputs.json"
 ENV_PATH = REPO_ROOT / ".env"
 
 DEFAULT_PROFILE_NAME = "raja-default-profile"
 DEFAULT_PROFILE_DESCRIPTION = "Default project profile for RAJA Terraform-managed V2 projects"
-PROJECT_SPECS = {
-    "owner": {
-        "name": "raja-owner",
-        "description": (
-            "Publishes QuiltPackage asset listings; RAJA control plane creates listings "
-            "here and accepts subscriber requests on behalf of principals"
-        ),
-    },
-    "users": {
-        "name": "raja-users",
-        "description": (
-            "Subscriber project for authenticated principals; principals are added as "
-            "members by the control plane"
-        ),
-    },
-    "guests": {
-        "name": "raja-guests",
-        "description": (
-            "Subscriber project for unauthenticated/public read-only access; "
-            "subscriptions are auto-approved"
-        ),
-    },
+SEED_CONFIG = load_seed_config()
+PROJECT_OUTPUT_KEYS = {
+    "owner": "datazone_owner_project_id",
+    "users": "datazone_users_project_id",
+    "guests": "datazone_guests_project_id",
 }
+PROJECT_SPECS = {
+    project.slot: {
+        "name": project.display_name,
+        "description": (
+            f"{project.display_name} project in the RAJA symmetric seed topology. "
+            "Each project produces one package, consumes one foreign package, "
+            "and is denied one package."
+        ),
+    }
+    for project in SEED_CONFIG.projects
+}
+SLOT_LABELS = SEED_CONFIG.slot_label_map()
 ENVIRONMENT_SPECS = {
-    "owner": "raja-owner-env",
-    "users": "raja-users-env",
-    "guests": "raja-guests-env",
+    project.slot: f"raja-{project.key}-env"
+    for project in SEED_CONFIG.projects
 }
 CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
     "CustomAWS",
@@ -206,10 +200,16 @@ def _list_projects(client: Any, ctx: Context) -> list[dict[str, Any]]:
 def _ensure_projects(client: Any, ctx: Context, profile_id: str) -> dict[str, str]:
     projects = _list_projects(client, ctx)
     by_name = {str(project["name"]): project for project in projects}
+    by_id = {str(project["id"]): project for project in projects}
     ensured: dict[str, str] = {}
 
     for key, spec in PROJECT_SPECS.items():
         existing = by_name.get(spec["name"])
+        if existing is None:
+            existing_output_id = str(ctx.outputs.get(PROJECT_OUTPUT_KEYS[key]) or "")
+            candidate = by_id.get(existing_output_id) if existing_output_id else None
+            if candidate is not None and str(candidate.get("name") or "") == spec["name"]:
+                existing = candidate
         if existing:
             project_id = str(existing["id"])
             ensured[key] = project_id
@@ -380,9 +380,6 @@ def _wait_for_lambda_update(lambda_client: Any, function_name: str) -> None:
 
 
 def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) -> None:
-    if not environment_ids:
-        return
-
     lambda_arns = [
         str(ctx.outputs.get("control_plane_lambda_arn") or ""),
         str(ctx.outputs.get("rale_authorizer_arn") or ""),
@@ -396,6 +393,9 @@ def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) 
         "DATAZONE_OWNER_ENVIRONMENT_ID": environment_ids.get("owner", ""),
         "DATAZONE_USERS_ENVIRONMENT_ID": environment_ids.get("users", ""),
         "DATAZONE_GUESTS_ENVIRONMENT_ID": environment_ids.get("guests", ""),
+        "DATAZONE_OWNER_PROJECT_LABEL": SLOT_LABELS.get("owner", "Project A"),
+        "DATAZONE_USERS_PROJECT_LABEL": SLOT_LABELS.get("users", "Project B"),
+        "DATAZONE_GUESTS_PROJECT_LABEL": SLOT_LABELS.get("guests", "Project C"),
     }
     lambda_client = boto3.client("lambda", region_name=ctx.region)
 
@@ -548,21 +548,8 @@ def _ensure_subscription_grant(
 def _ensure_default_subscription_grants(
     client: Any, ctx: Context, project_ids: dict[str, str]
 ) -> None:
-    owner_project_id = project_ids.get("owner", "")
-    if not owner_project_id:
-        return
-    listings = _search_owner_listings(client, ctx, owner_project_id)
-    if not listings:
-        print("Subscription grants: no listings found in owner project")
-        return
-    for listing in listings:
-        listing_id = str(listing.get("listingId") or listing.get("id") or "")
-        listing_name = str(listing.get("name") or listing_id)
-        if not listing_id:
-            continue
-        project_id = project_ids.get("users", "")
-        if project_id:
-            _ensure_subscription_grant(client, ctx, listing_id, listing_name, project_id, "users")
+    del client, ctx, project_ids
+    print("Subscription bootstrap: skipped (seed_packages.py manages package grants)")
 
 
 def _print_import_hints(ctx: Context, project_ids: dict[str, str]) -> None:

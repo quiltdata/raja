@@ -1,0 +1,32 @@
+
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  RAJA domain-level blueprint configuration to ENABLE a SQL/Athena tooling environment
+  required by SageMaker Unified Studio (DataZone).
+
+Parameters:
+  DomainId:
+    Type: String
+    Description: DataZone / SageMaker Domain ID
+
+  AthenaBlueprintId:
+    Type: String
+    Default: DefaultDataLake
+    Description: >
+      Identifier for the AWS-managed SQL/Athena blueprint.
+      (Varies by region/account; DefaultDataLake is common.)
+
+Resources:
+  AthenaEnvironmentBlueprint:
+    Type: AWS::DataZone::EnvironmentBlueprintConfiguration
+    Properties:
+      DomainIdentifier: !Ref DomainId
+      EnvironmentBlueprintIdentifier: !Ref AthenaBlueprintId
+      EnabledRegions:
+        - !Ref "AWS::Region"
+
+Outputs:
+  BlueprintEnabled:
+    Value: !Ref AthenaEnvironmentBlueprint
+    Description: Athena/SQL tooling blueprint enabled for this domain

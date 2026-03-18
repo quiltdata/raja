@@ -38,13 +38,13 @@ def test_health_exposes_default_principal_when_configured() -> None:
     client = TestClient(app)
     with patch.dict(
         "os.environ",
-        {"RAJA_DEFAULT_PRINCIPAL": "arn:aws:iam::123456789012:user/demo-owner"},
+        {"RAJA_DEFAULT_PRINCIPAL": "arn:aws:iam::123456789012:user/demo-alpha"},
         clear=False,
     ):
         response = client.get("/health")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["config"]["default_principal"] == "arn:aws:iam::123456789012:user/demo-owner"
+    assert payload["config"]["default_principal"] == "arn:aws:iam::123456789012:user/demo-alpha"
 
 
 def test_create_policy_returns_gone() -> None:
@@ -65,7 +65,7 @@ def test_get_policy_by_id() -> None:
             "listingId": "l-123",
             "name": "demo/package-grant",
             "entityType": "QuiltPackage",
-            "owningProjectId": "proj-owner",
+            "owningProjectId": "proj-alpha",
         }
     ]
 
@@ -108,7 +108,7 @@ def test_list_policies_returns_datazone_listings() -> None:
             "listingId": "l-123",
             "name": "demo/package-grant",
             "entityType": "QuiltPackage",
-            "owningProjectId": "proj-owner",
+            "owningProjectId": "proj-alpha",
         }
     ]
 

@@ -1,0 +1,28 @@
+version: 1
+default_project: alpha
+projects:
+  - key: alpha
+    display_name: Alpha
+    slot: owner
+    designation: PROJECT_CONTRIBUTOR
+    buckets: "*"
+  - key: bio
+    display_name: Bio
+    slot: users
+    designation: PROJECT_CONTRIBUTOR
+    buckets: "*bio*"
+  - key: compute
+    display_name: Compute
+    slot: guests
+    designation: PROJECT_CONTRIBUTOR
+    buckets: "*example*"
+packages:
+  - name: alpha/home
+    producer_project: alpha
+    consumer_project: bio
+  - name: bio/home
+    producer_project: bio
+    consumer_project: compute
+  - name: compute/home
+    producer_project: compute
+    consumer_project: alpha

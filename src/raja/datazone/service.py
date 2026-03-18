@@ -23,6 +23,9 @@ class DataZoneConfig:
     owner_project_id: str = ""
     users_project_id: str = ""
     guests_project_id: str = ""
+    owner_project_label: str = "Project A"
+    users_project_label: str = "Project B"
+    guests_project_label: str = "Project C"
     owner_environment_id: str = ""
     users_environment_id: str = ""
     guests_environment_id: str = ""
@@ -39,6 +42,14 @@ class DataZoneConfig:
             owner_project_id=os.environ.get("DATAZONE_OWNER_PROJECT_ID", "").strip(),
             users_project_id=os.environ.get("DATAZONE_USERS_PROJECT_ID", "").strip(),
             guests_project_id=os.environ.get("DATAZONE_GUESTS_PROJECT_ID", "").strip(),
+            owner_project_label=os.environ.get("DATAZONE_OWNER_PROJECT_LABEL", "Project A").strip()
+            or "Project A",
+            users_project_label=os.environ.get("DATAZONE_USERS_PROJECT_LABEL", "Project B").strip()
+            or "Project B",
+            guests_project_label=os.environ.get(
+                "DATAZONE_GUESTS_PROJECT_LABEL", "Project C"
+            ).strip()
+            or "Project C",
             owner_environment_id=os.environ.get("DATAZONE_OWNER_ENVIRONMENT_ID", "").strip(),
             users_environment_id=os.environ.get("DATAZONE_USERS_ENVIRONMENT_ID", "").strip(),
             guests_environment_id=os.environ.get("DATAZONE_GUESTS_ENVIRONMENT_ID", "").strip(),
@@ -64,12 +75,12 @@ def datazone_enabled() -> bool:
 
 
 def project_id_for_scopes(scopes: list[str], config: DataZoneConfig) -> str:
-    """Return the DataZone project ID for a principal based on their scopes.
+    """Return the configured DataZone project ID for a principal based on scopes.
 
     Classification rules:
-    - Any scope containing a wildcard (*) → owner project (admin)
-    - Any scope with a non-read action → users project
-    - Otherwise → guests project (read-only, public-facing)
+    - Any scope containing a wildcard (*) -> first configured project slot
+    - Any scope with a non-read action -> second configured project slot
+    - Otherwise -> third configured project slot
     """
     has_wildcard = any("*" in s for s in scopes)
     if has_wildcard:
@@ -91,7 +102,12 @@ class DataZoneService:
     def domain_id(self) -> str:
         return self._config.domain_id
 
-    def find_package_listing(self, quilt_uri: str) -> DataZonePackageListing | None:
+    def find_package_listing(
+        self,
+        quilt_uri: str,
+        *,
+        owner_project_id: str | None = None,
+    ) -> DataZonePackageListing | None:
         parsed = parse_quilt_uri(quilt_uri)
         items = self._search_listings(parsed.package_name)
         for item in items:
@@ -101,7 +117,13 @@ class DataZoneService:
                 continue
             listing_id = str(item.get("listingId") or "")
             asset_id = str(item.get("entityId") or "")
+            candidate_owner_project_id = str(item.get("owningProjectId") or "")
             if not listing_id or not asset_id:
+                continue
+            if owner_project_id and candidate_owner_project_id != owner_project_id:
+                continue
+            external_identifier = self._get_asset_external_identifier(asset_id)
+            if external_identifier and external_identifier != quilt_uri:
                 continue
             return DataZonePackageListing(
                 listing_id=listing_id,
@@ -109,7 +131,7 @@ class DataZoneService:
                 asset_id=asset_id,
                 asset_revision=str(item.get("entityRevision") or ""),
                 name=str(item.get("name") or parsed.package_name),
-                owner_project_id=str(item.get("owningProjectId") or ""),
+                owner_project_id=candidate_owner_project_id,
             )
         return None
 
@@ -139,16 +161,22 @@ class DataZoneService:
         listing = self.find_package_listing(quilt_uri)
         if listing is None:
             return False
-        # The owner/producer project has inherent access — no subscription needed.
+        # The producing project has inherent access; no subscription is required.
         if listing.owner_project_id == project_id:
             return True
         return self._has_listing_grant(project_id=project_id, listing_id=listing.listing_id)
 
-    def ensure_package_listing(self, quilt_uri: str) -> DataZonePackageListing:
-        if not self._config.owner_project_id:
+    def ensure_package_listing(
+        self,
+        quilt_uri: str,
+        *,
+        owner_project_id: str | None = None,
+    ) -> DataZonePackageListing:
+        effective_owner_project_id = owner_project_id or self._config.owner_project_id
+        if not effective_owner_project_id:
             raise DataZoneError("DATAZONE_OWNER_PROJECT_ID is required")
 
-        existing = self.find_package_listing(quilt_uri)
+        existing = self.find_package_listing(quilt_uri, owner_project_id=effective_owner_project_id)
         if existing is not None:
             return existing
 
@@ -162,7 +190,7 @@ class DataZoneService:
                 externalIdentifier=quilt_uri,
                 typeIdentifier=self._config.asset_type_name,
                 typeRevision=self._config.asset_type_revision,
-                owningProjectIdentifier=self._config.owner_project_id,
+                owningProjectIdentifier=effective_owner_project_id,
                 formsInput=[],
             )
         except (ClientError, BotoCoreError) as exc:
@@ -193,6 +221,18 @@ class DataZoneService:
                 return listing
             time.sleep(2)
         raise DataZoneError(f"timed out waiting for DataZone listing for {parsed.package_name}")
+
+    def _get_asset_external_identifier(self, asset_id: str) -> str:
+        try:
+            response = self._client.get_asset(
+                domainIdentifier=self._config.domain_id,
+                identifier=asset_id,
+            )
+        except (ClientError, BotoCoreError):
+            return ""
+        if not isinstance(response, dict):
+            return ""
+        return str(response.get("externalIdentifier") or "")
 
     def find_project_for_principal(
         self,
@@ -363,9 +403,15 @@ class DataZoneService:
                     f"failed to add {user_identifier} to DataZone project {project_id}"
                 ) from exc
 
-    def ensure_project_package_grant(self, *, project_id: str, quilt_uri: str) -> str:
-        listing = self.ensure_package_listing(quilt_uri)
-        # Owner project is the producer — no subscription required.
+    def ensure_project_package_grant(
+        self,
+        *,
+        project_id: str,
+        quilt_uri: str,
+        owner_project_id: str | None = None,
+    ) -> str:
+        listing = self.ensure_package_listing(quilt_uri, owner_project_id=owner_project_id)
+        # The producing project already has access; no subscription is required.
         if listing.owner_project_id == project_id:
             return listing.listing_id
         if self._has_listing_grant(project_id=project_id, listing_id=listing.listing_id):
@@ -391,6 +437,7 @@ class DataZoneService:
                 ) from exc
 
         request_id = str(pending["id"])
+        accept_error: Exception | None = None
         try:
             self._client.accept_subscription_request(
                 domainIdentifier=self._config.domain_id,
@@ -398,12 +445,16 @@ class DataZoneService:
                 decisionComment="Approved by RAJA POC bootstrap",
             )
         except (ClientError, BotoCoreError) as exc:
-            if self._has_listing_grant(project_id=project_id, listing_id=listing.listing_id):
-                return listing.listing_id
+            accept_error = exc
+        if self._wait_for_listing_grant(project_id=project_id, listing_id=listing.listing_id):
+            return listing.listing_id
+        if accept_error is not None:
             raise DataZoneError(
                 f"failed to accept subscription request {request_id} for project {project_id}"
-            ) from exc
-        return listing.listing_id
+            ) from accept_error
+        raise DataZoneError(
+            f"subscription request {request_id} did not become accepted for project {project_id}"
+        )
 
     def _search_listings(self, package_name: str) -> list[dict[str, Any]]:
         next_token: str | None = None
@@ -437,6 +488,20 @@ class DataZoneService:
             )
             is not None
         )
+
+    def _wait_for_listing_grant(
+        self,
+        *,
+        project_id: str,
+        listing_id: str,
+        timeout_seconds: float = 15.0,
+    ) -> bool:
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            if self._has_listing_grant(project_id=project_id, listing_id=listing_id):
+                return True
+            time.sleep(1)
+        return self._has_listing_grant(project_id=project_id, listing_id=listing_id)
 
     def find_accepted_subscription(
         self,

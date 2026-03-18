@@ -524,22 +524,40 @@ resource "aws_datazone_domain" "raja" {
   ]
 }
 
+resource "aws_datazone_environment_blueprint_configuration" "default_data_lake" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = "d6y5smpdi8x9lz"
+  enabled_regions          = [var.aws_region]
+}
+
 resource "aws_datazone_project" "owner" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_owner_project_name
   description       = "Publishes QuiltPackage asset listings; RAJA control plane creates listings here and accepts subscriber requests on behalf of principals"
+
+  lifecycle {
+    ignore_changes = [name]
+  }
 }
 
 resource "aws_datazone_project" "users" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_users_project_name
   description       = "Subscriber project for authenticated principals; principals are added as members by the control plane"
+
+  lifecycle {
+    ignore_changes = [name]
+  }
 }
 
 resource "aws_datazone_project" "guests" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_guests_project_name
   description       = "Subscriber project for unauthenticated/public read-only access; subscriptions are auto-approved"
+
+  lifecycle {
+    ignore_changes = [name]
+  }
 }
 
 resource "aws_datazone_asset_type" "quilt_package" {

@@ -1,14 +1,4 @@
-"""Integration tests verifying DataZone package grants for the seeded test package.
-
-Checks that:
-- The owner project has inherent access as the asset producer.
-- The users and guests projects have accepted subscription grants.
-- Every principal in RAJA_USERS resolves to a project that has access.
-- An unknown principal is denied.
-
-Run with:
-    pytest -m integration tests/integration/test_package_grant.py -v
-"""
+"""Integration tests verifying the ring-shaped package grant topology."""
 
 from __future__ import annotations
 
@@ -19,7 +9,7 @@ import pytest
 
 from raja.datazone import DataZoneConfig, DataZoneService
 
-from .helpers import require_raja_users, require_rale_test_quilt_uri
+from .helpers import require_seed_state
 from .test_seed_users import _hydrate_datazone_env
 
 
@@ -32,95 +22,69 @@ def _make_service() -> tuple[DataZoneService, DataZoneConfig]:
 
 
 @pytest.mark.integration
-def test_package_listing_exists() -> None:
-    """The seeded package must have a DataZone listing."""
-    uri = require_rale_test_quilt_uri()
+def test_package_listings_exist() -> None:
+    """Every configured seed package must have a DataZone listing."""
+    state = require_seed_state()
     service, _ = _make_service()
-
-    listing = service.find_package_listing(uri)
-    assert listing is not None, (
-        f"No DataZone listing found for {uri}\nRun: python scripts/seed_packages.py"
-    )
-    assert listing.name == "demo/package-grant"
-    assert listing.listing_id
-    assert listing.owner_project_id
-
-
-@pytest.mark.integration
-def test_owner_project_has_package_grant() -> None:
-    """Owner project has inherent access as the asset producer — no subscription needed."""
-    uri = require_rale_test_quilt_uri()
-    service, config = _make_service()
-
-    assert config.owner_project_id, "DATAZONE_OWNER_PROJECT_ID not set"
-    assert service.has_package_grant(project_id=config.owner_project_id, quilt_uri=uri), (
-        f"Owner project {config.owner_project_id} should have inherent access to {uri}"
-    )
-
-
-@pytest.mark.integration
-def test_users_project_has_package_grant() -> None:
-    """Users project must have an accepted subscription grant to the seeded package."""
-    uri = require_rale_test_quilt_uri()
-    service, config = _make_service()
-
-    assert config.users_project_id, "DATAZONE_USERS_PROJECT_ID not set"
-    assert service.has_package_grant(project_id=config.users_project_id, quilt_uri=uri), (
-        f"Users project {config.users_project_id} has no accepted grant for {uri}\n"
-        "Run: python scripts/seed_packages.py"
-    )
-
-
-@pytest.mark.integration
-def test_guests_project_has_package_grant() -> None:
-    """Guests project must have an accepted subscription grant to the seeded package."""
-    uri = require_rale_test_quilt_uri()
-    service, config = _make_service()
-
-    assert config.guests_project_id, "DATAZONE_GUESTS_PROJECT_ID not set"
-    assert service.has_package_grant(project_id=config.guests_project_id, quilt_uri=uri), (
-        f"Guests project {config.guests_project_id} has no accepted grant for {uri}\n"
-        "Run: python scripts/seed_packages.py"
-    )
-
-
-@pytest.mark.integration
-def test_all_seeded_principals_can_access_package() -> None:
-    """End-to-end: every RAJA_USERS principal must resolve to a project with package access."""
-    uri = require_rale_test_quilt_uri()
-    principals = require_raja_users()
-    service, config = _make_service()
-
-    project_ids = [
-        p
-        for p in [
-            config.owner_project_id,
-            config.users_project_id,
-            config.guests_project_id,
-        ]
-        if p
-    ]
+    packages = state.get("packages", {})
+    assert isinstance(packages, dict) and packages, "seed state packages are missing"
 
     failures: list[str] = []
-    for principal in principals:
-        project_id = service.find_project_for_principal(principal, project_ids=project_ids)
-        if project_id is None:
-            failures.append(f"{principal}: not a member of any project (run seed_users.py)")
+    for package_name, package in packages.items():
+        assert isinstance(package, dict)
+        uri = str(package.get("uri") or "")
+        listing = service.find_package_listing(uri)
+        if listing is None:
+            failures.append(f"{package_name}: missing listing for {uri}")
             continue
-        if not service.has_package_grant(project_id=project_id, quilt_uri=uri):
-            failures.append(
-                f"{principal}: in project {project_id} but no grant for {uri} "
-                "(run seed_packages.py)"
-            )
+        if listing.name != package_name:
+            failures.append(f"{package_name}: listing name mismatch ({listing.name})")
+    assert not failures, "\n".join(failures)
 
-    assert not failures, f"{len(failures)} principal(s) cannot access the package:\n" + "\n".join(
-        f"  {f}" for f in failures
-    )
+
+@pytest.mark.integration
+def test_each_project_has_home_and_foreign_but_not_inaccessible_package() -> None:
+    state = require_seed_state()
+    service, config = _make_service()
+
+    projects = state.get("projects", {})
+    packages = state.get("packages", {})
+    assert isinstance(projects, dict) and isinstance(packages, dict)
+
+    failures: list[str] = []
+    for project_key, project in projects.items():
+        assert isinstance(project, dict)
+        project_id = str(project.get("project_id") or "")
+        home_package_name = str(project.get("home_package") or "")
+        foreign_package_name = str(project.get("foreign_package") or "")
+        inaccessible_package_name = str(project.get("inaccessible_package") or "")
+        if not project_id:
+            failures.append(f"{project_key}: missing project_id")
+            continue
+
+        for access_label, package_name, expected in (
+            ("home", home_package_name, True),
+            ("foreign", foreign_package_name, True),
+            ("inaccessible", inaccessible_package_name, False),
+        ):
+            package_state = packages.get(package_name, {})
+            if not isinstance(package_state, dict):
+                failures.append(f"{project_key}: missing package state for {package_name}")
+                continue
+            uri = str(package_state.get("uri") or "")
+            allowed = service.has_package_grant(project_id=project_id, quilt_uri=uri)
+            if allowed != expected:
+                failures.append(
+                    f"{project_key}: {access_label} package {package_name} "
+                    f"expected allowed={expected}, got {allowed}"
+                )
+
+    assert not failures, "\n".join(failures)
 
 
 @pytest.mark.integration
 def test_unknown_principal_denied_package() -> None:
-    """A principal in no project must not pass the package grant check."""
+    """A principal in no project must not resolve to any package grant path."""
     service, config = _make_service()
 
     project_ids = [

@@ -156,7 +156,7 @@ def _datazone_service(client: Any) -> DataZoneService:
 
 
 def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
-    """Return non-empty project IDs in privilege order (owner first)."""
+    """Return non-empty configured project IDs in slot order."""
     return [
         p for p in [config.owner_project_id, config.users_project_id, config.guests_project_id] if p
     ]
@@ -175,11 +175,11 @@ def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
 
 def _project_name(project_id: str, config: DataZoneConfig) -> str:
     if project_id == config.owner_project_id:
-        return "Owner"
+        return config.owner_project_label
     if project_id == config.users_project_id:
-        return "Users"
+        return config.users_project_label
     if project_id == config.guests_project_id:
-        return "Guests"
+        return config.guests_project_label
     return project_id
 
 

@@ -472,6 +472,23 @@ def test_ensure_package_listing_publish_error() -> None:
         svc.ensure_package_listing(_QUILT_URI)
 
 
+def test_ensure_package_listing_respects_owner_override() -> None:
+    client = MagicMock()
+    client.search_listings.side_effect = [
+        {"items": [], "nextToken": None},
+        {"items": [{"assetListing": _listing_item(project_id="prj_override")}], "nextToken": None},
+    ]
+    client.create_asset.return_value = {"id": "ast_new", "revision": "1"}
+    client.create_listing_change_set.return_value = {}
+
+    svc = _service(client)
+    listing = svc.ensure_package_listing(_QUILT_URI, owner_project_id="prj_override")
+
+    assert listing.owner_project_id == "prj_override"
+    client.create_asset.assert_called_once()
+    assert client.create_asset.call_args.kwargs["owningProjectIdentifier"] == "prj_override"
+
+
 # ---------------------------------------------------------------------------
 # ensure_project_package_grant
 # ---------------------------------------------------------------------------
@@ -500,8 +517,16 @@ def test_ensure_grant_creates_and_accepts() -> None:
         "items": [{"assetListing": _listing_item(listing_id="lst_abc")}],
         "nextToken": None,
     }
-    # First call: check ACCEPTED (none), second call: check PENDING (none)
-    client.list_subscription_requests.return_value = {"items": [], "nextToken": None}
+    client.list_subscription_requests.side_effect = [
+        {"items": [], "nextToken": None},  # initial ACCEPTED check
+        {"items": [], "nextToken": None},  # PENDING check
+        {
+            "items": [
+                _subscription_item(request_id="sub_new", project_id="prj_x", listing_id="lst_abc")
+            ],
+            "nextToken": None,
+        },  # polling ACCEPTED check
+    ]
     client.create_subscription_request.return_value = {"id": "sub_new"}
     client.accept_subscription_request.return_value = {}
 
@@ -534,6 +559,14 @@ def test_ensure_grant_reuses_pending_request() -> None:
             ],
             "nextToken": None,
         },  # PENDING check
+        {
+            "items": [
+                _subscription_item(
+                    request_id="sub_existing", project_id="prj_x", listing_id="lst_abc"
+                )
+            ],
+            "nextToken": None,
+        },  # polling ACCEPTED check
     ]
     client.accept_subscription_request.return_value = {}
 
