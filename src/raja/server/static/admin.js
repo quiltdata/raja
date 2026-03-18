@@ -695,10 +695,8 @@ async function createPrincipal(event) {
   }
 
   const projectId = form.dataset.projectId || "";
-  const result = await apiFetch("/principals", {
+  const result = await apiFetch(`/principals/${encodeURIComponent(principal)}/projects/${encodeURIComponent(projectId)}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ principal, project_id: projectId }),
   });
   if (!result.ok) {
     setStatusNode(statusNode, result.data.detail || "Unable to add principal to project.", "error");
@@ -711,8 +709,7 @@ async function createPrincipal(event) {
 }
 
 async function deletePrincipal(principal, projectId = "", statusNode = null) {
-  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
-  const result = await apiFetch(`/principals/${encodeURIComponent(principal)}${query}`, {
+  const result = await apiFetch(`/principals/${encodeURIComponent(principal)}/projects/${encodeURIComponent(projectId)}`, {
     method: "DELETE",
   });
   if (!result.ok) {

@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`--package N` CLI flag**: Pass `--package <number>` to pre-select a package by index (1-based), skipping the interactive prompt entirely.
-- **`project_id` field on `PrincipalRequest`**: Callers can now pin a specific DataZone project ID when creating a principal, bypassing slot-discovery.
+- **RESTful principal membership API**: Replaced the flat `/principals` write routes with a symmetric principal-centric API:
+  - `GET /principals/projects/{project_id}` — members of a specific project
+  - `GET /principals/{principal}/projects` — all projects a principal belongs to
+  - `POST /principals/{principal}/projects/{project_id}` — grant access (no request body)
+  - `DELETE /principals/{principal}/projects/{project_id}` — revoke access
 
 ### Changed
 

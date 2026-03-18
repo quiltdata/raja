@@ -267,62 +267,69 @@ def test_list_principals_preserves_multi_project_memberships():
 
 
 def test_create_principal():
-    """Test creating a principal adds them to the requested DataZone project."""
+    """Test adding a principal to a project via path params."""
     datazone = MagicMock()
 
-    request = control_plane.PrincipalRequest(
-        principal="alice",
-        project_id="proj-bio",
-    )
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             mock_config_cls.from_env.return_value = _config()
             with patch.object(control_plane, "_datazone_service"):
-                response = control_plane.create_principal(request, datazone=datazone)
+                response = control_plane.add_principal_to_project(
+                    principal="alice",
+                    project_id="proj-bio",
+                    datazone=datazone,
+                )
 
     assert response["principal"] == "alice"
     assert "datazone_project_id" in response
 
 
-def test_create_principal_missing_project_id():
-    """Test creating a principal without a target project is rejected."""
+def test_create_principal_unknown_project_id():
+    """Test adding a principal with an unknown project_id returns 404."""
     datazone = MagicMock()
-    request = control_plane.PrincipalRequest(principal="alice")
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             mock_config_cls.from_env.return_value = _config()
             with patch.object(control_plane, "_datazone_service"):
                 with pytest.raises(HTTPException) as exc_info:
-                    control_plane.create_principal(request, datazone=datazone)
+                    control_plane.add_principal_to_project(
+                        principal="alice",
+                        project_id="proj-does-not-exist",
+                        datazone=datazone,
+                    )
 
-    assert exc_info.value.status_code == 400
-    assert "project_id is required" in exc_info.value.detail
+    assert exc_info.value.status_code == 404
 
 
 def test_delete_principal():
-    """Test deleting a principal removes them from their DataZone project."""
+    """Test removing a principal from a specific project via path params."""
     datazone = MagicMock()
     with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
         mock_config_cls.from_env.return_value = _config()
         with patch.object(control_plane, "_datazone_service") as factory:
             service = factory.return_value
-            service.find_project_for_principal.return_value = "proj-alpha"
-            response = control_plane.delete_principal("alice", datazone=datazone)
+            response = control_plane.remove_principal_from_project(
+                principal="alice",
+                project_id="proj-alpha",
+                datazone=datazone,
+            )
 
     assert "Removed" in response["message"]
     service.delete_project_membership.assert_called_once()
 
 
 def test_delete_principal_respects_explicit_project_id():
-    """Deleting from a specific project must not re-resolve membership."""
+    """Removing from an explicit project calls delete directly without resolving membership."""
     datazone = MagicMock()
-    with patch.object(control_plane, "_datazone_service") as factory:
-        service = factory.return_value
-        response = control_plane.delete_principal(
-            "alice",
-            project_id="proj-bio",
-            datazone=datazone,
-        )
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config()
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            response = control_plane.remove_principal_from_project(
+                principal="alice",
+                project_id="proj-bio",
+                datazone=datazone,
+            )
 
     assert "Removed" in response["message"]
     service.find_project_for_principal.assert_not_called()
@@ -330,6 +337,56 @@ def test_delete_principal_respects_explicit_project_id():
         project_id="proj-bio",
         user_identifier="alice",
     )
+
+
+def test_list_principals_by_project():
+    """Test listing members of a specific project."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config()
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            service.list_project_members.return_value = ["alice", "bob"]
+            response = control_plane.list_principals_by_project(
+                project_id="proj-alpha",
+                datazone=datazone,
+            )
+
+    assert response["project_id"] == "proj-alpha"
+    assert response["principals"] == ["alice", "bob"]
+
+
+def test_list_principals_by_project_unknown_returns_404():
+    """Test that an unknown project_id returns 404."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config()
+        with pytest.raises(HTTPException) as exc_info:
+            control_plane.list_principals_by_project(
+                project_id="proj-does-not-exist",
+                datazone=datazone,
+            )
+
+    assert exc_info.value.status_code == 404
+
+
+def test_list_projects_for_principal():
+    """Test listing all projects a principal belongs to."""
+    datazone = MagicMock()
+    with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
+        mock_config_cls.from_env.return_value = _config(include_third=False)
+        with patch.object(control_plane, "_datazone_service") as factory:
+            service = factory.return_value
+            # alice is in proj-alpha but not proj-bio
+            service.list_project_members.side_effect = [["alice", "bob"], ["bob"]]
+            response = control_plane.list_projects_for_principal(
+                principal="alice",
+                datazone=datazone,
+            )
+
+    assert response["principal"] == "alice"
+    assert len(response["projects"]) == 1
+    assert response["projects"][0]["project_id"] == "proj-alpha"
 
 
 def test_list_policies_without_statements():
