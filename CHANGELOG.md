@@ -6,6 +6,26 @@ All notable changes to the RAJA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-18
+
+### Added
+
+- **`--package N` CLI flag**: Pass `--package <number>` to pre-select a package by index (1-based), skipping the interactive prompt entirely.
+- **`RAJA_PROJECT_SCOPES` env var**: Slot-keyed JSON override for per-slot scopes (replaces the fixed `RAJA_OWNER_SCOPES` / `RAJA_USERS_SCOPES` / `RAJA_GUESTS_SCOPES` vars).
+- **`project_id` field on `PrincipalRequest`**: Callers can now pin a specific DataZone project ID when creating a principal, bypassing slot-discovery.
+
+### Changed
+
+- **Dynamic DataZone slots**: `DataZoneConfig` now stores an arbitrary `slots: dict[str, SlotConfig]` map instead of three hardcoded `owner/users/guests` fields. Configuration is read from a single `DATAZONE_SLOTS` JSON env var.
+- **`sagemaker_gaps.py` and seed scripts updated**: Lambda env sync now writes `DATAZONE_SLOTS` (one JSON blob) instead of nine individual `DATAZONE_*_PROJECT_ID / ENVIRONMENT_ID / PROJECT_LABEL` variables. `.env` outputs use `datazone_slots` and `datazone_slot_project_ids`.
+- **`seed_users.py`: `RAJA_GUESTS` overflow removed**: The separate guest seeding path (`RAJA_GUESTS` env var, overflow into the last project) has been removed; all principals are seeded via the unified `RAJA_USERS` path.
+- **Terraform: ignore `owning_project_identifier` drift** on the `QuiltPackage` asset type to prevent unwanted plan noise after domain recreation.
+
+### Removed
+
+- **`project_id_for_scopes()`**: Hardcoded scope-to-project mapping removed from `datazone/service.py`; replaced by slot-order defaults with `RAJA_PROJECT_SCOPES` overrides.
+- **Hardcoded `owner/users/guests` slot env vars** (`DATAZONE_OWNER_PROJECT_ID`, etc.): Consolidated into `DATAZONE_SLOTS`.
+
 ## [1.1.0] - 2026-03-18
 
 ### Added
