@@ -9,7 +9,7 @@ import jwt as pyjwt
 import pytest
 from botocore.exceptions import ClientError
 
-from scripts.seed_packages import SEED_FILES
+from scripts.seed_packages import seed_files_for_package
 
 from .helpers import (
     fetch_jwks_secret,
@@ -39,7 +39,7 @@ def test_rale_router_retrieves_object_from_test_bucket() -> None:
     uri = require_rale_test_quilt_uri()
     parts = parse_rale_test_quilt_uri(uri)
     logical_key = "data.csv"
-    expected_body = SEED_FILES[logical_key]
+    expected_body = seed_files_for_package(parts["package_name"])[logical_key]
 
     now = int(time.time())
     taj = pyjwt.encode(
@@ -63,6 +63,7 @@ def test_rale_router_retrieves_object_from_test_bucket() -> None:
         "GET",
         f"{require_rale_router_url()}{quote(usl_path, safe='/@')}",
         headers={"x-rale-taj": taj},
+        sigv4=True,
     )
     assert status == 200, body.decode("utf-8", errors="replace")
     assert body == expected_body

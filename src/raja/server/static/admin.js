@@ -624,12 +624,27 @@ function renderConsoleLinks() {
   const meta = select("console-summary-meta");
   if (!list || !state.structure) return;
   const links = state.structure.console_links || [];
-  list.innerHTML = links
-    .map(
-      ({ label, url }) =>
-        `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`,
-    )
-    .join("");
+  function renderLink({ label, url, logs_url }) {
+    const logsLink = logs_url
+      ? ` <a href="${escapeHtml(logs_url)}" target="_blank" rel="noopener">(Logs)</a>`
+      : "";
+    return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>${logsLink}`;
+  }
+  // Collect consecutive same-group items into nested <ul> entries.
+  const html = [];
+  let i = 0;
+  while (i < links.length) {
+    const { group } = links[i];
+    if (group) {
+      const groupItems = [];
+      while (i < links.length && links[i].group === group) groupItems.push(links[i++]);
+      const nested = groupItems.map((l) => `<li>${renderLink(l)}</li>`).join("");
+      html.push(`<li>${escapeHtml(group)}<ul>${nested}</ul></li>`);
+    } else {
+      html.push(`<li>${renderLink(links[i++])}</li>`);
+    }
+  }
+  list.innerHTML = html.join("");
   if (meta) meta.textContent = links.length ? `${links.length} links` : "Unavailable";
 }
 

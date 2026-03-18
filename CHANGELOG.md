@@ -6,6 +6,35 @@ All notable changes to the RAJA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-18
+
+### Added
+
+- **IAM-authenticated RALE flow**: RALE now performs full IAM authentication end-to-end, resolving the caller principal via `STS GetCallerIdentity` instead of accepting an arbitrary `--principal` flag.
+- **RALE deny error detail**: The RALE authorizer now surfaces structured error detail on DENY decisions, making it easier to diagnose authorization failures from the CLI output.
+- **Integration tests for RALE**: New integration tests cover the IAM-authenticated RALE flow and deny-path error reporting.
+- **Environment creation in `sagemaker_gaps.py`**: `_ensure_environments()` creates `raja-registry` DataZone environments for projects on the custom blueprint; projects on the All-capabilities profile are skipped with a clear actionable message.
+- **Terraform: raja-registry blueprint configuration**: New `aws_datazone_environment_blueprint_configuration` resource pins the custom blueprint for environment provisioning.
+
+### Changed
+
+- **Python 3.14**: Project repinned to Python 3.14 (`.python-version`, `pyproject.toml`).
+- **RALE CLI: `--principal` flag removed**: Principal is always resolved from STS; the flag was misleading and caused confusing 403s when plain usernames bypassed STS membership lookup.
+- **`sagemaker_gaps.py`: Lambda env sync includes project IDs**: `DATAZONE_OWNER_PROJECT_ID`, `DATAZONE_USERS_PROJECT_ID`, and `DATAZONE_GUESTS_PROJECT_ID` are now synced to Lambda alongside environment IDs, fixing DENY errors after domain recreation rotates project IDs.
+- **Terraform: ignore console-managed drift**: Domain role/name/description changes and project description drift are now ignored to prevent unintended `ForceNew` replacements of console-created resources.
+- **Admin UI**: Lambda and S3 operational links are grouped with nested lists; Logs links are inlined. About card no longer has a constrained `max-width`. Reading list expanded to 9 chronologically sorted posts.
+- **Symmetric seed topology**: Seed script produces a symmetric user topology aligned with RALE access audit requirements.
+
+### Removed
+
+- **Cedar/AVP remnants**: All remaining Cedar/AVP artifacts removed — `src/raja/cedar/` empty package, `docs/cedar-*.md`, `docs/cedar-admin.html`, `tools/cedar-validate/` Rust binary, dead failure-test categories 2.1–2.7, stale Terraform descriptions, and all CLAUDE.md Cedar references.
+- **`_TIER_SCOPES` / `_TIER_PROJECT_ENV`** removed from `scripts/seed_users.py` (Cedar-era constants, no longer used).
+- **`.rale-seed-state.json` tracking**: File is now gitignored; environment-specific AWS account IDs and ARNs should not be committed.
+
+### Fixed
+
+- **DataZone Tooling blueprint**: Documented six V2 gotchas (policy grants, env config IDs, Tooling prerequisite, immutable domain S3, IAM users, `regionalParameters` keys) that were causing `Invalid S3 path provided null` failures.
+
 ## [1.0.0] - 2026-03-16
 
 ### Added

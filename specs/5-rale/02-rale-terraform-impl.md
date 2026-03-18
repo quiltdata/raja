@@ -271,7 +271,7 @@ Current tokens have `scopes`. RALE TAJs need:
 resource "aws_lambda_function" "rale_authorizer" {
   function_name = "${var.stack_name}-rale-authorizer"
   role          = aws_iam_role.rale_authorizer_role.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   handler       = "handler.handler"
   layers        = [aws_lambda_layer_version.raja.arn]
 
@@ -321,7 +321,7 @@ resource "aws_lambda_function" "rale_authorizer" {
 resource "aws_lambda_function" "rale_router" {
   function_name = "${var.stack_name}-rale-router"
   role          = aws_iam_role.rale_router_role.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   handler       = "handler.handler"
   timeout       = 30
   memory_size   = 1024

@@ -4,6 +4,7 @@ import sys
 
 import click
 
+from raja.rale.access import run_access_audit
 from raja.rale.config import (
     ConfigOverrides,
     resolve_config,
@@ -22,7 +23,6 @@ from raja.rale.state import SessionState
 @click.option("--registry", type=str, default=None, help="Default Quilt registry")
 @click.option("--rajee-endpoint", type=str, default=None, help="RAJEE endpoint URL")
 @click.option("--admin-key", type=str, default=None, help="RAJA admin key")
-@click.option("--principal", type=str, default=None, help="Principal for demo flow")
 @click.option("--tf-dir", type=str, default=None, help="Terraform directory for outputs")
 @click.pass_context
 def main(
@@ -33,7 +33,6 @@ def main(
     registry: str | None,
     rajee_endpoint: str | None,
     admin_key: str | None,
-    principal: str | None,
     tf_dir: str | None,
 ) -> None:
     """RALE CLI demo runner."""
@@ -43,7 +42,6 @@ def main(
         registry=registry,
         rajee_endpoint=rajee_endpoint,
         admin_key=admin_key,
-        principal=principal,
         tf_dir=tf_dir,
     )
     config, tf_outputs = resolve_config(overrides)
@@ -102,6 +100,28 @@ def check_command(ctx: click.Context) -> None:
         raise click.ClickException("; ".join(errors))
 
     console.print("Configuration check passed.")
+
+
+@main.command("access")
+@click.pass_context
+def access_command(ctx: click.Context) -> None:
+    """List the current principal's projects and verify package access."""
+    obj = ctx.obj or {}
+    config = obj.get("config")
+    tf_outputs = obj.get("tf_outputs", {})
+    console = obj.get("console", Console())
+    if config is None:
+        raise click.ClickException("Internal error: missing resolved config")
+
+    errors = validate_config(config)
+    if errors:
+        raise click.ClickException("; ".join(errors))
+
+    state = SessionState(config=config, tf_outputs=tf_outputs)
+    try:
+        run_access_audit(state, console)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 if __name__ == "__main__":

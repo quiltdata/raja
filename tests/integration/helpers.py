@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 import boto3
 import pytest
 
+from raja.aws_sigv4 import build_sigv4_headers
+
 OUTPUT_FILES = (
     Path("infra") / "tf-outputs.json",
     Path("tf-outputs.json"),
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 _PUBLIC_CONTROL_PLANE_PATHS = {"/", "/health", "/.well-known/jwks.json"}
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RALE_URI_FILE = _REPO_ROOT / ".rale-test-uri"
+_RALE_SEED_STATE_FILE = _REPO_ROOT / ".rale-seed-state.json"
 _REQUEST_TIMEOUT_SECONDS = 10.0
 _REQUEST_RETRY_ATTEMPTS = 3
 _REQUEST_RETRY_DELAY_SECONDS = 1.0
@@ -209,9 +212,29 @@ def require_rale_router_url() -> str:
     return endpoint.rstrip("/")
 
 
+def require_seed_state() -> dict[str, Any]:
+    if not _RALE_SEED_STATE_FILE.is_file():
+        pytest.fail(
+            ".rale-seed-state.json does not exist.\n"
+            "Run: python scripts/seed_users.py && python scripts/seed_packages.py"
+        )
+    payload = json.loads(_RALE_SEED_STATE_FILE.read_text())
+    if not isinstance(payload, dict):
+        pytest.fail(".rale-seed-state.json is invalid")
+    return payload
+
+
 def require_rale_test_quilt_uri() -> str:
     """Return the test package URI or fail loudly if test data is missing."""
     uri = os.environ.get("RALE_TEST_QUILT_URI") or os.environ.get("TEST_PACKAGE")
+    if not uri and _RALE_SEED_STATE_FILE.is_file():
+        state = require_seed_state()
+        default_package = str(state.get("default_package") or "")
+        packages = state.get("packages", {})
+        if default_package and isinstance(packages, dict):
+            package_state = packages.get(default_package, {})
+            if isinstance(package_state, dict):
+                uri = str(package_state.get("uri") or "")
     if not uri and _RALE_URI_FILE.is_file():
         uri = _RALE_URI_FILE.read_text().strip()
     if not uri:
@@ -221,6 +244,41 @@ def require_rale_test_quilt_uri() -> str:
             "Then set RALE_TEST_QUILT_URI=<printed URI> (or TEST_PACKAGE=<URI>) "
             "or rely on .rale-test-uri"
         )
+    return uri
+
+
+def require_project_principal(project_key: str) -> str:
+    state = require_seed_state()
+    projects = state.get("projects", {})
+    if not isinstance(projects, dict):
+        pytest.fail("seed state projects are missing")
+    project = projects.get(project_key, {})
+    if not isinstance(project, dict):
+        pytest.fail(f"seed state project is missing: {project_key}")
+    principals = project.get("principals", [])
+    if not isinstance(principals, list) or not principals:
+        pytest.fail(f"seed state project has no principals: {project_key}")
+    return str(principals[0])
+
+
+def require_project_package_uri(project_key: str, access: str) -> str:
+    state = require_seed_state()
+    projects = state.get("projects", {})
+    packages = state.get("packages", {})
+    if not isinstance(projects, dict) or not isinstance(packages, dict):
+        pytest.fail("seed state is missing projects or packages")
+    project = projects.get(project_key, {})
+    if not isinstance(project, dict):
+        pytest.fail(f"seed state project is missing: {project_key}")
+    package_name = str(project.get(f"{access}_package") or "")
+    if not package_name:
+        pytest.fail(f"seed state project is missing {access}_package: {project_key}")
+    package = packages.get(package_name, {})
+    if not isinstance(package, dict):
+        pytest.fail(f"seed state package is missing: {package_name}")
+    uri = str(package.get("uri") or "")
+    if not uri:
+        pytest.fail(f"seed state package URI is missing: {package_name}")
     return uri
 
 
@@ -298,10 +356,20 @@ def request_url(
     url: str,
     headers: dict[str, str] | None = None,
     body: bytes | None = None,
+    *,
+    sigv4: bool = False,
 ) -> tuple[int, dict[str, str], bytes]:
     last_error: BaseException | None = None
     for attempt in range(_REQUEST_RETRY_ATTEMPTS):
-        req = request.Request(url, data=body, headers=headers or {}, method=method)
+        request_headers = dict(headers or {})
+        if sigv4:
+            request_headers = build_sigv4_headers(
+                method=method,
+                url=url,
+                headers=request_headers,
+                body=body,
+            )
+        req = request.Request(url, data=body, headers=request_headers, method=method)
         try:
             with request.urlopen(req, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 payload = response.read()
@@ -360,11 +428,16 @@ def require_raja_users() -> list[str]:
 
 
 def require_test_principal() -> str:
-    """Return the IAM ARN of the first RAJA_USERS entry (owner tier)."""
+    """Return the default IAM ARN for integration tests."""
     # Allow explicit override for flexibility
     override = os.environ.get("RAJA_TEST_PRINCIPAL", "").strip()
     if override:
         return override
+    if _RALE_SEED_STATE_FILE.is_file():
+        state = require_seed_state()
+        default_principal = str(state.get("default_principal") or "")
+        if default_principal:
+            return default_principal
     return require_raja_users()[0]
 
 

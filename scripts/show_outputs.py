@@ -10,8 +10,11 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+from seed_config import load_seed_config
+
 _OUTPUTS_PATH = Path(__file__).parent.parent / "infra" / "tf-outputs.json"
 _ENV_PATH = Path(__file__).parent.parent / ".env"
+_SEED_CONFIG = load_seed_config()
 
 
 def _load_dotenv() -> None:
@@ -30,32 +33,46 @@ def _load_dotenv() -> None:
 
 
 # (label, key, fallback_when_empty)
+_DATAZONE_FIELDS = [
+    ("Domain ID", "datazone_domain_id", ""),
+    ("Portal URL", "datazone_portal_url", ""),
+    *[
+        (f"{project.display_name} Project ID", f"datazone_{project.slot}_project_id", "")
+        for project in _SEED_CONFIG.projects
+    ],
+    ("Asset Type", "datazone_package_asset_type", ""),
+]
+
 _SECTIONS: list[tuple[str, list[tuple[str, str, str]]]] = [
-    ("Control Plane", [
-        ("Admin UI / API URL", "api_url", ""),
-    ]),
-    ("DataZone", [
-        ("Domain ID", "datazone_domain_id", ""),
-        ("Portal URL", "datazone_portal_url", ""),
-        ("Owner Project ID", "datazone_owner_project_id", ""),
-        ("Asset Type", "datazone_package_asset_type", ""),
-    ]),
-    ("RALE", [
-        ("Authorizer URL", "rale_authorizer_url", ""),
-        ("Router URL", "rale_router_url", ""),
-        ("RAJEE Proxy Endpoint", "rajee_endpoint", ""),
-        ("Test Bucket", "rajee_test_bucket_name", ""),
-        ("Registry Bucket", "rajee_registry_bucket_name", ""),
-        (
-            "Envoy Debug UI (9901)",
-            "rajee_admin_url",
-            "(disabled — set admin_allowed_cidrs to enable)",
-        ),
-    ]),
-    ("Envoy", [
-        ("Repository URI", "envoy_repository_uri", ""),
-        ("Image Tag", "envoy_image_tag", ""),
-    ]),
+    (
+        "Control Plane",
+        [
+            ("Admin UI / API URL", "api_url", ""),
+        ],
+    ),
+    ("DataZone", _DATAZONE_FIELDS),
+    (
+        "RALE",
+        [
+            ("Authorizer URL", "rale_authorizer_url", ""),
+            ("Router URL", "rale_router_url", ""),
+            ("RAJEE Proxy Endpoint", "rajee_endpoint", ""),
+            ("Test Bucket", "rajee_test_bucket_name", ""),
+            ("Registry Bucket", "rajee_registry_bucket_name", ""),
+            (
+                "Envoy Debug UI (9901)",
+                "rajee_admin_url",
+                "(disabled — set admin_allowed_cidrs to enable)",
+            ),
+        ],
+    ),
+    (
+        "Envoy",
+        [
+            ("Repository URI", "envoy_repository_uri", ""),
+            ("Image Tag", "envoy_image_tag", ""),
+        ],
+    ),
 ]
 
 
@@ -86,7 +103,9 @@ def _apigw_console_url(api_url: str) -> str:
     if not m:
         return ""
     api_id, region = m.group(1), m.group(2)
-    return f"https://console.aws.amazon.com/apigateway/home?region={region}#/apis/{api_id}/resources"
+    return (
+        f"https://console.aws.amazon.com/apigateway/home?region={region}#/apis/{api_id}/resources"
+    )
 
 
 def _secret_console_url(secret_arn: str) -> str:
@@ -94,7 +113,9 @@ def _secret_console_url(secret_arn: str) -> str:
     # arn:aws:secretsmanager:region:account:secret:name-suffix
     parts = secret_arn.split(":")
     secret_name = parts[6] if len(parts) > 6 else secret_arn
-    return f"https://console.aws.amazon.com/secretsmanager/secret?name={secret_name}&region={region}"
+    return (
+        f"https://console.aws.amazon.com/secretsmanager/secret?name={secret_name}&region={region}"
+    )
 
 
 def _ecr_console_url(repo_uri: str) -> str:

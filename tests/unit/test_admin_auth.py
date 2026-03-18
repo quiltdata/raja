@@ -75,9 +75,12 @@ def test_protected_principals_correct_key_returns_200() -> None:
     with mpatch("raja.server.routers.control_plane._datazone_service") as factory:
         with mpatch("raja.server.routers.control_plane.DataZoneConfig") as mock_cfg_cls:
             config = MagicMock()
-            config.owner_project_id = "proj-owner"
+            config.owner_project_id = "proj-alpha"
             config.users_project_id = ""
             config.guests_project_id = ""
+            config.owner_project_label = "Alpha"
+            config.users_project_label = "Bio"
+            config.guests_project_label = "Compute"
             mock_cfg_cls.from_env.return_value = config
             service = factory.return_value
             service.list_project_members.return_value = []

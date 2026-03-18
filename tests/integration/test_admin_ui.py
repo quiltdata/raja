@@ -172,9 +172,9 @@ def test_admin_structure_reports_datazone_rows_without_errors():
 
     datazone = data.get("datazone", {})
     domain = datazone.get("domain", {})
-    owner_project = datazone.get("owner_project", {})
-    users_project = datazone.get("users_project", {})
-    guests_project = datazone.get("guests_project", {})
+    alpha_project = datazone.get("owner_project", {})
+    bio_project = datazone.get("users_project", {})
+    compute_project = datazone.get("guests_project", {})
     asset_type = datazone.get("asset_type", {})
 
     assert domain.get("status") == "ok", f"Domain row unhealthy: {domain}"
@@ -184,49 +184,45 @@ def test_admin_structure_reports_datazone_rows_without_errors():
         f"Domain portal should be Studio URL: {domain}"
     )
 
-    assert owner_project.get("status") == "ok", f"Owner project row unhealthy: {owner_project}"
-    assert owner_project.get("id"), f"Owner project row missing id: {owner_project}"
-    assert owner_project.get("portal_url"), f"Owner project row missing portal URL: {owner_project}"
-    assert owner_project.get("portal_url", "").endswith(f"/projects/{owner_project['id']}/overview")
-    assert "environment_id" in owner_project, (
-        f"Owner project missing environment_id: {owner_project}"
+    assert alpha_project.get("status") == "ok", f"Alpha project row unhealthy: {alpha_project}"
+    assert alpha_project.get("id"), f"Alpha project row missing id: {alpha_project}"
+    assert alpha_project.get("portal_url"), f"Alpha project row missing portal URL: {alpha_project}"
+    assert alpha_project.get("portal_url", "").endswith(f"/projects/{alpha_project['id']}/overview")
+    assert "environment_id" in alpha_project, (
+        f"Alpha project missing environment_id: {alpha_project}"
     )
-    assert "environment_url" in owner_project, (
-        f"Owner project missing environment_url: {owner_project}"
+    assert "environment_url" in alpha_project, (
+        f"Alpha project missing environment_url: {alpha_project}"
     )
-    if owner_project.get("environment_id"):
-        assert owner_project.get("environment_url", "").endswith(
-            f"/environments/{owner_project['environment_id']}"
+    if alpha_project.get("environment_id"):
+        assert alpha_project.get("environment_url", "").endswith(
+            f"/environments/{alpha_project['environment_id']}"
         )
-    assert users_project.get("id"), f"Users project row missing id: {users_project}"
-    assert users_project.get("portal_url"), f"Users project row missing portal URL: {users_project}"
-    assert users_project.get("portal_url", "").endswith(f"/projects/{users_project['id']}/overview")
-    assert "environment_id" in users_project, (
-        f"Users project missing environment_id: {users_project}"
-    )
-    assert "environment_url" in users_project, (
-        f"Users project missing environment_url: {users_project}"
-    )
-    if users_project.get("environment_id"):
-        assert users_project.get("environment_url", "").endswith(
-            f"/environments/{users_project['environment_id']}"
+    assert bio_project.get("id"), f"Bio project row missing id: {bio_project}"
+    assert bio_project.get("portal_url"), f"Bio project row missing portal URL: {bio_project}"
+    assert bio_project.get("portal_url", "").endswith(f"/projects/{bio_project['id']}/overview")
+    assert "environment_id" in bio_project, f"Bio project missing environment_id: {bio_project}"
+    assert "environment_url" in bio_project, f"Bio project missing environment_url: {bio_project}"
+    if bio_project.get("environment_id"):
+        assert bio_project.get("environment_url", "").endswith(
+            f"/environments/{bio_project['environment_id']}"
         )
-    assert guests_project.get("id"), f"Guests project row missing id: {guests_project}"
-    assert guests_project.get("portal_url"), (
-        f"Guests project row missing portal URL: {guests_project}"
+    assert compute_project.get("id"), f"Compute project row missing id: {compute_project}"
+    assert compute_project.get("portal_url"), (
+        f"Compute project row missing portal URL: {compute_project}"
     )
-    assert guests_project.get("portal_url", "").endswith(
-        f"/projects/{guests_project['id']}/overview"
+    assert compute_project.get("portal_url", "").endswith(
+        f"/projects/{compute_project['id']}/overview"
     )
-    assert "environment_id" in guests_project, (
-        f"Guests project missing environment_id: {guests_project}"
+    assert "environment_id" in compute_project, (
+        f"Compute project missing environment_id: {compute_project}"
     )
-    assert "environment_url" in guests_project, (
-        f"Guests project missing environment_url: {guests_project}"
+    assert "environment_url" in compute_project, (
+        f"Compute project missing environment_url: {compute_project}"
     )
-    if guests_project.get("environment_id"):
-        assert guests_project.get("environment_url", "").endswith(
-            f"/environments/{guests_project['environment_id']}"
+    if compute_project.get("environment_id"):
+        assert compute_project.get("environment_url", "").endswith(
+            f"/environments/{compute_project['environment_id']}"
         )
 
     assert asset_type.get("status") == "ok", f"Asset type row unhealthy: {asset_type}"
@@ -333,7 +329,7 @@ def test_principals_list_returns_datazone_project_metadata():
     assert isinstance(principals, list)
     assert isinstance(principal_summary, list)
     # At least one principal should exist (seeded test data)
-    assert len(principals) >= 1, "No principals found. Run python scripts/seed_test_data.py"
+    assert len(principals) >= 1, "No principals found. Run python scripts/seed_users.py"
     # Every principal with a project should have a string project id
     for item in principals:
         if "datazone_project_id" in item:

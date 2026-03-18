@@ -4,33 +4,13 @@ from urllib.parse import quote
 
 import httpx
 
+from raja.aws_sigv4 import build_sigv4_request
 from raja.manifest import resolve_package_map
 from raja.quilt_uri import parse_quilt_uri
 from raja.token import decode_token
 
 from .console import Console
 from .state import SessionState
-
-
-def _principal_id(principal: str) -> str:
-    """Return the principal identifier to send to the RALE authorizer.
-
-    IAM ARNs (arn:aws:...) and plain usernames are passed through unchanged.
-    Legacy Cedar-style entities (e.g. User::"alice") are unwrapped to "alice".
-    """
-    value = principal.strip()
-    if not value:
-        return value
-    # Cedar entity with quoted id: User::"alice" → alice
-    if '::"' in value and value.endswith('"'):
-        return value.rsplit('::"', 1)[1][:-1]
-    # IAM ARN — pass through as-is
-    if value.startswith("arn:"):
-        return value
-    # Cedar entity without quotes: User::alice → alice
-    if "::" in value:
-        return value.split("::", 1)[1].strip('"')
-    return value
 
 
 def run_authorize(state: SessionState, console: Console) -> None:
@@ -49,16 +29,22 @@ def run_authorize(state: SessionState, console: Console) -> None:
     authorizer_path = quote(f"/{parsed.registry}/{parsed.package_name}/{parsed.path}", safe="/")
 
     authorizer_url = state.config.rale_authorizer_url
+    request_url = f"{authorizer_url.rstrip('/')}{authorizer_path}"
+    request = build_sigv4_request(method="GET", url=request_url)
     try:
-        response = httpx.get(
-            f"{authorizer_url.rstrip('/')}{authorizer_path}",
-            headers={"x-raja-principal": _principal_id(state.config.principal)},
-            timeout=30.0,
-        )
+        with httpx.Client(timeout=30.0) as client:
+            response = client.send(request)
     except httpx.RequestError as exc:
         raise RuntimeError(f"RALE authorizer not reachable at {authorizer_url}") from exc
 
     if response.status_code == 403:
+        try:
+            deny_body = response.json()
+        except Exception:
+            deny_body = {}
+        detail = deny_body.get("error", "")
+        if detail:
+            raise RuntimeError(f"DENY - {detail}")
         raise RuntimeError("DENY - no DataZone package grant permits this principal + package")
     if response.status_code >= 400:
         message = f"TAJ request failed with status {response.status_code}: {response.text}"

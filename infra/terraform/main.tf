@@ -20,6 +20,7 @@ locals {
   rale_authorizer_build_dir    = "${local.build_dir}/rale_authorizer"
   rale_router_build_dir        = "${local.build_dir}/rale_router"
   layer_build_dir              = "${local.build_dir}/raja_layer"
+  raja_blueprint_id            = "4ohtukj8welxd3"
 
   layer_source_hash = sha256(join("", concat(
     [filesha256(local.layer_requirements)],
@@ -39,6 +40,7 @@ locals {
     [for source_file in fileset(local.rale_router_source_dir, "**") : filesha256("${local.rale_router_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
   )))
   lambda_pip_platform = var.lambda_architecture == "arm64" ? "aarch64-manylinux2014" : "x86_64-manylinux2014"
+  lambda_python_version = "3.14"
 
   envoy_source_dir = "${local.repo_root}/infra/envoy"
   envoy_source_hash = sha256(join("", [
@@ -90,6 +92,7 @@ resource "null_resource" "build_raja_layer" {
     source_hash     = local.layer_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -98,7 +101,7 @@ resource "null_resource" "build_raja_layer" {
       rm -rf "${local.layer_build_dir}"
       mkdir -p "${local.layer_build_dir}/python"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.layer_requirements}" --target "${local.layer_build_dir}/python"
       cp -R "${local.raja_source_dir}" "${local.layer_build_dir}/python/raja"
     EOT
@@ -110,6 +113,7 @@ resource "null_resource" "build_control_plane" {
     source_hash     = local.control_plane_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -118,7 +122,7 @@ resource "null_resource" "build_control_plane" {
       rm -rf "${local.control_plane_build_dir}"
       mkdir -p "${local.control_plane_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.control_plane_requirements}" --target "${local.control_plane_build_dir}"
       cp -R "${local.control_plane_source_dir}/." "${local.control_plane_build_dir}/"
     EOT
@@ -130,6 +134,7 @@ resource "null_resource" "build_rale_authorizer" {
     source_hash     = local.rale_authorizer_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -138,7 +143,7 @@ resource "null_resource" "build_rale_authorizer" {
       rm -rf "${local.rale_authorizer_build_dir}"
       mkdir -p "${local.rale_authorizer_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.rale_authorizer_requirements}" --target "${local.rale_authorizer_build_dir}"
       cp -R "${local.rale_authorizer_source_dir}/." "${local.rale_authorizer_build_dir}/"
     EOT
@@ -150,6 +155,7 @@ resource "null_resource" "build_rale_router" {
     source_hash     = local.rale_router_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -158,7 +164,7 @@ resource "null_resource" "build_rale_router" {
       rm -rf "${local.rale_router_build_dir}"
       mkdir -p "${local.rale_router_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.12 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.rale_router_requirements}" --target "${local.rale_router_build_dir}"
       cp -R "${local.rale_router_source_dir}/." "${local.rale_router_build_dir}/"
     EOT
@@ -350,6 +356,15 @@ resource "aws_iam_role_policy" "datazone_environment_owner" {
           aws_s3_bucket.rajee_test.arn,
           "${aws_s3_bucket.rajee_test.arn}/*"
         ]
+      },
+      {
+        Sid    = "InvokeRaleFunctionUrls"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunctionUrl"]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })
@@ -412,6 +427,15 @@ resource "aws_iam_role_policy" "datazone_environment_users" {
           aws_s3_bucket.rajee_registry.arn,
           aws_s3_bucket.rajee_test.arn
         ]
+      },
+      {
+        Sid    = "InvokeRaleFunctionUrls"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunctionUrl"]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })
@@ -473,6 +497,15 @@ resource "aws_iam_role_policy" "datazone_environment_guests" {
           aws_s3_bucket.rajee_registry.arn,
           aws_s3_bucket.rajee_test.arn
         ]
+      },
+      {
+        Sid    = "InvokeRaleFunctionUrls"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunctionUrl"]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })
@@ -480,11 +513,18 @@ resource "aws_iam_role_policy" "datazone_environment_guests" {
 
 resource "aws_datazone_domain" "raja" {
   name                  = var.datazone_domain_name
-  description           = "Software-defined authorization for Quilt packages: Cedar policies compile to JWT scopes, DataZone enforces access via subscription grants"
+  description           = "Software-defined authorization for Quilt packages: DataZone enforces access via subscription grants, RALE issues TAJ tokens"
   domain_execution_role = aws_iam_role.datazone_domain_execution.arn
   domain_version        = "V2"
   service_role          = aws_iam_role.datazone_domain_service.arn
   skip_deletion_check   = true
+
+  # domain_execution_role and service_role are ForceNew in the provider — importing a
+  # console-created domain (which has AWS-managed roles) would cause replacement.
+  # Ignore these so the console-created domain is preserved with its SageMaker Studio infra.
+  lifecycle {
+    ignore_changes = [domain_execution_role, service_role, name, description]
+  }
 
   depends_on = [
     aws_iam_role_policy_attachment.datazone_domain_execution,
@@ -492,22 +532,48 @@ resource "aws_datazone_domain" "raja" {
   ]
 }
 
+resource "aws_datazone_environment_blueprint_configuration" "default_data_lake" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = "d6y5smpdi8x9lz"
+  enabled_regions          = [var.aws_region]
+}
+
+resource "aws_datazone_environment_blueprint_configuration" "raja_registry" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = local.raja_blueprint_id
+  enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = aws_iam_role.datazone_domain_execution.arn
+  manage_access_role_arn   = aws_iam_role.datazone_domain_execution.arn
+}
+
 resource "aws_datazone_project" "owner" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_owner_project_name
   description       = "Publishes QuiltPackage asset listings; RAJA control plane creates listings here and accepts subscriber requests on behalf of principals"
+
+  lifecycle {
+    ignore_changes = [name, description]
+  }
 }
 
 resource "aws_datazone_project" "users" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_users_project_name
   description       = "Subscriber project for authenticated principals; principals are added as members by the control plane"
+
+  lifecycle {
+    ignore_changes = [name, description]
+  }
 }
 
 resource "aws_datazone_project" "guests" {
   domain_identifier = aws_datazone_domain.raja.id
   name              = var.datazone_guests_project_name
   description       = "Subscriber project for unauthenticated/public read-only access; subscriptions are auto-approved"
+
+  lifecycle {
+    ignore_changes = [name, description]
+  }
 }
 
 resource "aws_datazone_asset_type" "quilt_package" {
@@ -600,6 +666,16 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
       {
         Effect = "Allow"
         Action = [
+          "lambda:InvokeFunctionUrl"
+        ]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "s3:GetObject",
           "s3:GetObjectVersion",
           "s3:ListBucket"
@@ -645,7 +721,7 @@ resource "aws_lambda_layer_version" "raja" {
   layer_name               = "${var.stack_name}-raja-layer"
   filename                 = data.archive_file.raja_layer_zip.output_path
   source_code_hash         = data.archive_file.raja_layer_zip.output_base64sha256
-  compatible_runtimes      = ["python3.12"]
+  compatible_runtimes      = ["python3.14"]
   compatible_architectures = [var.lambda_architecture]
   description              = "Shared RAJA library for Lambda handlers"
 }
@@ -653,7 +729,7 @@ resource "aws_lambda_layer_version" "raja" {
 resource "aws_lambda_function" "control_plane" {
   function_name = "${var.stack_name}-control-plane"
   role          = aws_iam_role.control_plane_lambda.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   architectures = [var.lambda_architecture]
   handler       = "handler.handler"
   timeout       = 15
@@ -768,7 +844,7 @@ resource "aws_iam_role_policy" "rale_authorizer_permissions" {
 resource "aws_lambda_function" "rale_authorizer" {
   function_name = "${var.stack_name}-rale-authorizer"
   role          = aws_iam_role.rale_authorizer_lambda.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   architectures = [var.lambda_architecture]
   handler       = "handler.handler"
   timeout       = 20
@@ -793,6 +869,8 @@ resource "aws_lambda_function" "rale_authorizer" {
       RALE_ACTION                          = "quilt:ReadPackage"
       RALE_ISSUER                          = local.issuer
       RALE_AUDIENCE                        = "raja-rale"
+      RAJA_ALLOW_ASSERTED_PRINCIPAL        = var.auth_disabled ? "true" : "false"
+      RAJA_TRUSTED_FORWARDER_ARNS          = join(",", [aws_iam_role.rajee_task.arn, aws_iam_role.control_plane_lambda.arn])
     }
   }
 
@@ -805,7 +883,16 @@ resource "aws_lambda_function" "rale_authorizer" {
 
 resource "aws_lambda_function_url" "rale_authorizer" {
   function_name      = aws_lambda_function.rale_authorizer.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "rale_authorizer_url_account" {
+  statement_id            = "AllowAccountInvokeRaleAuthorizerUrl"
+  action                  = "lambda:InvokeFunctionUrl"
+  function_name           = aws_lambda_function.rale_authorizer.function_name
+  principal               = "*"
+  function_url_auth_type  = "AWS_IAM"
+  source_account          = data.aws_caller_identity.current.account_id
 }
 
 resource "aws_iam_role" "rale_router_lambda" {
@@ -867,7 +954,7 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
 resource "aws_lambda_function" "rale_router" {
   function_name = "${var.stack_name}-rale-router"
   role          = aws_iam_role.rale_router_lambda.arn
-  runtime       = "python3.12"
+  runtime       = "python3.14"
   architectures = [var.lambda_architecture]
   handler       = "handler.handler"
   timeout       = 30
@@ -894,7 +981,16 @@ resource "aws_lambda_function" "rale_router" {
 
 resource "aws_lambda_function_url" "rale_router" {
   function_name      = aws_lambda_function.rale_router.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "rale_router_url_account" {
+  statement_id            = "AllowAccountInvokeRaleRouterUrl"
+  action                  = "lambda:InvokeFunctionUrl"
+  function_name           = aws_lambda_function.rale_router.function_name
+  principal               = "*"
+  function_url_auth_type  = "AWS_IAM"
+  source_account          = data.aws_caller_identity.current.account_id
 }
 
 resource "aws_api_gateway_rest_api" "raja" {
@@ -1327,6 +1423,16 @@ resource "aws_iam_role_policy" "rajee_task_permissions" {
             "cloudwatch:namespace" = "RAJEE"
           }
         }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunctionUrl"
+        ]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })

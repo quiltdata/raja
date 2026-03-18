@@ -21,7 +21,7 @@ def _make_request(request_id: str | None = None) -> Request:
 
 
 def _mock_datazone_with_scopes(scopes: list[str]) -> MagicMock:
-    """Return a datazone mock whose find_project_for_principal returns 'proj-owner'."""
+    """Return a datazone mock whose find_project_for_principal returns the first project."""
     datazone = MagicMock()
     with patch.object(control_plane, "_derive_principal_scopes", return_value=scopes):
         return datazone
@@ -175,9 +175,12 @@ def test_list_principals_with_limit():
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             config = MagicMock()
-            config.owner_project_id = "proj-owner"
-            config.users_project_id = "proj-users"
-            config.guests_project_id = "proj-guests"
+            config.owner_project_id = "proj-alpha"
+            config.users_project_id = "proj-bio"
+            config.guests_project_id = "proj-compute"
+            config.owner_project_label = "Alpha"
+            config.users_project_label = "Bio"
+            config.guests_project_label = "Compute"
             mock_config_cls.from_env.return_value = config
             service = factory.return_value
             service.list_project_members.return_value = ["alice", "bob"]
@@ -193,9 +196,12 @@ def test_list_principals_without_limit():
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             config = MagicMock()
-            config.owner_project_id = "proj-owner"
+            config.owner_project_id = "proj-alpha"
             config.users_project_id = ""
             config.guests_project_id = ""
+            config.owner_project_label = "Alpha"
+            config.users_project_label = "Bio"
+            config.guests_project_label = "Compute"
             mock_config_cls.from_env.return_value = config
             service = factory.return_value
             service.list_project_members.return_value = ["alice"]
@@ -204,7 +210,7 @@ def test_list_principals_without_limit():
     assert len(response["principals"]) == 1
     assert response["principals"][0]["principal"] == "alice"
     assert response["principal_summary"] == [
-        {"principal": "alice", "project_ids": ["proj-owner"], "project_names": ["Owner"]}
+        {"principal": "alice", "project_ids": ["proj-alpha"], "project_names": ["Alpha"]}
     ]
 
 
@@ -214,9 +220,12 @@ def test_list_principals_preserves_multi_project_memberships():
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             config = MagicMock()
-            config.owner_project_id = "proj-owner"
-            config.users_project_id = "proj-users"
+            config.owner_project_id = "proj-alpha"
+            config.users_project_id = "proj-bio"
             config.guests_project_id = ""
+            config.owner_project_label = "Alpha"
+            config.users_project_label = "Bio"
+            config.guests_project_label = "Compute"
             mock_config_cls.from_env.return_value = config
             service = factory.return_value
             service.list_project_members.side_effect = [["alice"], ["alice"]]
@@ -225,16 +234,16 @@ def test_list_principals_preserves_multi_project_memberships():
     assert response["principals"] == [
         {
             "principal": "alice",
-            "datazone_project_id": "proj-owner",
-            "datazone_project_name": "Owner",
+            "datazone_project_id": "proj-alpha",
+            "datazone_project_name": "Alpha",
             "scopes": ["*:*:*"],
             "scope_count": 1,
             "last_token_issued": None,
         },
         {
             "principal": "alice",
-            "datazone_project_id": "proj-users",
-            "datazone_project_name": "Users",
+            "datazone_project_id": "proj-bio",
+            "datazone_project_name": "Bio",
             "scopes": ["S3Object:*:*"],
             "scope_count": 1,
             "last_token_issued": None,
@@ -243,8 +252,8 @@ def test_list_principals_preserves_multi_project_memberships():
     assert response["principal_summary"] == [
         {
             "principal": "alice",
-            "project_ids": ["proj-owner", "proj-users"],
-            "project_names": ["Owner", "Users"],
+            "project_ids": ["proj-alpha", "proj-bio"],
+            "project_names": ["Alpha", "Bio"],
         }
     ]
 
@@ -259,11 +268,11 @@ def test_create_principal():
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             config = MagicMock()
-            config.owner_project_id = "proj-owner"
-            config.users_project_id = "proj-users"
-            config.guests_project_id = "proj-guests"
+            config.owner_project_id = "proj-alpha"
+            config.users_project_id = "proj-bio"
+            config.guests_project_id = "proj-compute"
             mock_config_cls.from_env.return_value = config
-            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-users"):
+            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-bio"):
                 with patch.object(control_plane, "_datazone_service"):
                     response = control_plane.create_principal(request, datazone=datazone)
 
@@ -272,15 +281,15 @@ def test_create_principal():
 
 
 def test_create_principal_empty_scopes():
-    """Test creating a principal with no scopes lands in guests project."""
+    """Test creating a principal with no scopes lands in the third configured project."""
     datazone = MagicMock()
     request = control_plane.PrincipalRequest(principal="alice", scopes=[])
     with patch.object(control_plane, "datazone_enabled", return_value=True):
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             config = MagicMock()
-            config.guests_project_id = "proj-guests"
+            config.guests_project_id = "proj-compute"
             mock_config_cls.from_env.return_value = config
-            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-guests"):
+            with patch.object(control_plane, "project_id_for_scopes", return_value="proj-compute"):
                 with patch.object(control_plane, "_datazone_service"):
                     response = control_plane.create_principal(request, datazone=datazone)
 
@@ -292,13 +301,13 @@ def test_delete_principal():
     datazone = MagicMock()
     with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
         config = MagicMock()
-        config.owner_project_id = "proj-owner"
-        config.users_project_id = "proj-users"
-        config.guests_project_id = "proj-guests"
+        config.owner_project_id = "proj-alpha"
+        config.users_project_id = "proj-bio"
+        config.guests_project_id = "proj-compute"
         mock_config_cls.from_env.return_value = config
         with patch.object(control_plane, "_datazone_service") as factory:
             service = factory.return_value
-            service.find_project_for_principal.return_value = "proj-owner"
+            service.find_project_for_principal.return_value = "proj-alpha"
             response = control_plane.delete_principal("alice", datazone=datazone)
 
     assert "Removed" in response["message"]
@@ -312,14 +321,14 @@ def test_delete_principal_respects_explicit_project_id():
         service = factory.return_value
         response = control_plane.delete_principal(
             "alice",
-            project_id="proj-users",
+            project_id="proj-bio",
             datazone=datazone,
         )
 
     assert "Removed" in response["message"]
     service.find_project_for_principal.assert_not_called()
     service.delete_project_membership.assert_called_once_with(
-        project_id="proj-users",
+        project_id="proj-bio",
         user_identifier="alice",
     )
 
@@ -331,7 +340,7 @@ def test_list_policies_without_statements():
             "listingId": "l1",
             "name": "demo/package-grant",
             "entityType": "QuiltPackage",
-            "owningProjectId": "proj-owner",
+            "owningProjectId": "proj-alpha",
         }
     ]
     with patch.object(control_plane, "_datazone_service") as factory:
@@ -351,7 +360,7 @@ def test_list_policies_with_statements():
             "listingId": "l1",
             "name": "demo/package-grant",
             "entityType": "QuiltPackage",
-            "owningProjectId": "proj-owner",
+            "owningProjectId": "proj-alpha",
         }
     ]
     with patch.object(control_plane, "_datazone_service") as factory:
@@ -396,12 +405,15 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
     with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
         config = MagicMock()
         config.domain_id = "dzd-123"
-        config.owner_project_id = "proj-owner"
-        config.users_project_id = "proj-users"
-        config.guests_project_id = "proj-guests"
-        config.owner_environment_id = "env-owner"
-        config.users_environment_id = "env-users"
-        config.guests_environment_id = "env-guests"
+        config.owner_project_id = "proj-alpha"
+        config.users_project_id = "proj-bio"
+        config.guests_project_id = "proj-compute"
+        config.owner_project_label = "Alpha"
+        config.users_project_label = "Bio"
+        config.guests_project_label = "Compute"
+        config.owner_environment_id = "env-alpha"
+        config.users_environment_id = "env-bio"
+        config.guests_environment_id = "env-compute"
         config.asset_type_name = "QuiltPackage"
         config.asset_type_revision = "2"
         mock_config_cls.from_env.return_value = config
@@ -446,25 +458,25 @@ def test_get_admin_structure_reads_domain_and_asset_type() -> None:
         response["datazone"]["domain"]["portal_url"] == "https://dzd-123.sagemaker.us-east-1.on.aws"
     )
     assert response["datazone"]["owner_project"]["portal_url"].endswith(
-        "/projects/proj-owner/overview"
+        "/projects/proj-alpha/overview"
     )
-    assert response["datazone"]["owner_project"]["environment_id"] == "env-owner"
+    assert response["datazone"]["owner_project"]["environment_id"] == "env-alpha"
     assert response["datazone"]["owner_project"]["environment_url"].endswith(
-        "/environments/env-owner"
+        "/environments/env-alpha"
     )
     assert response["datazone"]["users_project"]["portal_url"].endswith(
-        "/projects/proj-users/overview"
+        "/projects/proj-bio/overview"
     )
-    assert response["datazone"]["users_project"]["environment_id"] == "env-users"
+    assert response["datazone"]["users_project"]["environment_id"] == "env-bio"
     assert response["datazone"]["users_project"]["environment_url"].endswith(
-        "/environments/env-users"
+        "/environments/env-bio"
     )
     assert response["datazone"]["guests_project"]["portal_url"].endswith(
-        "/projects/proj-guests/overview"
+        "/projects/proj-compute/overview"
     )
-    assert response["datazone"]["guests_project"]["environment_id"] == "env-guests"
+    assert response["datazone"]["guests_project"]["environment_id"] == "env-compute"
     assert response["datazone"]["guests_project"]["environment_url"].endswith(
-        "/environments/env-guests"
+        "/environments/env-compute"
     )
     assert response["stack"]["server"]["url"] == "https://api.example.com/prod"
     assert response["stack"]["rale_authorizer"]["url"] == "https://authorizer.example.com"
@@ -477,15 +489,18 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
     listing = MagicMock()
     listing.listing_id = "listing-1"
     listing.name = "demo/package"
-    listing.owner_project_id = "proj-owner"
+    listing.owner_project_id = "proj-alpha"
 
     with patch.object(control_plane, "_datazone_service") as factory:
         with patch.object(control_plane, "DataZoneConfig") as mock_config_cls:
             config = MagicMock()
             config.domain_id = "dzd-123"
-            config.owner_project_id = "proj-owner"
-            config.users_project_id = "proj-users"
-            config.guests_project_id = "proj-guests"
+            config.owner_project_id = "proj-alpha"
+            config.users_project_id = "proj-bio"
+            config.guests_project_id = "proj-compute"
+            config.owner_project_label = "Alpha"
+            config.users_project_label = "Bio"
+            config.guests_project_label = "Compute"
             config.asset_type_name = "QuiltPackage"
             mock_config_cls.from_env.return_value = config
             service = factory.return_value
@@ -495,7 +510,7 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
                 {
                     "id": "sub-1",
                     "status": "ACCEPTED",
-                    "subscribedPrincipals": [{"project": {"id": "proj-users"}}],
+                    "subscribedPrincipals": [{"project": {"id": "proj-bio"}}],
                     "subscribedListings": [{"id": "listing-1"}],
                 }
             ]
@@ -509,8 +524,8 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
                     "principals": [
                         {
                             "principal": "alice",
-                            "datazone_project_id": "proj-owner",
-                            "datazone_project_name": "Owner",
+                            "datazone_project_id": "proj-alpha",
+                            "datazone_project_name": "Alpha",
                             "scopes": ["*:*:*"],
                             "scope_count": 1,
                             "last_token_issued": None,
@@ -519,8 +534,8 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
                     "principal_summary": [
                         {
                             "principal": "alice",
-                            "project_ids": ["proj-owner"],
-                            "project_names": ["Owner"],
+                            "project_ids": ["proj-alpha"],
+                            "project_names": ["Alpha"],
                         }
                     ],
                 },
@@ -531,21 +546,21 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
     assert response["principal_summary"] == [
         {
             "principal": "alice",
-            "project_ids": ["proj-owner"],
-            "project_names": ["Owner"],
+            "project_ids": ["proj-alpha"],
+            "project_names": ["Alpha"],
         }
     ]
-    assert response["packages"][0]["owner_project_url"].endswith("/projects/proj-owner/overview")
+    assert response["packages"][0]["owner_project_url"].endswith("/projects/proj-alpha/overview")
     assert response["subscriptions"] == [
         {
             "package_name": "demo/package",
-            "owner_project_id": "proj-owner",
-            "owner_project_name": "Owner",
-            "consumer_project_id": "proj-users",
-            "consumer_project_name": "Users",
+            "owner_project_id": "proj-alpha",
+            "owner_project_name": "Alpha",
+            "consumer_project_id": "proj-bio",
+            "consumer_project_name": "Bio",
             "status": "ACCEPTED",
             "subscription_id": "sub-1",
-            "subscription_url": "https://dzd-123.sagemaker.us-east-1.on.aws/projects/proj-owner/catalog/subscriptionRequests/incoming?status=APPROVED",
+            "subscription_url": "https://dzd-123.sagemaker.us-east-1.on.aws/projects/proj-alpha/catalog/subscriptionRequests/incoming?status=APPROVED",
         }
     ]
 
@@ -553,12 +568,12 @@ def test_get_access_graph_includes_listing_project_links_and_summary() -> None:
 def test_studio_subscription_requests_url_maps_status() -> None:
     result = control_plane._studio_subscription_requests_url(
         portal_url="https://dzd-123.sagemaker.us-east-1.on.aws",
-        project_id="proj-owner",
+        project_id="proj-alpha",
         status="ACCEPTED",
     )
 
     assert result == (
-        "https://dzd-123.sagemaker.us-east-1.on.aws/projects/proj-owner/"
+        "https://dzd-123.sagemaker.us-east-1.on.aws/projects/proj-alpha/"
         "catalog/subscriptionRequests/incoming?status=APPROVED"
     )
 

@@ -1,35 +1,60 @@
 #!/usr/bin/env python3
-"""Seed quilt3 packages into raja-poc-registry using files from raja-poc-test."""
+"""Seed Quilt packages and DataZone grants from seed-config.yaml."""
 
 from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
 
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
+from scripts.seed_config import (
+    DEFAULT_TEST_URI_PATH,
+    load_seed_config,
+    load_seed_state,
+    write_seed_state,
+)
 from scripts.tf_outputs import get_tf_output
 
-SEED_FILES: dict[str, bytes] = {
-    "data.csv": b"col1,col2,col3\nalpha,1,true\nbeta,2,false\ngamma,3,true\n",
-    "README.md": (
-        b"# Package Demo\n\nSample dataset for RAJA package-grant integration tests.\n\n"
-        b"## Files\n\n- `data.csv` \xe2\x80\x94 tabular data\n"
-        b"- `results.json` \xe2\x80\x94 summary stats\n"
-    ),
-    "results.json": b'{"status": "ok", "row_count": 3, "columns": ["col1", "col2", "col3"]}\n',
-}
+
+def seed_files_for_package(package_name: str) -> dict[str, bytes]:
+    author, dataset = package_name.split("/", 1)
+    topology_version = "symmetric-v2"
+    readme = (
+        f"# {package_name}\n\n"
+        "Seeded dataset for RAJA package-grant integration tests.\n\n"
+        f"- Producer project: {author}\n"
+        f"- Dataset: {dataset}\n"
+        f"- Topology version: {topology_version}\n"
+    ).encode()
+    data_csv = (
+        "project,ordinal,accessible,topology\n"
+        f"{author},1,true,{topology_version}\n"
+        f"{author},2,false,{topology_version}\n"
+        f"{author},3,true,{topology_version}\n"
+    ).encode()
+    results_json = (
+        "{"
+        f'"package": "{package_name}", '
+        f'"producer_project": "{author}", '
+        f'"topology_version": "{topology_version}", '
+        '"row_count": 3'
+        "}\n"
+    ).encode()
+    return {
+        "data.csv": data_csv,
+        "README.md": readme,
+        "results.json": results_json,
+    }
+
+
+SEED_FILES: dict[str, bytes] = seed_files_for_package("alpha/home")
 
 
 def _get_region() -> str:
-    region = (
-        os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or "us-east-1"
-    )
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
     if not region:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
@@ -40,6 +65,8 @@ def _hydrate_datazone_env() -> None:
     mapping = {
         "DATAZONE_DOMAIN_ID": "datazone_domain_id",
         "DATAZONE_OWNER_PROJECT_ID": "datazone_owner_project_id",
+        "DATAZONE_USERS_PROJECT_ID": "datazone_users_project_id",
+        "DATAZONE_GUESTS_PROJECT_ID": "datazone_guests_project_id",
         "DATAZONE_PACKAGE_ASSET_TYPE": "datazone_package_asset_type",
         "DATAZONE_PACKAGE_ASSET_TYPE_REVISION": "datazone_package_asset_type_revision",
     }
@@ -55,27 +82,22 @@ def _get_account_id() -> str:
     return boto3.client("sts").get_caller_identity()["Account"]
 
 
-def _ensure_test_files(s3: object, bucket: str, dry_run: bool) -> list[tuple[str, str]]:
+def _ensure_test_files(
+    s3: object,
+    bucket: str,
+    package_name: str,
+    dry_run: bool,
+) -> list[tuple[str, str]]:
     """Upload sample files to the test bucket if they don't already exist.
 
     Returns list of (logical_name, s3_key) tuples.
     """
+    seed_files = seed_files_for_package(package_name)
+    path_prefix = f"rajee-integration/{package_name.replace('/', '-')}"
     files: list[tuple[str, str, bytes]] = [
-        (
-            "data.csv",
-            "rajee-integration/package-demo/data.csv",
-            SEED_FILES["data.csv"],
-        ),
-        (
-            "README.md",
-            "rajee-integration/package-demo/README.md",
-            SEED_FILES["README.md"],
-        ),
-        (
-            "results.json",
-            "rajee-integration/package-demo/results.json",
-            SEED_FILES["results.json"],
-        ),
+        ("data.csv", f"{path_prefix}/data.csv", seed_files["data.csv"]),
+        ("README.md", f"{path_prefix}/README.md", seed_files["README.md"]),
+        ("results.json", f"{path_prefix}/results.json", seed_files["results.json"]),
     ]
 
     entries: list[tuple[str, str]] = []
@@ -84,19 +106,12 @@ def _ensure_test_files(s3: object, bucket: str, dry_run: bool) -> list[tuple[str
         if dry_run:
             print(f"  [DRY-RUN] Would ensure s3://{bucket}/{key}")
             continue
-        try:
-            s3.head_object(Bucket=bucket, Key=key)  # type: ignore[attr-defined]
-            print(f"  ✓ Already exists: s3://{bucket}/{key}")
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] == "404":
-                s3.put_object(  # type: ignore[attr-defined]
-                    Bucket=bucket,
-                    Key=key,
-                    Body=body,
-                )
-                print(f"  ✓ Created: s3://{bucket}/{key}")
-            else:
-                raise
+        s3.put_object(  # type: ignore[attr-defined]
+            Bucket=bucket,
+            Key=key,
+            Body=body,
+        )
+        print(f"  ✓ Upserted: s3://{bucket}/{key}")
 
     return entries
 
@@ -194,89 +209,104 @@ def main() -> None:
     s3 = boto3.client("s3", region_name=region)
     _ensure_registry_workflow_config(s3, registry_bucket, dry_run)
 
-    # --- Package 1: demo/package-grant ---
-    print("[1/1] demo/package-grant")
-    print("  Ensuring test files exist in test bucket…")
-    entries = _ensure_test_files(s3, test_bucket, dry_run)
-
-    print("  Pushing package manifest to registry…")
-    top_hash = _push_package(
-        quilt3,
-        "demo/package-grant",
-        entries,
-        test_bucket,
-        registry_bucket,
-        dry_run,
-    )
+    seed_config = load_seed_config()
+    package_state: dict[str, dict[str, str]] = {}
 
     print()
     print("=" * 60)
     if dry_run:
         print("✓ DRY-RUN complete — no changes made")
     else:
-        assert top_hash is not None
-        uri = f"quilt+s3://{registry_bucket}#package=demo/package-grant@{top_hash}"
-        uri_file = Path(__file__).resolve().parents[1] / ".rale-test-uri"
-        uri_file.write_text(uri + "\n")
+        config = DataZoneConfig.from_env() if datazone_enabled() else None
+        service = (
+            DataZoneService(client=boto3.client("datazone", region_name=region), config=config)
+            if config is not None
+            else None
+        )
+        project_ids = config and seed_config.project_id_map(config) or {}
 
-        if datazone_enabled():
-            # Prefer DATAZONE_TEST_PRINCIPAL, fall back to first RAJA_USERS entry (as IAM ARN)
-            principal = os.environ.get("DATAZONE_TEST_PRINCIPAL", "").strip()
-            if not principal:
-                raw_users = os.environ.get("RAJA_USERS", "").strip()
-                first_user = raw_users.split(",")[0].strip() if raw_users else ""
-                if first_user:
-                    account_id = _get_account_id()
-                    principal = f"arn:aws:iam::{account_id}:user/{first_user}"
-            if not principal:
-                print(
-                    "  Skipped DataZone grant bootstrap "
-                    "(set DATAZONE_TEST_PRINCIPAL or RAJA_USERS to enable)",
-                    file=sys.stderr,
-                )
-            else:
-                config = DataZoneConfig.from_env()
-                service = DataZoneService(
-                    client=boto3.client("datazone", region_name=region),
-                    config=config,
-                )
-                project_ids = [
-                    p
-                    for p in [
-                        config.owner_project_id,
-                        config.users_project_id,
-                        config.guests_project_id,
-                    ]
-                    if p
-                ]
-                project_id = service.find_project_for_principal(principal, project_ids=project_ids)
-                if project_id:
-                    try:
-                        listing_id = service.ensure_project_package_grant(
-                            project_id=project_id,
-                            quilt_uri=uri,
-                        )
-                        print(f"  DataZone listing: {listing_id}")
-                        print(f"  Granted principal: {principal}")
-                    except DataZoneError as exc:
-                        print(f"✗ Failed to sync DataZone package grant: {exc}", file=sys.stderr)
-                        sys.exit(1)
-                else:
+        for index, package in enumerate(seed_config.packages, start=1):
+            print(f"[{index}/{len(seed_config.packages)}] {package.name}")
+            print("  Ensuring test files exist in test bucket...")
+            entries = _ensure_test_files(s3, test_bucket, package.name, dry_run)
+            print("  Pushing package manifest to registry...")
+            top_hash = _push_package(
+                quilt3,
+                package.name,
+                entries,
+                test_bucket,
+                registry_bucket,
+                dry_run,
+            )
+            assert top_hash is not None
+            uri = f"quilt+s3://{registry_bucket}#package={package.name}@{top_hash}"
+            producer_project_id = project_ids.get(package.producer_project, "")
+            consumer_project_id = project_ids.get(package.consumer_project, "")
+            listing_id = ""
+            if service is not None:
+                if not producer_project_id or not consumer_project_id:
                     print(
-                        "  Skipped DataZone grant bootstrap "
-                        f"(missing project mapping for principal {principal})"
+                        f"✗ Missing DataZone project mapping for {package.name}: "
+                        f"{package.producer_project}->{package.consumer_project}",
+                        file=sys.stderr,
                     )
+                    sys.exit(1)
+                try:
+                    listing = service.ensure_package_listing(
+                        uri,
+                        owner_project_id=producer_project_id,
+                    )
+                    listing_id = service.ensure_project_package_grant(
+                        project_id=consumer_project_id,
+                        quilt_uri=uri,
+                        owner_project_id=producer_project_id,
+                    )
+                    print(f"  DataZone listing: {listing.listing_id}")
+                    print(f"  Grant: {package.producer_project} -> {package.consumer_project}")
+                except DataZoneError as exc:
+                    print(f"✗ Failed to sync DataZone package grant: {exc}", file=sys.stderr)
+                    sys.exit(1)
+            package_state[package.name] = {
+                "uri": uri,
+                "listing_id": listing_id,
+                "producer_project": package.producer_project,
+                "consumer_project": package.consumer_project,
+            }
+            print(f"  Hash: {top_hash}")
+            print(f"  URI:  {uri}")
 
-        print("✓ Package seeded successfully")
-        print("  Name:     demo/package-grant")
+        default_package_name = seed_config.package_for_home_project(
+            seed_config.default_project
+        ).name
+        default_uri = package_state[default_package_name]["uri"]
+        DEFAULT_TEST_URI_PATH.write_text(default_uri + "\n")
+
+        state = load_seed_state()
+        state["default_package"] = default_package_name
+        state["packages"] = package_state
+        existing_projects = state.get("projects", {})
+        if isinstance(existing_projects, dict):
+            for project in seed_config.projects:
+                project_state = existing_projects.setdefault(project.key, {})
+                if not isinstance(project_state, dict):
+                    continue
+                project_state["home_package"] = seed_config.package_for_home_project(
+                    project.key
+                ).name
+                project_state["foreign_package"] = seed_config.package_for_consumer_project(
+                    project.key
+                ).name
+                project_state["inaccessible_package"] = (
+                    seed_config.package_for_inaccessible_project(project.key).name
+                )
+        write_seed_state(state)
+
+        print("✓ Packages seeded successfully")
+        print(f"  Default package: {default_package_name}")
         print(f"  Registry: s3://{registry_bucket}")
-        print(f"  Hash:     {top_hash}")
         print()
-        print("Quilt+ URI:")
-        print(f"  {uri}")
-        print()
-        print(f"export RALE_TEST_QUILT_URI={uri}")
-        print(f"(also written to {uri_file})")
+        print(f"export RALE_TEST_QUILT_URI={default_uri}")
+        print(f"(also written to {DEFAULT_TEST_URI_PATH})")
     print("=" * 60)
 
 

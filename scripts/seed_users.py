@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Seed real IAM users into DataZone projects for integration testing.
-
-Users are read from two env vars:
-
-  RAJA_USERS  — comma-separated usernames assigned to tiers by position:
-    - Tier 0 (owner):  first user  → owner_project  (scopes: ["*:*:*"])
-    - Tier 1 (users):  second user → users_project  (scopes: ["Package:*:write"])
-    - Tier 2 (guests): remaining   → guests_project (scopes: ["Package:*:read"])
-  At least 2 users are needed to cover owner + users tiers.
-
-  RAJA_GUESTS — optional comma-separated usernames all seeded into guests_project
-    as PROJECT_CONTRIBUTOR.  Use this for dedicated read-only/public principals.
-"""
+"""Seed IAM users into the configured DataZone test projects."""
 
 from __future__ import annotations
 
@@ -21,31 +9,19 @@ import sys
 import boto3
 
 from raja.datazone import DataZoneConfig, DataZoneService, datazone_enabled
+from scripts.seed_config import (
+    build_user_assignments,
+    load_seed_config,
+    load_seed_state,
+    write_seed_state,
+)
 from scripts.tf_outputs import get_tf_output
 
-_MIN_USERS = 2
-
-_TIER_SCOPES: list[list[str]] = [
-    ["*:*:*"],              # owner  — wildcard → owner_project
-    ["Package:*:write"],    # users  — write    → users_project
-    ["Package:*:read"],     # guests — read     → guests_project
-]
-
-_TIER_DESIGNATION = ["PROJECT_OWNER", "PROJECT_CONTRIBUTOR", "PROJECT_CONTRIBUTOR"]
-
-_TIER_PROJECT_ENV = [
-    "DATAZONE_OWNER_PROJECT_ID",
-    "DATAZONE_USERS_PROJECT_ID",
-    "DATAZONE_GUESTS_PROJECT_ID",
-]
+_MIN_USERS = 3
 
 
 def _get_region() -> str:
-    region = (
-        os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or "us-east-1"
-    )
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
     if not region:
         print("✗ AWS_REGION environment variable is required", file=sys.stderr)
         sys.exit(1)
@@ -86,8 +62,8 @@ def _get_raja_users() -> list[str]:
     if len(users) < _MIN_USERS:
         print(
             f"⚠ Warning: only {len(users)} user(s) in RAJA_USERS; "
-            f"need at least {_MIN_USERS} to cover owner + users tiers. "
-            f"Extra tiers will reuse the last user.",
+            f"need at least {_MIN_USERS} to cover the configured project ring. "
+            "Projects without an assigned principal will remain empty.",
             file=sys.stderr,
         )
     return users
@@ -104,15 +80,6 @@ def _user_to_arn(username: str, account_id: str) -> str:
     return f"arn:aws:iam::{account_id}:user/{username}"
 
 
-def _tier_project_id(tier: int, config: DataZoneConfig) -> str:
-    project_ids = [
-        config.owner_project_id,
-        config.users_project_id,
-        config.guests_project_id,
-    ]
-    return project_ids[tier]
-
-
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
 
@@ -120,10 +87,13 @@ def main() -> None:
     _hydrate_datazone_env()
     usernames = _get_raja_users()
     guests = _get_raja_guests()
+    seed_config = load_seed_config()
     account_id = _get_account_id(region)
 
     print(f"{'=' * 60}")
-    print(f"Seeding {len(usernames)} RAJA user(s) + {len(guests)} guest(s) from account {account_id}")
+    print(
+        f"Seeding {len(usernames)} RAJA user(s) + {len(guests)} guest(s) from account {account_id}"
+    )
     print(f"Region: {region}")
     if dry_run:
         print("Mode:   DRY-RUN (no changes will be made)")
@@ -142,29 +112,33 @@ def main() -> None:
         print(f"✗ Failed to initialise DataZone: {e}", file=sys.stderr)
         sys.exit(1)
 
+    project_ids = seed_config.project_id_map(datazone_config)
+    assignments = build_user_assignments(usernames, seed_config)
     success_count = 0
     fail_count = 0
+    project_principals: dict[str, list[str]] = {project.key: [] for project in seed_config.projects}
 
-    for idx, username in enumerate(usernames):
-        tier = min(idx, len(_TIER_SCOPES) - 1)
+    for idx, assignment in enumerate(assignments):
+        username = assignment.username
         arn = _user_to_arn(username, account_id)
-        designation = _TIER_DESIGNATION[tier]
-        tier_name = ["owner", "users", "guests"][tier]
-        project_id = _tier_project_id(tier, datazone_config)
+        project = seed_config.project(assignment.project_key)
+        project_id = project_ids.get(project.key, "")
 
         print(
             f"[{idx + 1}/{len(usernames)}] {username}"
-            f"  tier={tier_name}"
+            f"  logical_project={project.display_name}"
             + (f"  project={project_id}" if project_id else "")
         )
 
         if dry_run:
-            print(f"  [DRY-RUN] Would add: {arn} → project={project_id} as {designation}")
+            print(
+                f"  [DRY-RUN] Would add: {arn} → project={project_id} as {assignment.designation}"
+            )
             success_count += 1
             continue
 
         if not project_id:
-            print(f"  ⚠ No project ID for tier {tier_name}, skipping", file=sys.stderr)
+            print(f"  ⚠ No project ID for logical project {project.key}, skipping", file=sys.stderr)
             fail_count += 1
             continue
 
@@ -172,40 +146,90 @@ def main() -> None:
             datazone_service.ensure_project_membership(
                 project_id=project_id,
                 user_identifier=arn,
-                designation=designation,
+                designation=assignment.designation,
             )
-            print(f"  ✓ DataZone: added {arn} to project {project_id} as {designation}")
+            print(f"  ✓ DataZone: added {arn} to project {project_id} as {assignment.designation}")
+            project_principals[project.key].append(arn)
             success_count += 1
         except Exception as e:
             print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
             fail_count += 1
 
-    # --- RAJA_GUESTS: seed directly into guests project ---
+    # Preserve RAJA_GUESTS as optional overflow into the last configured project.
     if guests:
-        guests_project_id = datazone_config.guests_project_id
-        print(f"\nSeeding {len(guests)} guest(s) → guests project ({guests_project_id})")
+        overflow_project = seed_config.projects[-1]
+        overflow_project_id = project_ids.get(overflow_project.key, "")
+        print(
+            f"\nSeeding {len(guests)} extra principal(s) → "
+            f"{overflow_project.display_name} ({overflow_project_id})"
+        )
         for idx, username in enumerate(guests):
             arn = _user_to_arn(username, account_id)
-            print(f"[{idx + 1}/{len(guests)}] {username}  tier=guests  project={guests_project_id}")
+            print(
+                f"[{idx + 1}/{len(guests)}] {username}"
+                f"  logical_project={overflow_project.display_name}"
+                f"  project={overflow_project_id}"
+            )
             if dry_run:
-                print(f"  [DRY-RUN] Would add: {arn} → project={guests_project_id} as PROJECT_CONTRIBUTOR")
+                print(
+                    f"  [DRY-RUN] Would add: {arn} → project={overflow_project_id} "
+                    "as PROJECT_CONTRIBUTOR"
+                )
                 success_count += 1
                 continue
-            if not guests_project_id:
-                print(f"  ⚠ No guests project ID, skipping", file=sys.stderr)
+            if not overflow_project_id:
+                print("  ⚠ No overflow project ID, skipping", file=sys.stderr)
                 fail_count += 1
                 continue
             try:
                 datazone_service.ensure_project_membership(
-                    project_id=guests_project_id,
+                    project_id=overflow_project_id,
                     user_identifier=arn,
                     designation="PROJECT_CONTRIBUTOR",
                 )
-                print(f"  ✓ DataZone: added {arn} to guests project {guests_project_id}")
+                print(f"  ✓ DataZone: added {arn} to project {overflow_project_id}")
+                project_principals[overflow_project.key].append(arn)
                 success_count += 1
             except Exception as e:
                 print(f"  ✗ DataZone: membership failed for {arn}: {e}", file=sys.stderr)
                 fail_count += 1
+
+    if not dry_run:
+        state = load_seed_state()
+        existing_projects = state.get("projects", {})
+        if not isinstance(existing_projects, dict):
+            existing_projects = {}
+        state["default_project"] = seed_config.default_project
+        state["default_principal"] = next(
+            (
+                principals[0]
+                for project_key, principals in project_principals.items()
+                if project_key == seed_config.default_project and principals
+            ),
+            next(
+                (
+                    principal
+                    for principals in project_principals.values()
+                    for principal in principals
+                ),
+                "",
+            ),
+        )
+        state["projects"] = {
+            project.key: {
+                **(
+                    existing_projects.get(project.key, {})
+                    if isinstance(existing_projects.get(project.key, {}), dict)
+                    else {}
+                ),
+                "display_name": project.display_name,
+                "slot": project.slot,
+                "project_id": project_ids.get(project.key, ""),
+                "principals": project_principals.get(project.key, []),
+            }
+            for project in seed_config.projects
+        }
+        write_seed_state(state)
 
     total = len(usernames) + len(guests)
     print(f"\n{'=' * 60}")

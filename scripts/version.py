@@ -164,9 +164,9 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
     """Create and push a git tag for the given version."""
     tag = f"v{version}"
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Creating release tag: {tag}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Check git status
     check_git_status()
@@ -207,9 +207,9 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
     run_command(["git", "push", "origin", tag])
     print(f"✓ Tag {tag} pushed to origin")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"✓ Release tag {tag} created and pushed successfully!")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print("\nWhat happens next:")
     print("  1. GitHub Actions will trigger the release workflow")
     print("  2. Quality checks and tests will run")
@@ -221,9 +221,9 @@ def create_and_push_tag(version: str, skip_checks: bool = False, recreate: bool 
 
 def bump_and_commit(bump_type: str = "patch") -> None:
     """Bump version and commit changes."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Bumping {bump_type} version")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Check git status
     check_git_status()
@@ -259,9 +259,9 @@ def bump_and_commit(bump_type: str = "patch") -> None:
     run_command(["git", "commit", "-m", commit_msg])
     print("✓ Changes committed")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"✓ Version bumped to {new_version} and committed!")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print("\nNext steps:")
     print("  1. Review the commit: git show")
     print("  2. Push to remote: git push")

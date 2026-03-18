@@ -4,10 +4,9 @@
 This script patches the current Terraform provider gaps for RAJA's V2 domain:
 
 1. Ensure the default project profile exists and is ENABLED.
-2. Ensure the owner/users/guests projects exist in the V2 domain.
-3. Ensure the root domain unit grants CREATE_ASSET_TYPE to owner projects.
-4. Ensure the users project has subscription grants to owner project listings.
-5. Refresh infra/tf-outputs.json with discovered project IDs.
+2. Resolve the three configured seed projects in the V2 domain.
+3. Ensure the root domain unit grants CREATE_ASSET_TYPE to project owners.
+4. Refresh infra/tf-outputs.json with discovered project IDs.
 
 It is safe to rerun. Existing resources are reused.
 """
@@ -31,42 +30,39 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.tf_outputs import load_tf_outputs
+from scripts.seed_config import load_seed_config  # noqa: E402
+from scripts.tf_outputs import load_tf_outputs  # noqa: E402
 
 OUTPUTS_PATH = REPO_ROOT / "infra" / "tf-outputs.json"
 ENV_PATH = REPO_ROOT / ".env"
 
 DEFAULT_PROFILE_NAME = "raja-default-profile"
 DEFAULT_PROFILE_DESCRIPTION = "Default project profile for RAJA Terraform-managed V2 projects"
-PROJECT_SPECS = {
-    "owner": {
-        "name": "raja-owner",
-        "description": (
-            "Publishes QuiltPackage asset listings; RAJA control plane creates listings "
-            "here and accepts subscriber requests on behalf of principals"
-        ),
-    },
-    "users": {
-        "name": "raja-users",
-        "description": (
-            "Subscriber project for authenticated principals; principals are added as "
-            "members by the control plane"
-        ),
-    },
-    "guests": {
-        "name": "raja-guests",
-        "description": (
-            "Subscriber project for unauthenticated/public read-only access; "
-            "subscriptions are auto-approved"
-        ),
-    },
+SEED_CONFIG = load_seed_config()
+PROJECT_OUTPUT_KEYS = {
+    "owner": "datazone_owner_project_id",
+    "users": "datazone_users_project_id",
+    "guests": "datazone_guests_project_id",
 }
+PROJECT_SPECS = {
+    project.slot: {
+        "name": project.display_name,
+        "description": (
+            f"{project.display_name} project in the RAJA symmetric seed topology. "
+            "Each project produces one package, consumes one foreign package, "
+            "and is denied one package."
+        ),
+    }
+    for project in SEED_CONFIG.projects
+}
+SLOT_LABELS = SEED_CONFIG.slot_label_map()
 ENVIRONMENT_SPECS = {
-    "owner": "raja-owner-env",
-    "users": "raja-users-env",
-    "guests": "raja-guests-env",
+    project.slot: f"raja-{project.key}-env"
+    for project in SEED_CONFIG.projects
 }
 CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
+    "raja-registry-blueprint",
+    "raja-poc",
     "CustomAWS",
     "Custom AWS",
     "CustomAws",
@@ -82,6 +78,7 @@ class Context:
     project_profile_name: str
     outputs: dict[str, Any]
     dry_run: bool
+    custom_blueprint_id: str = ""
 
 
 def _load_dotenv() -> None:
@@ -206,10 +203,16 @@ def _list_projects(client: Any, ctx: Context) -> list[dict[str, Any]]:
 def _ensure_projects(client: Any, ctx: Context, profile_id: str) -> dict[str, str]:
     projects = _list_projects(client, ctx)
     by_name = {str(project["name"]): project for project in projects}
+    by_id = {str(project["id"]): project for project in projects}
     ensured: dict[str, str] = {}
 
     for key, spec in PROJECT_SPECS.items():
         existing = by_name.get(spec["name"])
+        if existing is None:
+            existing_output_id = str(ctx.outputs.get(PROJECT_OUTPUT_KEYS[key]) or "")
+            candidate = by_id.get(existing_output_id) if existing_output_id else None
+            if candidate is not None and str(candidate.get("name") or "") == spec["name"]:
+                existing = candidate
         if existing:
             project_id = str(existing["id"])
             ensured[key] = project_id
@@ -323,6 +326,107 @@ def _find_custom_blueprint_id(client: Any, ctx: Context) -> str:
     return ""
 
 
+def _get_project_profile_id(client: Any, ctx: Context, project_id: str) -> str:
+    try:
+        resp = client.get_project(
+            domainIdentifier=ctx.domain_id,
+            identifier=project_id,
+        )
+        return str(resp.get("projectProfileId") or "")
+    except ClientError:
+        return ""
+
+
+def _get_registry_env_config_id(client: Any, ctx: Context, profile_id: str) -> str:
+    """Return the raja-registry environment configuration ID for a project profile."""
+    try:
+        resp = client.get_project_profile(
+            domainIdentifier=ctx.domain_id,
+            identifier=profile_id,
+        )
+    except ClientError:
+        return ""
+    for ec in resp.get("environmentConfigurations") or []:
+        if ec.get("environmentBlueprintId") == ctx.custom_blueprint_id:
+            return str(ec.get("id") or "")
+    return ""
+
+
+def _ensure_environments(
+    client: Any,
+    ctx: Context,
+    project_ids: dict[str, str],
+    registry_bucket: str,
+    test_bucket: str,
+) -> None:
+    """Create raja-registry environments for each project if not already present.
+
+    Requires the project to use a profile that includes the raja-registry blueprint.
+    Projects using the AWS-managed 'All capabilities' profile are skipped with a warning.
+    """
+    if not ctx.custom_blueprint_id:
+        print("Environments: skipped (custom blueprint not found)")
+        return
+
+    for key, environment_name in ENVIRONMENT_SPECS.items():
+        project_id = project_ids.get(key, "")
+        if not project_id:
+            continue
+
+        # Check whether environment already exists
+        items = _list_all(
+            client.list_environments,
+            "items",
+            domainIdentifier=ctx.domain_id,
+            projectIdentifier=project_id,
+        )
+        existing = next(
+            (i for i in items if str(i.get("name") or "") == environment_name),
+            None,
+        )
+        if existing:
+            env_id = str(existing.get("id") or "")
+            env_status = str(existing.get("status") or "")
+            print(f"Environment {key}: {environment_name} ({env_id}) [{env_status}]")
+            continue
+
+        # Determine the environment configuration ID from the project's profile
+        project_profile_id = _get_project_profile_id(client, ctx, project_id)
+        env_config_id = (
+            _get_registry_env_config_id(client, ctx, project_profile_id)
+            if project_profile_id
+            else ""
+        )
+        if not env_config_id:
+            print(
+                f"Environment {key}: {environment_name} (skipped — project profile "
+                f"{project_profile_id!r} has no raja-registry env config; "
+                "re-create project with raja-default-profile to enable)"
+            )
+            continue
+
+        print(f"Environment {key}: {environment_name} (missing)")
+        if ctx.dry_run:
+            print("  [DRY-RUN] Would create environment")
+            continue
+
+        try:
+            created = client.create_environment(
+                domainIdentifier=ctx.domain_id,
+                projectIdentifier=project_id,
+                name=environment_name,
+                environmentConfigurationId=env_config_id,
+                userParameters=[
+                    {"name": "RegistryBucketName", "value": registry_bucket},
+                    {"name": "TestBucketName", "value": test_bucket},
+                ],
+            )
+            env_id = str(created.get("id") or "")
+            print(f"  Created environment {env_id}")
+        except ClientError as exc:
+            print(f"  WARNING: failed to create {environment_name}: {exc}")
+
+
 def _discover_environment_ids(
     client: Any,
     ctx: Context,
@@ -379,10 +483,11 @@ def _wait_for_lambda_update(lambda_client: Any, function_name: str) -> None:
     raise RuntimeError(f"timed out waiting for lambda update: {function_name}")
 
 
-def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) -> None:
-    if not environment_ids:
-        return
-
+def _sync_lambda_environment_ids(
+    ctx: Context,
+    project_ids: dict[str, str],
+    environment_ids: dict[str, str],
+) -> None:
     lambda_arns = [
         str(ctx.outputs.get("control_plane_lambda_arn") or ""),
         str(ctx.outputs.get("rale_authorizer_arn") or ""),
@@ -393,9 +498,15 @@ def _sync_lambda_environment_ids(ctx: Context, environment_ids: dict[str, str]) 
         return
 
     env_updates = {
+        "DATAZONE_OWNER_PROJECT_ID": project_ids.get("owner", ""),
+        "DATAZONE_USERS_PROJECT_ID": project_ids.get("users", ""),
+        "DATAZONE_GUESTS_PROJECT_ID": project_ids.get("guests", ""),
         "DATAZONE_OWNER_ENVIRONMENT_ID": environment_ids.get("owner", ""),
         "DATAZONE_USERS_ENVIRONMENT_ID": environment_ids.get("users", ""),
         "DATAZONE_GUESTS_ENVIRONMENT_ID": environment_ids.get("guests", ""),
+        "DATAZONE_OWNER_PROJECT_LABEL": SLOT_LABELS.get("owner", "Project A"),
+        "DATAZONE_USERS_PROJECT_LABEL": SLOT_LABELS.get("users", "Project B"),
+        "DATAZONE_GUESTS_PROJECT_LABEL": SLOT_LABELS.get("guests", "Project C"),
     }
     lambda_client = boto3.client("lambda", region_name=ctx.region)
 
@@ -548,21 +659,8 @@ def _ensure_subscription_grant(
 def _ensure_default_subscription_grants(
     client: Any, ctx: Context, project_ids: dict[str, str]
 ) -> None:
-    owner_project_id = project_ids.get("owner", "")
-    if not owner_project_id:
-        return
-    listings = _search_owner_listings(client, ctx, owner_project_id)
-    if not listings:
-        print("Subscription grants: no listings found in owner project")
-        return
-    for listing in listings:
-        listing_id = str(listing.get("listingId") or listing.get("id") or "")
-        listing_name = str(listing.get("name") or listing_id)
-        if not listing_id:
-            continue
-        project_id = project_ids.get("users", "")
-        if project_id:
-            _ensure_subscription_grant(client, ctx, listing_id, listing_name, project_id, "users")
+    del client, ctx, project_ids
+    print("Subscription bootstrap: skipped (seed_packages.py manages package grants)")
 
 
 def _print_import_hints(ctx: Context, project_ids: dict[str, str]) -> None:
@@ -586,9 +684,12 @@ def main() -> None:
         project_ids = _ensure_projects(client, ctx, profile_id)
         _ensure_asset_type_grant(client, ctx)
         _ensure_default_subscription_grants(client, ctx, project_ids)
-        _find_custom_blueprint_id(client, ctx)
+        ctx.custom_blueprint_id = _find_custom_blueprint_id(client, ctx)
+        registry_bucket = str(ctx.outputs.get("rajee_registry_bucket_name") or "")
+        test_bucket = str(ctx.outputs.get("rajee_test_bucket_name") or "")
+        _ensure_environments(client, ctx, project_ids, registry_bucket, test_bucket)
         environment_ids = _discover_environment_ids(client, ctx, project_ids)
-        _sync_lambda_environment_ids(ctx, environment_ids)
+        _sync_lambda_environment_ids(ctx, project_ids, environment_ids)
         _update_outputs(project_ids, environment_ids, ctx)
         _print_import_hints(ctx, project_ids)
     except ClientError as exc:

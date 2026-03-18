@@ -278,6 +278,152 @@ def test_has_package_grant_wrong_project() -> None:
 
 
 # ---------------------------------------------------------------------------
+# membership mutation
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_project_membership_resolves_arn_to_datazone_user_id() -> None:
+    client = MagicMock()
+    client.get_user_profile.return_value = {"id": "dz-user-123"}
+    svc = _service(client)
+
+    svc.ensure_project_membership(
+        project_id=_USERS_PROJECT,
+        user_identifier="arn:aws:iam::123456789012:user/alice",
+    )
+
+    client.get_user_profile.assert_called_once_with(
+        domainIdentifier=_DOMAIN,
+        userIdentifier="arn:aws:iam::123456789012:user/alice",
+        type="IAM",
+    )
+    client.create_project_membership.assert_called_once_with(
+        domainIdentifier=_DOMAIN,
+        projectIdentifier=_USERS_PROJECT,
+        member={"userIdentifier": "dz-user-123"},
+        designation="PROJECT_CONTRIBUTOR",
+    )
+
+
+def test_ensure_project_membership_passes_through_datazone_user_id() -> None:
+    client = MagicMock()
+    svc = _service(client)
+
+    svc.ensure_project_membership(
+        project_id=_USERS_PROJECT,
+        user_identifier="dz-user-123",
+        designation="PROJECT_OWNER",
+    )
+
+    client.get_user_profile.assert_not_called()
+    client.create_project_membership.assert_called_once_with(
+        domainIdentifier=_DOMAIN,
+        projectIdentifier=_USERS_PROJECT,
+        member={"userIdentifier": "dz-user-123"},
+        designation="PROJECT_OWNER",
+    )
+
+
+def test_ensure_project_membership_raises_if_arn_cannot_be_resolved() -> None:
+    client = MagicMock()
+    client.get_user_profile.side_effect = ClientError(
+        {"Error": {"Code": "ResourceNotFoundException", "Message": "missing"}}, "GetUserProfile"
+    )
+    svc = _service(client)
+
+    with pytest.raises(DataZoneError, match="failed to resolve DataZone user ID"):
+        svc.ensure_project_membership(
+            project_id=_USERS_PROJECT,
+            user_identifier="arn:aws:iam::123456789012:user/alice",
+        )
+
+    client.create_project_membership.assert_not_called()
+
+
+def test_ensure_project_membership_treats_already_in_project_validation_as_idempotent() -> None:
+    client = MagicMock()
+    client.create_project_membership.side_effect = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": "User is already in the project.",
+            }
+        },
+        "CreateProjectMembership",
+    )
+    svc = _service(client)
+
+    svc.ensure_project_membership(project_id=_USERS_PROJECT, user_identifier="dz-user-123")
+
+
+def test_ensure_project_membership_raises_on_other_validation_errors() -> None:
+    client = MagicMock()
+    client.create_project_membership.side_effect = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": "Cannot add membership for unrelated reason.",
+            }
+        },
+        "CreateProjectMembership",
+    )
+    svc = _service(client)
+
+    with pytest.raises(DataZoneError, match="failed to add"):
+        svc.ensure_project_membership(project_id=_USERS_PROJECT, user_identifier="dz-user-123")
+
+
+def test_delete_project_membership_resolves_arn_to_datazone_user_id() -> None:
+    client = MagicMock()
+    client.get_user_profile.return_value = {"id": "dz-user-123"}
+    svc = _service(client)
+
+    svc.delete_project_membership(
+        project_id=_USERS_PROJECT,
+        user_identifier="arn:aws:iam::123456789012:user/alice",
+    )
+
+    client.get_user_profile.assert_called_once_with(
+        domainIdentifier=_DOMAIN,
+        userIdentifier="arn:aws:iam::123456789012:user/alice",
+        type="IAM",
+    )
+    client.delete_project_membership.assert_called_once_with(
+        domainIdentifier=_DOMAIN,
+        projectIdentifier=_USERS_PROJECT,
+        member={"userIdentifier": "dz-user-123"},
+    )
+
+
+def test_delete_project_membership_ignores_not_found() -> None:
+    client = MagicMock()
+    client.delete_project_membership.side_effect = ClientError(
+        {"Error": {"Code": "ResourceNotFoundException", "Message": "missing"}},
+        "DeleteProjectMembership",
+    )
+    svc = _service(client)
+
+    svc.delete_project_membership(project_id=_USERS_PROJECT, user_identifier="dz-user-123")
+
+
+def test_delete_project_membership_raises_on_validation_exception() -> None:
+    client = MagicMock()
+    client.delete_project_membership.side_effect = ClientError(
+        {
+            "Error": {
+                "Code": "ValidationException",
+                "Message": "Cannot delete the last owner of project.",
+            }
+        },
+        "DeleteProjectMembership",
+    )
+    svc = _service(client)
+
+    with pytest.raises(DataZoneError, match="failed to remove"):
+        svc.delete_project_membership(project_id=_USERS_PROJECT, user_identifier="dz-user-123")
+
+
+# ---------------------------------------------------------------------------
 # ensure_package_listing
 # ---------------------------------------------------------------------------
 
@@ -326,6 +472,23 @@ def test_ensure_package_listing_publish_error() -> None:
         svc.ensure_package_listing(_QUILT_URI)
 
 
+def test_ensure_package_listing_respects_owner_override() -> None:
+    client = MagicMock()
+    client.search_listings.side_effect = [
+        {"items": [], "nextToken": None},
+        {"items": [{"assetListing": _listing_item(project_id="prj_override")}], "nextToken": None},
+    ]
+    client.create_asset.return_value = {"id": "ast_new", "revision": "1"}
+    client.create_listing_change_set.return_value = {}
+
+    svc = _service(client)
+    listing = svc.ensure_package_listing(_QUILT_URI, owner_project_id="prj_override")
+
+    assert listing.owner_project_id == "prj_override"
+    client.create_asset.assert_called_once()
+    assert client.create_asset.call_args.kwargs["owningProjectIdentifier"] == "prj_override"
+
+
 # ---------------------------------------------------------------------------
 # ensure_project_package_grant
 # ---------------------------------------------------------------------------
@@ -354,8 +517,16 @@ def test_ensure_grant_creates_and_accepts() -> None:
         "items": [{"assetListing": _listing_item(listing_id="lst_abc")}],
         "nextToken": None,
     }
-    # First call: check ACCEPTED (none), second call: check PENDING (none)
-    client.list_subscription_requests.return_value = {"items": [], "nextToken": None}
+    client.list_subscription_requests.side_effect = [
+        {"items": [], "nextToken": None},  # initial ACCEPTED check
+        {"items": [], "nextToken": None},  # PENDING check
+        {
+            "items": [
+                _subscription_item(request_id="sub_new", project_id="prj_x", listing_id="lst_abc")
+            ],
+            "nextToken": None,
+        },  # polling ACCEPTED check
+    ]
     client.create_subscription_request.return_value = {"id": "sub_new"}
     client.accept_subscription_request.return_value = {}
 
@@ -388,6 +559,14 @@ def test_ensure_grant_reuses_pending_request() -> None:
             ],
             "nextToken": None,
         },  # PENDING check
+        {
+            "items": [
+                _subscription_item(
+                    request_id="sub_existing", project_id="prj_x", listing_id="lst_abc"
+                )
+            ],
+            "nextToken": None,
+        },  # polling ACCEPTED check
     ]
     client.accept_subscription_request.return_value = {}
 

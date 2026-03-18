@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 
 from raja import create_token
+from raja.aws_sigv4 import build_sigv4_request
 from raja.datazone import (
     DataZoneConfig,
     DataZoneError,
@@ -155,7 +156,7 @@ def _datazone_service(client: Any) -> DataZoneService:
 
 
 def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
-    """Return non-empty project IDs in privilege order (owner first)."""
+    """Return non-empty configured project IDs in slot order."""
     return [
         p for p in [config.owner_project_id, config.users_project_id, config.guests_project_id] if p
     ]
@@ -174,11 +175,11 @@ def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
 
 def _project_name(project_id: str, config: DataZoneConfig) -> str:
     if project_id == config.owner_project_id:
-        return "Owner"
+        return config.owner_project_label
     if project_id == config.users_project_id:
-        return "Users"
+        return config.users_project_label
     if project_id == config.guests_project_id:
-        return "Guests"
+        return config.guests_project_label
     return project_id
 
 
@@ -279,12 +280,8 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             {
                 "label": "Control Plane Lambda",
                 "url": _console_lambda_url(region=region, fn_name=cp_fn),
-            }
-        )
-        links.append(
-            {
-                "label": "Control Plane Logs",
-                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{cp_fn}"),
+                "logs_url": _console_logs_url(region=region, log_group=f"/aws/lambda/{cp_fn}"),
+                "group": "Lambda",
             }
         )
 
@@ -295,12 +292,8 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             {
                 "label": "RALE Authorizer Lambda",
                 "url": _console_lambda_url(region=region, fn_name=auth_fn),
-            }
-        )
-        links.append(
-            {
-                "label": "RALE Authorizer Logs",
-                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{auth_fn}"),
+                "logs_url": _console_logs_url(region=region, log_group=f"/aws/lambda/{auth_fn}"),
+                "group": "Lambda",
             }
         )
 
@@ -311,12 +304,8 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             {
                 "label": "RALE Router Lambda",
                 "url": _console_lambda_url(region=region, fn_name=router_fn),
-            }
-        )
-        links.append(
-            {
-                "label": "RALE Router Logs",
-                "url": _console_logs_url(region=region, log_group=f"/aws/lambda/{router_fn}"),
+                "logs_url": _console_logs_url(region=region, log_group=f"/aws/lambda/{router_fn}"),
+                "group": "Lambda",
             }
         )
 
@@ -326,15 +315,6 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
         links.append(
             {"label": "JWT Secret", "url": _console_secret_url(region=region, secret_arn=jwt_arn)}
         )
-
-    # S3 buckets
-    registry = os.environ.get("RAJA_REGISTRY", "").strip().removeprefix("s3://")
-    if registry:
-        links.append({"label": "Registry Bucket (S3)", "url": _console_s3_url(bucket=registry)})
-
-    test_bucket = os.environ.get("RAJEE_TEST_BUCKET_NAME", "").strip()
-    if test_bucket:
-        links.append({"label": "Test Bucket (S3)", "url": _console_s3_url(bucket=test_bucket)})
 
     # ECS service
     cluster = os.environ.get("ECS_CLUSTER_NAME", "").strip()
@@ -347,6 +327,22 @@ def _build_console_links(*, request: Request, region: str) -> list[dict[str, str
             }
         )
 
+    # S3 buckets
+    registry = os.environ.get("RAJA_REGISTRY", "").strip().removeprefix("s3://")
+    if registry:
+        links.append(
+            {"label": "Registry Bucket", "url": _console_s3_url(bucket=registry), "group": "S3"}
+        )
+
+    test_bucket = os.environ.get("RAJEE_TEST_BUCKET_NAME", "").strip()
+    if test_bucket:
+        links.append(
+            {"label": "Test Bucket", "url": _console_s3_url(bucket=test_bucket), "group": "S3"}
+        )
+
+    # Sort: group items sort by their group name; ungrouped items sort by label.
+    # Both interleave alphabetically (e.g. "Lambda" slots between "JWT Secret" and "RAJEE ECS").
+    links.sort(key=lambda x: (x.get("group", x["label"]).casefold(), x["label"].casefold()))
     return links
 
 
@@ -485,8 +481,13 @@ def _probe_endpoint(
         suffix = ready_path if ready_path.startswith("/") else f"/{ready_path}"
         target = f"{target}{suffix}"
     try:
-        response = httpx.get(target, timeout=5.0, follow_redirects=False)
-    except httpx.RequestError as exc:
+        if ".lambda-url." in target:
+            request = build_sigv4_request(method="GET", url=target)
+            with httpx.Client(timeout=5.0, follow_redirects=False) as client:
+                response = client.send(request)
+        else:
+            response = httpx.get(target, timeout=5.0, follow_redirects=False)
+    except (httpx.RequestError, RuntimeError) as exc:
         return {"reachable": False, "status": "error", "detail": str(exc), "url": target}
 
     status_code = response.status_code
@@ -1345,12 +1346,14 @@ def authorize_rale_request(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     target_url = f"{authorizer_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    request = build_sigv4_request(
+        method="GET",
+        url=target_url,
+        headers={"x-raja-principal": payload.principal},
+    )
     try:
-        response = httpx.get(
-            target_url,
-            headers={"x-raja-principal": payload.principal},
-            timeout=20.0,
-        )
+        with httpx.Client(timeout=20.0) as client:
+            response = client.send(request)
         body = response.json()
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"RALE authorizer unreachable: {exc}") from exc
@@ -1395,8 +1398,14 @@ def deliver_rale_request(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     target_url = f"{router_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    request = build_sigv4_request(
+        method="GET",
+        url=target_url,
+        headers={"x-rale-taj": payload.taj},
+    )
     try:
-        response = httpx.get(target_url, headers={"x-rale-taj": payload.taj}, timeout=20.0)
+        with httpx.Client(timeout=20.0) as client:
+            response = client.send(request)
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"RALE router unreachable: {exc}") from exc
 

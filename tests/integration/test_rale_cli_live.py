@@ -4,7 +4,9 @@ import importlib
 import os
 
 import pytest
+from click.testing import CliRunner
 
+from raja.cli import main
 from raja.rale.authorize import run_authorize
 from raja.rale.console import Console
 from raja.rale.fetch import run_fetch
@@ -89,3 +91,40 @@ def test_rale_fetch_live_object() -> None:
 
     run_authorize(state=state, console=Console())
     run_fetch(state=state, console=Console())
+
+
+@pytest.mark.integration
+def test_rale_access_cli_reports_and_verifies_live_access() -> None:
+    _require_quilt3_runtime()
+    admin_key = os.environ.get("RAJA_ADMIN_KEY")
+    if not admin_key:
+        pytest.fail("RAJA_ADMIN_KEY not set")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "--server-url",
+            require_api_url(),
+            "--registry",
+            f"s3://{parse_rale_test_quilt_uri(require_rale_test_quilt_uri())['registry']}",
+            "--rajee-endpoint",
+            require_rajee_endpoint(),
+            "--admin-key",
+            admin_key,
+            "access",
+        ],
+        env={
+            **os.environ,
+            "RAJA_PRINCIPAL": require_test_principal(),
+            "RALE_AUTHORIZER_URL": require_rale_authorizer_url(),
+            "RALE_ROUTER_URL": require_rale_router_url(),
+        },
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Package access" in result.output
+    assert "Access verification" in result.output
+    assert "OWNED" in result.output
+    assert "GRANTED" in result.output
+    assert "INACCESSIBLE" in result.output
+    assert "DENY" in result.output
