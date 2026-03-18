@@ -117,11 +117,12 @@ demo-package = { cmd = "pytest tests/integration/test_rajee_package_grant.py -v 
 demo-translation = { cmd = "pytest tests/integration/test_rajee_translation_grant.py -v -s", help = "Run translation grant (TAJ-package) demonstrations" }
 
 # AWS deployment
-deploy = { sequence = ["_terraform-apply", "_wait-rajee-stable", "_sagemaker-gaps", "_seed-users", "_seed-packages", "_show-outputs"], help = "Deploy standalone RAJA stack, wait for RAJEE, fill V2 gaps, and seed integration fixtures" }
+deploy = { sequence = ["_terraform-apply", "_wait-rajee-stable", "_sagemaker-gaps", "_seed-users", "_seed-packages", "_seed-glue-tables", "_show-outputs"], help = "Deploy standalone RAJA stack, wait for RAJEE, fill V2 gaps, and seed integration fixtures" }
 deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
 destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
 seed-users = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_users", help = "Seed integration test principals into DataZone" }
 seed-packages = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_packages", help = "Seed quilt3 packages into raja-poc-registry from raja-poc-test and publish the DataZone listing" }
+seed-glue-tables = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_glue_tables", help = "Seed LF-native Glue table assets into DataZone and auto-approve subscriber project grants" }
 sagemaker-gaps = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python scripts/sagemaker_gaps.py", help = "Fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
 
 # Docker image building
@@ -151,6 +152,7 @@ _wait-rajee-stable = { shell = "set -a; [ -f .env ] && . ./.env; set +a; aws ecs
 _sagemaker-gaps = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python scripts/sagemaker_gaps.py", help = "Internal: fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
 _seed-users = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_users", help = "Internal: seed integration test principals into DataZone" }
 _seed-packages = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_packages", help = "Internal: seed quilt packages and DataZone listings" }
+_seed-glue-tables = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_glue_tables", help = "Internal: seed Glue table assets and DataZone subscriptions" }
 _terraform-destroy = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../tf-outputs.json", help = "Internal: destroy Terraform stack" }
 
 [tool.mypy]

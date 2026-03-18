@@ -121,6 +121,12 @@ variable "registry_accessor_arns" {
   default     = []
 }
 
+variable "iceberg_s3_bucket" {
+  description = "S3 bucket containing the Quilt Iceberg tables (without s3:// prefix)."
+  type        = string
+  default     = ""
+}
+
 variable "datazone_domain_name" {
   description = "Amazon DataZone domain name for the RAJA package-grant POC."
   type        = string
