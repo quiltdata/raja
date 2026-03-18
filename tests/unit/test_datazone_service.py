@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,8 +12,8 @@ from raja.datazone import (
     DataZoneConfig,
     DataZoneError,
     DataZoneService,
+    SlotConfig,
     datazone_enabled,
-    project_id_for_scopes,
 )
 
 # ---------------------------------------------------------------------------
@@ -32,11 +33,13 @@ _GUESTS_PROJECT = "prj_guests"
 
 
 def _config(**kwargs: str) -> DataZoneConfig:
-    defaults: dict[str, str] = {
+    defaults: dict[str, object] = {
         "domain_id": _DOMAIN,
-        "owner_project_id": _OWNER_PROJECT,
-        "users_project_id": _USERS_PROJECT,
-        "guests_project_id": _GUESTS_PROJECT,
+        "slots": {
+            "slot-a": SlotConfig(project_id=_OWNER_PROJECT, project_label="Alpha"),
+            "slot-b": SlotConfig(project_id=_USERS_PROJECT, project_label="Bio"),
+            "slot-c": SlotConfig(project_id=_GUESTS_PROJECT, project_label="Compute"),
+        },
         "asset_type_name": _ASSET_TYPE,
         "asset_type_revision": _ASSET_TYPE_REV,
     }
@@ -97,65 +100,40 @@ def test_datazone_enabled_false(monkeypatch: pytest.MonkeyPatch) -> None:
     assert datazone_enabled() is False
 
 
-# ---------------------------------------------------------------------------
-# project_id_for_scopes
-# ---------------------------------------------------------------------------
-
-
-def test_project_id_wildcard_scope_returns_owner() -> None:
-    cfg = _config()
-    assert project_id_for_scopes(["Document:*:*"], cfg) == _OWNER_PROJECT
-
-
-def test_project_id_wildcard_resource_returns_owner() -> None:
-    cfg = _config()
-    assert project_id_for_scopes(["*:doc123:read"], cfg) == _OWNER_PROJECT
-
-
-def test_project_id_write_scope_returns_users() -> None:
-    cfg = _config()
-    assert project_id_for_scopes(["Document:doc123:write"], cfg) == _USERS_PROJECT
-
-
-def test_project_id_mixed_read_write_returns_users() -> None:
-    cfg = _config()
-    result = project_id_for_scopes(["Document:doc123:read", "Document:doc123:write"], cfg)
-    assert result == _USERS_PROJECT
-
-
-def test_project_id_read_only_returns_guests() -> None:
-    cfg = _config()
-    assert project_id_for_scopes(["Document:public:read"], cfg) == _GUESTS_PROJECT
-
-
-def test_project_id_empty_scopes_returns_guests() -> None:
-    cfg = _config()
-    assert project_id_for_scopes([], cfg) == _GUESTS_PROJECT
-
-
-# ---------------------------------------------------------------------------
-# DataZoneConfig.from_env
-# ---------------------------------------------------------------------------
-
-
 def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAZONE_DOMAIN_ID", "dzd_env")
-    monkeypatch.setenv("DATAZONE_OWNER_PROJECT_ID", "prj_env_owner")
-    monkeypatch.setenv("DATAZONE_USERS_PROJECT_ID", "prj_env_users")
-    monkeypatch.setenv("DATAZONE_GUESTS_PROJECT_ID", "prj_env_guests")
-    monkeypatch.setenv("DATAZONE_OWNER_ENVIRONMENT_ID", "env_env_owner")
-    monkeypatch.setenv("DATAZONE_USERS_ENVIRONMENT_ID", "env_env_users")
-    monkeypatch.setenv("DATAZONE_GUESTS_ENVIRONMENT_ID", "env_env_guests")
+    monkeypatch.setenv(
+        "DATAZONE_SLOTS",
+        json.dumps(
+            {
+                "slot-a": {
+                    "project_id": "prj_env_owner",
+                    "project_label": "Alpha",
+                    "environment_id": "env_env_owner",
+                },
+                "slot-b": {
+                    "project_id": "prj_env_users",
+                    "project_label": "Bio",
+                    "environment_id": "env_env_users",
+                },
+                "slot-c": {
+                    "project_id": "prj_env_guests",
+                    "project_label": "Compute",
+                    "environment_id": "env_env_guests",
+                },
+            }
+        ),
+    )
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE", "MyType")
     monkeypatch.setenv("DATAZONE_PACKAGE_ASSET_TYPE_REVISION", "2")
     cfg = DataZoneConfig.from_env()
     assert cfg.domain_id == "dzd_env"
-    assert cfg.owner_project_id == "prj_env_owner"
-    assert cfg.users_project_id == "prj_env_users"
-    assert cfg.guests_project_id == "prj_env_guests"
-    assert cfg.owner_environment_id == "env_env_owner"
-    assert cfg.users_environment_id == "env_env_users"
-    assert cfg.guests_environment_id == "env_env_guests"
+    assert cfg.slot("slot-a").project_id == "prj_env_owner"
+    assert cfg.slot("slot-b").project_id == "prj_env_users"
+    assert cfg.slot("slot-c").project_id == "prj_env_guests"
+    assert cfg.slot("slot-a").environment_id == "env_env_owner"
+    assert cfg.slot("slot-b").environment_id == "env_env_users"
+    assert cfg.slot("slot-c").environment_id == "env_env_guests"
     assert cfg.asset_type_name == "MyType"
     assert cfg.asset_type_revision == "2"
 
@@ -443,8 +421,8 @@ def test_ensure_package_listing_returns_existing() -> None:
 def test_ensure_package_listing_requires_owner_project() -> None:
     client = MagicMock()
     client.search_listings.return_value = {"items": [], "nextToken": None}
-    svc = _service(client, owner_project_id="")
-    with pytest.raises(DataZoneError, match="DATAZONE_OWNER_PROJECT_ID"):
+    svc = _service(client, slots={})
+    with pytest.raises(DataZoneError, match="DATAZONE_SLOTS"):
         svc.ensure_package_listing(_QUILT_URI)
 
 

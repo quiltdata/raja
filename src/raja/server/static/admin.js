@@ -122,10 +122,9 @@ function statusDetailText(value) {
   return raw;
 }
 
-function scopesForProject(projectKey) {
-  if (projectKey === "owner") return ["*:*:*"];
-  if (projectKey === "users") return ["S3Object:*:*"];
-  return ["S3Object:*:s3:GetObject"];
+function scopesForProject(project) {
+  if (Array.isArray(project?.scopes) && project.scopes.length) return project.scopes;
+  return [];
 }
 
 function dedupePrincipals() {
@@ -276,27 +275,13 @@ function renderStatusRows() {
       status: datazone.domain.status,
       href: datazone.domain.portal_url,
     },
-    {
-      label: "Owner project",
-      value: `${datazone.owner_project.name} (${datazone.owner_project.id || "unset"})`,
-      meta: "Seeder project that owns published listings",
-      status: datazone.owner_project.status,
-      href: datazone.owner_project.portal_url,
-    },
-    {
-      label: "Users project",
-      value: `${datazone.users_project.name} (${datazone.users_project.id || "unset"})`,
-      meta: "Project with broad package access",
-      status: datazone.users_project.status,
-      href: datazone.users_project.portal_url,
-    },
-    {
-      label: "Guests project",
-      value: `${datazone.guests_project.name} (${datazone.guests_project.id || "unset"})`,
-      meta: "Project with read-only package access",
-      status: datazone.guests_project.status,
-      href: datazone.guests_project.portal_url,
-    },
+    ...((datazone.projects || []).map((project) => ({
+      label: `${project.name} project`,
+      value: `${project.name} (${project.id || "unset"})`,
+      meta: `Slot ${project.slot_name || "unknown"}`,
+      status: project.status,
+      href: project.portal_url,
+    }))),
     {
       label: "Asset type",
       value: `${datazone.asset_type.name} rev ${datazone.asset_type.revision}`,
@@ -396,79 +381,88 @@ function renderPrincipalSelectors() {
 }
 
 function renderProjects() {
+  const grid = select("projects-grid");
+  if (!grid) return;
   const principals = state.accessGraph?.principals || [];
-  const projectRows = new Map(
-    ["owner", "users", "guests"].map((projectKey) => [projectKey, []]),
-  );
-  const datazone = state.structure?.datazone || {};
-  const projectConfig = {
-    owner: datazone.owner_project,
-    users: datazone.users_project,
-    guests: datazone.guests_project,
-  };
-
-  for (const [projectKey, project] of Object.entries(projectConfig)) {
-    const meta = select(`project-${projectKey}-meta`);
-    const link = select(`project-${projectKey}-link`);
-    const scope = select(`project-${projectKey}-scope`);
-    if (meta) {
-      meta.textContent = project?.id ? `${project.name} (${project.id})` : "Project not configured";
-    }
-    if (link) {
-      if (project?.portal_url) {
-        link.href = project.portal_url;
-        link.hidden = false;
-      } else {
-        link.hidden = true;
-        link.removeAttribute("href");
-      }
-    }
-    if (scope) {
-      scope.textContent = scopesForProject(projectKey).join(", ");
-    }
-  }
+  const projects = state.structure?.datazone?.projects || [];
+  const projectRows = new Map(projects.map((project) => [project.id, []]));
 
   for (const item of principals) {
-    const projectKey = Object.entries(projectConfig).find(
-      ([, project]) => project?.id && project.id === item.datazone_project_id,
-    )?.[0];
-    if (!projectKey) continue;
-    projectRows.get(projectKey).push(item);
+    if (!projectRows.has(item.datazone_project_id)) continue;
+    projectRows.get(item.datazone_project_id).push(item);
   }
 
-  for (const [projectKey, items] of projectRows.entries()) {
-    const tbody = select(`project-${projectKey}-body`);
-    if (!tbody) continue;
-    tbody.innerHTML = items.length
-      ? items
-          .map((item) => {
-            const lastIssued = state.lastIssuedAt.get(item.principal) || item.last_token_issued;
-            return `
+  grid.innerHTML = projects
+    .map((project) => {
+      const items = projectRows.get(project.id) || [];
+      const rows = items.length
+        ? items
+            .map((item) => {
+              const lastIssued = state.lastIssuedAt.get(item.principal) || item.last_token_issued;
+              return `
+                <tr>
+                  <td>
+                    <div>${escapeHtml(item.principal)}</div>
+                    <div class="principal-scopes">${principalScopeMarkup(item.scopes || [])}</div>
+                  </td>
+                  <td>${escapeHtml(lastIssued ? formatTimestamp(lastIssued) : "Never")}</td>
+                  <td>
+                    <button
+                      type="button"
+                      class="secondary delete-principal"
+                      data-principal="${escapeHtml(item.principal)}"
+                      data-project-id="${escapeHtml(item.datazone_project_id || "")}"
+                    >Remove from project</button>
+                  </td>
+                </tr>
+              `;
+            })
+            .join("")
+        : '<tr><td colspan="3">No members</td></tr>';
+      return `
+        <section class="project-card" data-project-id="${escapeHtml(project.id || "")}">
+          <div class="project-card-head">
+            <div>
+              <h3>${escapeHtml(project.name || project.slot_name || "Project")}</h3>
+              <div class="project-card-meta">${
+                project.id ? `${escapeHtml(project.name)} (${escapeHtml(project.id)})` : "Project not configured"
+              }</div>
+            </div>
+            ${
+              project.portal_url
+                ? `<a href="${escapeHtml(project.portal_url)}" target="_blank" rel="noopener">Open in SageMaker</a>`
+                : ""
+            }
+          </div>
+          <p class="project-scope">Granted scopes: ${escapeHtml(scopesForProject(project).join(", "))}</p>
+          <table>
+            <thead>
               <tr>
-                <td>
-                  <div>${escapeHtml(item.principal)}</div>
-                  <div class="principal-scopes">${principalScopeMarkup(item.scopes || [])}</div>
-                </td>
-                <td>${escapeHtml(lastIssued ? formatTimestamp(lastIssued) : "Never")}</td>
-                <td>
-                  <button
-                    type="button"
-                    class="secondary delete-principal"
-                    data-principal="${escapeHtml(item.principal)}"
-                    data-project-id="${escapeHtml(item.datazone_project_id || "")}"
-                  >Remove from project</button>
-                </td>
+                <th>Principal ARN</th>
+                <th>Last TAJ issued</th>
+                <th></th>
               </tr>
-            `;
-          })
-          .join("")
-      : '<tr><td colspan="3">No members</td></tr>';
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <form class="project-principal-form add-member-row" data-project-id="${escapeHtml(project.id || "")}">
+            <input name="principal" placeholder="arn:aws:iam::123456789012:user/example" />
+            <button type="submit">Add to project</button>
+          </form>
+          <div class="inline-status" data-role="project-membership-status"></div>
+        </section>
+      `;
+    })
+    .join("");
+
+  for (const form of grid.querySelectorAll(".project-principal-form")) {
+    form.addEventListener("submit", createPrincipal);
   }
 
   const uniquePrincipals = dedupePrincipals();
   const projectsSummary = select("projects-summary-meta");
   if (projectsSummary) {
-    projectsSummary.textContent = `${uniquePrincipals.length} principals across ${projectRows.size} projects`;
+    projectsSummary.textContent = `${uniquePrincipals.length} principals across ${projects.length} projects`;
   }
 }
 
@@ -711,11 +705,11 @@ async function createPrincipal(event) {
     return;
   }
 
-  const projectKey = form.dataset.projectKey || "guests";
+  const projectId = form.dataset.projectId || "";
   const result = await apiFetch("/principals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ principal, scopes: scopesForProject(projectKey) }),
+    body: JSON.stringify({ principal, project_id: projectId }),
   });
   if (!result.ok) {
     setStatusNode(statusNode, result.data.detail || "Unable to add principal to project.", "error");

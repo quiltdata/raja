@@ -39,11 +39,6 @@ ENV_PATH = REPO_ROOT / ".env"
 DEFAULT_PROFILE_NAME = "raja-default-profile"
 DEFAULT_PROFILE_DESCRIPTION = "Default project profile for RAJA Terraform-managed V2 projects"
 SEED_CONFIG = load_seed_config()
-PROJECT_OUTPUT_KEYS = {
-    "owner": "datazone_owner_project_id",
-    "users": "datazone_users_project_id",
-    "guests": "datazone_guests_project_id",
-}
 PROJECT_SPECS = {
     project.slot: {
         "name": project.display_name,
@@ -55,7 +50,6 @@ PROJECT_SPECS = {
     }
     for project in SEED_CONFIG.projects
 }
-SLOT_LABELS = SEED_CONFIG.slot_label_map()
 ENVIRONMENT_SPECS = {
     project.slot: f"raja-{project.key}-env"
     for project in SEED_CONFIG.projects
@@ -155,6 +149,33 @@ def _get_context(args: argparse.Namespace) -> Context:
     )
 
 
+def _existing_project_id_from_outputs(outputs: dict[str, Any], slot_name: str) -> str:
+    raw_slots = outputs.get("datazone_slot_project_ids")
+    if isinstance(raw_slots, dict):
+        value = raw_slots.get(slot_name)
+        if isinstance(value, str) and value:
+            return value
+    raw_legacy = outputs.get(f"datazone_{slot_name}_project_id")
+    if isinstance(raw_legacy, str) and raw_legacy:
+        return raw_legacy
+    return ""
+
+
+def _build_datazone_slots_json(
+    project_ids: dict[str, str],
+    environment_ids: dict[str, str],
+) -> str:
+    slots = {
+        project.slot: {
+            "project_id": project_ids.get(project.slot, ""),
+            "project_label": project.display_name,
+            "environment_id": environment_ids.get(project.slot, ""),
+        }
+        for project in SEED_CONFIG.projects
+    }
+    return json.dumps(slots)
+
+
 def _ensure_project_profile(client: Any, ctx: Context) -> str:
     profiles = _list_all(
         client.list_project_profiles,
@@ -209,7 +230,7 @@ def _ensure_projects(client: Any, ctx: Context, profile_id: str) -> dict[str, st
     for key, spec in PROJECT_SPECS.items():
         existing = by_name.get(spec["name"])
         if existing is None:
-            existing_output_id = str(ctx.outputs.get(PROJECT_OUTPUT_KEYS[key]) or "")
+            existing_output_id = _existing_project_id_from_outputs(ctx.outputs, key)
             candidate = by_id.get(existing_output_id) if existing_output_id else None
             if candidate is not None and str(candidate.get("name") or "") == spec["name"]:
                 existing = candidate
@@ -498,15 +519,8 @@ def _sync_lambda_environment_ids(
         return
 
     env_updates = {
-        "DATAZONE_OWNER_PROJECT_ID": project_ids.get("owner", ""),
-        "DATAZONE_USERS_PROJECT_ID": project_ids.get("users", ""),
-        "DATAZONE_GUESTS_PROJECT_ID": project_ids.get("guests", ""),
-        "DATAZONE_OWNER_ENVIRONMENT_ID": environment_ids.get("owner", ""),
-        "DATAZONE_USERS_ENVIRONMENT_ID": environment_ids.get("users", ""),
-        "DATAZONE_GUESTS_ENVIRONMENT_ID": environment_ids.get("guests", ""),
-        "DATAZONE_OWNER_PROJECT_LABEL": SLOT_LABELS.get("owner", "Project A"),
-        "DATAZONE_USERS_PROJECT_LABEL": SLOT_LABELS.get("users", "Project B"),
-        "DATAZONE_GUESTS_PROJECT_LABEL": SLOT_LABELS.get("guests", "Project C"),
+        "DATAZONE_DOMAIN_ID": ctx.domain_id,
+        "DATAZONE_SLOTS": _build_datazone_slots_json(project_ids, environment_ids),
     }
     lambda_client = boto3.client("lambda", region_name=ctx.region)
 
@@ -536,12 +550,9 @@ def _update_outputs(
     outputs = dict(ctx.outputs)
     updates = {
         "datazone_domain_id": ctx.domain_id,
-        "datazone_owner_project_id": project_ids["owner"],
-        "datazone_users_project_id": project_ids["users"],
-        "datazone_guests_project_id": project_ids["guests"],
-        "datazone_owner_environment_id": environment_ids.get("owner", ""),
-        "datazone_users_environment_id": environment_ids.get("users", ""),
-        "datazone_guests_environment_id": environment_ids.get("guests", ""),
+        "datazone_slots": _build_datazone_slots_json(project_ids, environment_ids),
+        "datazone_slot_project_ids": project_ids,
+        "datazone_slot_environment_ids": environment_ids,
     }
     changed = False
     for key, value in updates.items():

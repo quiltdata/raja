@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import secrets
@@ -24,7 +25,6 @@ from raja.datazone import (
     DataZoneError,
     DataZoneService,
     datazone_enabled,
-    project_id_for_scopes,
 )
 from raja.exceptions import TokenInvalidError
 from raja.manifest import _load_quilt3
@@ -55,6 +55,7 @@ class PrincipalRequest(BaseModel):
     """Request model for principal creation."""
 
     principal: str
+    project_id: str | None = None
     scopes: list[str] = []
 
 
@@ -155,31 +156,71 @@ def _datazone_service(client: Any) -> DataZoneService:
     return DataZoneService(client=client, config=DataZoneConfig.from_env())
 
 
+def _ordered_slots(config: DataZoneConfig) -> list[tuple[str, Any]]:
+    return config.ordered_slots()
+
+
 def _ordered_project_ids(config: DataZoneConfig) -> list[str]:
     """Return non-empty configured project IDs in slot order."""
-    return [
-        p for p in [config.owner_project_id, config.users_project_id, config.guests_project_id] if p
-    ]
+    return [slot.project_id for _, slot in _ordered_slots(config)]
+
+
+def _slot_scope_overrides() -> dict[str, list[str]]:
+    raw = os.environ.get("RAJA_PROJECT_SCOPES", "").strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    overrides: dict[str, list[str]] = {}
+    for slot_name, scopes in payload.items():
+        if not isinstance(slot_name, str):
+            continue
+        if isinstance(scopes, str):
+            parsed = [scope.strip() for scope in scopes.split(",") if scope.strip()]
+        elif isinstance(scopes, list):
+            parsed = [str(scope).strip() for scope in scopes if str(scope).strip()]
+        else:
+            continue
+        overrides[slot_name] = parsed
+    return overrides
+
+
+def _default_scopes_for_index(index: int) -> list[str]:
+    if index == 0:
+        return ["*:*:*"]
+    if index == 1:
+        return ["S3Object:*:*"]
+    return ["S3Object:*:s3:GetObject"]
+
+
+def _scopes_for_slot(slot_name: str, config: DataZoneConfig) -> list[str]:
+    overrides = _slot_scope_overrides()
+    if slot_name in overrides:
+        return overrides[slot_name]
+    for index, (candidate_name, _slot) in enumerate(_ordered_slots(config)):
+        if candidate_name == slot_name:
+            return _default_scopes_for_index(index)
+    return []
 
 
 def _scopes_for_project(project_id: str, config: DataZoneConfig) -> list[str]:
     """Derive scopes from which DataZone project the principal belongs to."""
-    if project_id == config.owner_project_id:
-        raw = os.environ.get("RAJA_OWNER_SCOPES", "*:*:*")
-    elif project_id == config.users_project_id:
-        raw = os.environ.get("RAJA_USERS_SCOPES", "S3Object:*:*")
-    else:
-        raw = os.environ.get("RAJA_GUESTS_SCOPES", "S3Object:*:s3:GetObject")
-    return [s.strip() for s in raw.split(",") if s.strip()]
+    slot_name = config.slot_name_for_project(project_id)
+    if slot_name is None:
+        return []
+    return _scopes_for_slot(slot_name, config)
 
 
 def _project_name(project_id: str, config: DataZoneConfig) -> str:
-    if project_id == config.owner_project_id:
-        return config.owner_project_label
-    if project_id == config.users_project_id:
-        return config.users_project_label
-    if project_id == config.guests_project_id:
-        return config.guests_project_label
+    slot_name = config.slot_name_for_project(project_id)
+    if slot_name is not None:
+        slot = config.slot(slot_name)
+        if slot.project_label:
+            return slot.project_label
     return project_id
 
 
@@ -398,17 +439,15 @@ def _console_listing_url(*, region: str, domain_id: str, listing_id: str) -> str
 
 
 def _project_environment_id(project_id: str, config: DataZoneConfig) -> str:
-    if project_id == config.owner_project_id:
-        return config.owner_environment_id
-    if project_id == config.users_project_id:
-        return config.users_environment_id
-    if project_id == config.guests_project_id:
-        return config.guests_environment_id
+    slot_name = config.slot_name_for_project(project_id)
+    if slot_name is not None:
+        return config.slot(slot_name).environment_id
     return ""
 
 
 def _project_structure(
     *,
+    slot_name: str,
     project_id: str,
     config: DataZoneConfig,
     region: str,
@@ -416,8 +455,10 @@ def _project_structure(
 ) -> dict[str, Any]:
     environment_id = _project_environment_id(project_id, config)
     return {
+        "slot_name": slot_name,
         "name": _project_name(project_id, config),
         "id": project_id,
+        "scopes": _scopes_for_slot(slot_name, config),
         "portal_url": (
             _studio_project_url(
                 portal_url=domain_portal_url,
@@ -446,6 +487,24 @@ def _project_structure(
         ),
         "status": "ok" if project_id else "warn",
     }
+
+
+def _project_structures(
+    *,
+    config: DataZoneConfig,
+    region: str,
+    domain_portal_url: str,
+) -> list[dict[str, Any]]:
+    return [
+        _project_structure(
+            slot_name=slot_name,
+            project_id=slot.project_id,
+            config=config,
+            region=region,
+            domain_portal_url=domain_portal_url,
+        )
+        for slot_name, slot in _ordered_slots(config)
+    ]
 
 
 def _summarize_principals(principals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1026,20 +1085,7 @@ def get_admin_structure(
                 ),
                 "status": domain_status,
             },
-            "owner_project": _project_structure(
-                project_id=config.owner_project_id,
-                config=config,
-                region=region,
-                domain_portal_url=domain_portal_url,
-            ),
-            "users_project": _project_structure(
-                project_id=config.users_project_id,
-                config=config,
-                region=region,
-                domain_portal_url=domain_portal_url,
-            ),
-            "guests_project": _project_structure(
-                project_id=config.guests_project_id,
+            "projects": _project_structures(
                 config=config,
                 region=region,
                 domain_portal_url=domain_portal_url,
@@ -1432,7 +1478,7 @@ def create_principal(
     _: None = Depends(dependencies.require_admin_auth),
     datazone: Any = Depends(dependencies.get_datazone_client),
 ) -> dict[str, Any]:
-    """Add a principal to the appropriate DataZone project based on their scopes."""
+    """Add a principal to the requested DataZone project."""
     logger.info(
         "principal_create_requested",
         principal=request.principal,
@@ -1442,9 +1488,11 @@ def create_principal(
         raise HTTPException(status_code=503, detail="DataZone is not configured")
 
     config = DataZoneConfig.from_env()
-    project_id = project_id_for_scopes(request.scopes, config)
+    project_id = request.project_id or ""
     if not project_id:
-        raise HTTPException(status_code=400, detail="No DataZone project configured for scopes")
+        raise HTTPException(status_code=400, detail="project_id is required")
+    if project_id not in _ordered_project_ids(config):
+        raise HTTPException(status_code=400, detail=f"Unknown DataZone project: {project_id}")
 
     try:
         service = _datazone_service(datazone)
@@ -1458,6 +1506,7 @@ def create_principal(
     logger.info("principal_created", principal=request.principal)
     return {
         "principal": request.principal,
+        "project_id": project_id,
         "scopes": _scopes_for_project(project_id, config),
         "datazone_project_id": project_id,
     }

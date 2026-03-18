@@ -75,12 +75,9 @@ class SeedConfig:
         raise KeyError(f"No inaccessible package for project: {project_key}")
 
     def project_id_map(self, datazone_config: DataZoneConfig) -> dict[str, str]:
-        slot_map = {
-            "owner": datazone_config.owner_project_id,
-            "users": datazone_config.users_project_id,
-            "guests": datazone_config.guests_project_id,
+        return {
+            project.key: datazone_config.slot(project.slot).project_id for project in self.projects
         }
-        return {project.key: slot_map.get(project.slot, "") for project in self.projects}
 
     def slot_label_map(self) -> dict[str, str]:
         return {project.slot: project.display_name for project in self.projects}

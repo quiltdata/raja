@@ -172,9 +172,7 @@ def test_admin_structure_reports_datazone_rows_without_errors():
 
     datazone = data.get("datazone", {})
     domain = datazone.get("domain", {})
-    alpha_project = datazone.get("owner_project", {})
-    bio_project = datazone.get("users_project", {})
-    compute_project = datazone.get("guests_project", {})
+    projects = datazone.get("projects", [])
     asset_type = datazone.get("asset_type", {})
 
     assert domain.get("status") == "ok", f"Domain row unhealthy: {domain}"
@@ -184,46 +182,18 @@ def test_admin_structure_reports_datazone_rows_without_errors():
         f"Domain portal should be Studio URL: {domain}"
     )
 
-    assert alpha_project.get("status") == "ok", f"Alpha project row unhealthy: {alpha_project}"
-    assert alpha_project.get("id"), f"Alpha project row missing id: {alpha_project}"
-    assert alpha_project.get("portal_url"), f"Alpha project row missing portal URL: {alpha_project}"
-    assert alpha_project.get("portal_url", "").endswith(f"/projects/{alpha_project['id']}/overview")
-    assert "environment_id" in alpha_project, (
-        f"Alpha project missing environment_id: {alpha_project}"
-    )
-    assert "environment_url" in alpha_project, (
-        f"Alpha project missing environment_url: {alpha_project}"
-    )
-    if alpha_project.get("environment_id"):
-        assert alpha_project.get("environment_url", "").endswith(
-            f"/environments/{alpha_project['environment_id']}"
-        )
-    assert bio_project.get("id"), f"Bio project row missing id: {bio_project}"
-    assert bio_project.get("portal_url"), f"Bio project row missing portal URL: {bio_project}"
-    assert bio_project.get("portal_url", "").endswith(f"/projects/{bio_project['id']}/overview")
-    assert "environment_id" in bio_project, f"Bio project missing environment_id: {bio_project}"
-    assert "environment_url" in bio_project, f"Bio project missing environment_url: {bio_project}"
-    if bio_project.get("environment_id"):
-        assert bio_project.get("environment_url", "").endswith(
-            f"/environments/{bio_project['environment_id']}"
-        )
-    assert compute_project.get("id"), f"Compute project row missing id: {compute_project}"
-    assert compute_project.get("portal_url"), (
-        f"Compute project row missing portal URL: {compute_project}"
-    )
-    assert compute_project.get("portal_url", "").endswith(
-        f"/projects/{compute_project['id']}/overview"
-    )
-    assert "environment_id" in compute_project, (
-        f"Compute project missing environment_id: {compute_project}"
-    )
-    assert "environment_url" in compute_project, (
-        f"Compute project missing environment_url: {compute_project}"
-    )
-    if compute_project.get("environment_id"):
-        assert compute_project.get("environment_url", "").endswith(
-            f"/environments/{compute_project['environment_id']}"
-        )
+    assert isinstance(projects, list) and projects, f"Project rows missing: {projects}"
+    for project in projects:
+        assert project.get("status") == "ok", f"Project row unhealthy: {project}"
+        assert project.get("id"), f"Project row missing id: {project}"
+        assert project.get("portal_url"), f"Project row missing portal URL: {project}"
+        assert project.get("portal_url", "").endswith(f"/projects/{project['id']}/overview")
+        assert "environment_id" in project, f"Project missing environment_id: {project}"
+        assert "environment_url" in project, f"Project missing environment_url: {project}"
+        if project.get("environment_id"):
+            assert project.get("environment_url", "").endswith(
+                f"/environments/{project['environment_id']}"
+            )
 
     assert asset_type.get("status") == "ok", f"Asset type row unhealthy: {asset_type}"
     assert asset_type.get("name") == "QuiltPackage", f"Unexpected asset type row: {asset_type}"
