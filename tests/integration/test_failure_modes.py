@@ -217,7 +217,7 @@ def test_token_revocation_endpoint_available() -> None:
 def test_admin_rotate_secret_invalidates_old_tokens() -> None:
     """Hard revocation rotates signing key epoch and invalidates existing tokens."""
     principal = require_test_principal()
-    old_token, _ = issue_rajee_token(principal)
+    old_token = issue_rajee_token(principal)
 
     status, body = request_json("POST", "/admin/rotate-secret")
     assert status == 202, body
@@ -233,7 +233,7 @@ def test_admin_rotate_secret_invalidates_old_tokens() -> None:
             options={"verify_aud": False},
         )
 
-    new_token, _ = issue_rajee_token(principal)
+    new_token = issue_rajee_token(principal)
     assert new_token != old_token
     pyjwt.decode(
         new_token,
