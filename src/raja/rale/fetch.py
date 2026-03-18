@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 import httpx
 
+from raja.aws_sigv4 import build_sigv4_request
 from raja.quilt_uri import parse_quilt_uri
 
 from .console import Console
@@ -63,12 +64,14 @@ def run_fetch(state: SessionState, console: Console) -> None:
     encoded_path = quote(_router_path_from_usl(usl), safe="/@")
     router_url = state.config.rale_router_url
     object_url = f"{router_url.rstrip('/')}{encoded_path}"
+    request = build_sigv4_request(
+        method="GET",
+        url=object_url,
+        headers={"x-rale-taj": state.ensure_taj()},
+    )
     try:
-        response = httpx.get(
-            object_url,
-            headers={"x-rale-taj": state.ensure_taj()},
-            timeout=30.0,
-        )
+        with httpx.Client(timeout=30.0) as client:
+            response = client.send(request)
     except httpx.RequestError as exc:
         raise RuntimeError(f"RALE router not reachable at {router_url}") from exc
 

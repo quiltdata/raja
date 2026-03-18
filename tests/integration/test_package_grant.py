@@ -39,8 +39,7 @@ def test_package_listing_exists() -> None:
 
     listing = service.find_package_listing(uri)
     assert listing is not None, (
-        f"No DataZone listing found for {uri}\n"
-        "Run: python scripts/seed_packages.py"
+        f"No DataZone listing found for {uri}\nRun: python scripts/seed_packages.py"
     )
     assert listing.name == "demo/package-grant"
     assert listing.listing_id
@@ -92,11 +91,15 @@ def test_all_seeded_principals_can_access_package() -> None:
     principals = require_raja_users()
     service, config = _make_service()
 
-    project_ids = [p for p in [
-        config.owner_project_id,
-        config.users_project_id,
-        config.guests_project_id,
-    ] if p]
+    project_ids = [
+        p
+        for p in [
+            config.owner_project_id,
+            config.users_project_id,
+            config.guests_project_id,
+        ]
+        if p
+    ]
 
     failures: list[str] = []
     for principal in principals:
@@ -110,9 +113,8 @@ def test_all_seeded_principals_can_access_package() -> None:
                 "(run seed_packages.py)"
             )
 
-    assert not failures, (
-        f"{len(failures)} principal(s) cannot access the package:\n"
-        + "\n".join(f"  {f}" for f in failures)
+    assert not failures, f"{len(failures)} principal(s) cannot access the package:\n" + "\n".join(
+        f"  {f}" for f in failures
     )
 
 
@@ -121,14 +123,16 @@ def test_unknown_principal_denied_package() -> None:
     """A principal in no project must not pass the package grant check."""
     service, config = _make_service()
 
-    project_ids = [p for p in [
-        config.owner_project_id,
-        config.users_project_id,
-        config.guests_project_id,
-    ] if p]
+    project_ids = [
+        p
+        for p in [
+            config.owner_project_id,
+            config.users_project_id,
+            config.guests_project_id,
+        ]
+        if p
+    ]
 
     fake_arn = "arn:aws:iam::000000000000:user/nobody-fake-xyzzy"
     project_id = service.find_project_for_principal(fake_arn, project_ids=project_ids)
-    assert project_id is None, (
-        f"Unknown principal unexpectedly resolved to project {project_id}"
-    )
+    assert project_id is None, f"Unknown principal unexpectedly resolved to project {project_id}"

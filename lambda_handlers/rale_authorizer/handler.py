@@ -20,14 +20,63 @@ def _response(status_code: int, body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_iam_principal(principal: str) -> str:
+    value = principal.strip()
+    if not value.startswith("arn:aws:sts::"):
+        return value
+
+    arn_prefix, separator, resource = value.rpartition(":")
+    if not separator:
+        return value
+    prefix_parts = arn_prefix.split(":")
+    if len(prefix_parts) < 5:
+        return value
+    service = prefix_parts[2]
+    account_id = prefix_parts[4]
+    if service != "sts" or not resource.startswith("assumed-role/"):
+        return value
+
+    role_parts = resource.split("/")
+    if len(role_parts) < 3:
+        return value
+    role_name = "/".join(role_parts[1:-1])
+    if not role_name:
+        return value
+    return f"arn:aws:iam::{account_id}:role/{role_name}"
+
+
+def _trusted_forwarder_arns() -> set[str]:
+    raw = os.environ.get("RAJA_TRUSTED_FORWARDER_ARNS", "")
+    return {
+        _normalize_iam_principal(value)
+        for value in (item.strip() for item in raw.split(","))
+        if value
+    }
+
+
+def _allow_asserted_principal() -> bool:
+    return os.environ.get("RAJA_ALLOW_ASSERTED_PRINCIPAL", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _extract_principal(event: dict[str, Any]) -> str:
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
-    principal = headers.get("x-raja-principal")
-    if principal:
-        return str(principal)
+    request_context = event.get("requestContext", {})
+    iam = request_context.get("authorizer", {}).get("iam", {})
+
+    caller_arn = ""
+    user_arn = iam.get("userArn")
+    if isinstance(user_arn, str) and user_arn.strip():
+        caller_arn = _normalize_iam_principal(user_arn)
+    caller_user_id = iam.get("userId")
+    trusted_forwarder = caller_arn in _trusted_forwarder_arns() if caller_arn else False
 
     payload_raw = headers.get("x-raja-jwt-payload")
-    if payload_raw:
+    if payload_raw and trusted_forwarder:
         try:
             payload = json.loads(payload_raw)
         except json.JSONDecodeError:
@@ -36,14 +85,24 @@ def _extract_principal(event: dict[str, Any]) -> str:
         if isinstance(subject, str) and subject.strip():
             return subject
 
-    authorizer = (
-        event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
-    )
+    principal = headers.get("x-raja-principal")
+    if trusted_forwarder and principal:
+        return str(principal)
+
+    if caller_arn:
+        return caller_arn
+    if isinstance(caller_user_id, str) and caller_user_id.strip():
+        return caller_user_id
+
+    authorizer = request_context.get("authorizer", {}).get("jwt", {}).get("claims", {})
     subject = authorizer.get("sub")
     if isinstance(subject, str) and subject.strip():
         return subject
 
-    raise ValueError("principal is required via x-raja-principal or JWT claims")
+    if _allow_asserted_principal() and principal:
+        return str(principal)
+
+    raise ValueError("principal is required via IAM identity or trusted forwarded identity")
 
 
 def _parse_usl(raw_path: str) -> tuple[str, str, str | None, str, str | None]:

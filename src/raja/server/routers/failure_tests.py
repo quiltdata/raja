@@ -1344,8 +1344,7 @@ def _runner_schema_policy_consistency(secret: str) -> FailureTestRun:
         expected="Schema entities match enforcement expectations",
         actual="Schema consistency validation not implemented",
         details={
-            "note": "Requires cross-validation between DataZone grant model and "
-            "enforcement logic"
+            "note": "Requires cross-validation between DataZone grant model and enforcement logic"
         },
         timestamp=time.time(),
     )
@@ -1508,8 +1507,7 @@ def _runner_policy_store_unavailability(secret: str) -> FailureTestRun:
         expected="DENY when DataZone unavailable",
         actual="DataZone unavailability simulation not implemented",
         details={
-            "note": "Requires mocking DataZone unavailability and testing fail-closed "
-            "behavior"
+            "note": "Requires mocking DataZone unavailability and testing fail-closed behavior"
         },
         timestamp=time.time(),
     )

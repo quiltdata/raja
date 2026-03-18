@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 import boto3
 import pytest
 
+from raja.aws_sigv4 import build_sigv4_headers
+
 OUTPUT_FILES = (
     Path("infra") / "tf-outputs.json",
     Path("tf-outputs.json"),
@@ -298,10 +300,20 @@ def request_url(
     url: str,
     headers: dict[str, str] | None = None,
     body: bytes | None = None,
+    *,
+    sigv4: bool = False,
 ) -> tuple[int, dict[str, str], bytes]:
     last_error: BaseException | None = None
     for attempt in range(_REQUEST_RETRY_ATTEMPTS):
-        req = request.Request(url, data=body, headers=headers or {}, method=method)
+        request_headers = dict(headers or {})
+        if sigv4:
+            request_headers = build_sigv4_headers(
+                method=method,
+                url=url,
+                headers=request_headers,
+                body=body,
+            )
+        req = request.Request(url, data=body, headers=request_headers, method=method)
         try:
             with request.urlopen(req, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 payload = response.read()

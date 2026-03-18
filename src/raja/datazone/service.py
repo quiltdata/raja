@@ -236,6 +236,19 @@ class DataZoneService:
         except (ClientError, BotoCoreError):
             return None
 
+    def _resolve_membership_user_identifier(self, user_identifier: str) -> str:
+        """Return the DataZone membership identifier for a user.
+
+        DataZone membership mutation APIs expect a DataZone user ID, not an IAM ARN.
+        We resolve IAM ARNs lazily and pass through already-resolved user IDs unchanged.
+        """
+        if user_identifier.startswith("arn:"):
+            dz_user_id = self._get_user_id_for_principal(user_identifier)
+            if dz_user_id is None:
+                raise DataZoneError(f"failed to resolve DataZone user ID for {user_identifier}")
+            return dz_user_id
+        return user_identifier
+
     def list_project_members(self, project_id: str) -> list[str]:
         """Return IAM ARNs of all members of the given DataZone project."""
         next_token: str | None = None
@@ -302,18 +315,19 @@ class DataZoneService:
         project_id: str,
         user_identifier: str,
     ) -> None:
-        """Remove an IAM user from a DataZone project membership (idempotent)."""
+        """Remove a DataZone user or IAM principal from a project membership."""
+        membership_user_identifier = self._resolve_membership_user_identifier(user_identifier)
         try:
             self._client.delete_project_membership(
                 domainIdentifier=self._config.domain_id,
                 projectIdentifier=project_id,
-                member={"userIdentifier": user_identifier},
+                member={"userIdentifier": membership_user_identifier},
             )
         except (ClientError, BotoCoreError) as exc:
             error_code = ""
             if isinstance(exc, ClientError):
                 error_code = exc.response.get("Error", {}).get("Code", "")
-            if error_code not in {"ResourceNotFoundException", "ValidationException"}:
+            if error_code != "ResourceNotFoundException":
                 raise DataZoneError(
                     f"failed to remove {user_identifier} from project {project_id}"
                 ) from exc
@@ -325,20 +339,26 @@ class DataZoneService:
         user_identifier: str,
         designation: str = "PROJECT_CONTRIBUTOR",
     ) -> None:
-        """Add an IAM user as a DataZone project member (idempotent)."""
+        """Add a DataZone user or IAM principal as a DataZone project member."""
+        membership_user_identifier = self._resolve_membership_user_identifier(user_identifier)
         try:
             self._client.create_project_membership(
                 domainIdentifier=self._config.domain_id,
                 projectIdentifier=project_id,
-                member={"userIdentifier": user_identifier},
+                member={"userIdentifier": membership_user_identifier},
                 designation=designation,
             )
         except (ClientError, BotoCoreError) as exc:
             # Already a member — not an error
             error_code = ""
+            error_message = ""
             if isinstance(exc, ClientError):
                 error_code = exc.response.get("Error", {}).get("Code", "")
-            if error_code not in {"ConflictException", "ValidationException"}:
+                error_message = str(exc.response.get("Error", {}).get("Message", ""))
+            already_member = error_code == "ConflictException" or (
+                error_code == "ValidationException" and "already in the project" in error_message
+            )
+            if not already_member:
                 raise DataZoneError(
                     f"failed to add {user_identifier} to DataZone project {project_id}"
                 ) from exc

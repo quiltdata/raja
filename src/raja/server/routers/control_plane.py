@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 
 from raja import create_token
+from raja.aws_sigv4 import build_sigv4_request
 from raja.datazone import (
     DataZoneConfig,
     DataZoneError,
@@ -485,8 +486,13 @@ def _probe_endpoint(
         suffix = ready_path if ready_path.startswith("/") else f"/{ready_path}"
         target = f"{target}{suffix}"
     try:
-        response = httpx.get(target, timeout=5.0, follow_redirects=False)
-    except httpx.RequestError as exc:
+        if ".lambda-url." in target:
+            request = build_sigv4_request(method="GET", url=target)
+            with httpx.Client(timeout=5.0, follow_redirects=False) as client:
+                response = client.send(request)
+        else:
+            response = httpx.get(target, timeout=5.0, follow_redirects=False)
+    except (httpx.RequestError, RuntimeError) as exc:
         return {"reachable": False, "status": "error", "detail": str(exc), "url": target}
 
     status_code = response.status_code
@@ -1345,12 +1351,14 @@ def authorize_rale_request(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     target_url = f"{authorizer_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    request = build_sigv4_request(
+        method="GET",
+        url=target_url,
+        headers={"x-raja-principal": payload.principal},
+    )
     try:
-        response = httpx.get(
-            target_url,
-            headers={"x-raja-principal": payload.principal},
-            timeout=20.0,
-        )
+        with httpx.Client(timeout=20.0) as client:
+            response = client.send(request)
         body = response.json()
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"RALE authorizer unreachable: {exc}") from exc
@@ -1395,8 +1403,14 @@ def deliver_rale_request(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     target_url = f"{router_url.rstrip('/')}{quote(pinned_path, safe='/@')}"
+    request = build_sigv4_request(
+        method="GET",
+        url=target_url,
+        headers={"x-rale-taj": payload.taj},
+    )
     try:
-        response = httpx.get(target_url, headers={"x-rale-taj": payload.taj}, timeout=20.0)
+        with httpx.Client(timeout=20.0) as client:
+            response = client.send(request)
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"RALE router unreachable: {exc}") from exc
 

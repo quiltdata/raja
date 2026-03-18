@@ -39,6 +39,7 @@ locals {
     [for source_file in fileset(local.rale_router_source_dir, "**") : filesha256("${local.rale_router_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
   )))
   lambda_pip_platform = var.lambda_architecture == "arm64" ? "aarch64-manylinux2014" : "x86_64-manylinux2014"
+  lambda_python_version = "3.14"
 
   envoy_source_dir = "${local.repo_root}/infra/envoy"
   envoy_source_hash = sha256(join("", [
@@ -90,6 +91,7 @@ resource "null_resource" "build_raja_layer" {
     source_hash     = local.layer_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -98,7 +100,7 @@ resource "null_resource" "build_raja_layer" {
       rm -rf "${local.layer_build_dir}"
       mkdir -p "${local.layer_build_dir}/python"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.layer_requirements}" --target "${local.layer_build_dir}/python"
       cp -R "${local.raja_source_dir}" "${local.layer_build_dir}/python/raja"
     EOT
@@ -110,6 +112,7 @@ resource "null_resource" "build_control_plane" {
     source_hash     = local.control_plane_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -118,7 +121,7 @@ resource "null_resource" "build_control_plane" {
       rm -rf "${local.control_plane_build_dir}"
       mkdir -p "${local.control_plane_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.control_plane_requirements}" --target "${local.control_plane_build_dir}"
       cp -R "${local.control_plane_source_dir}/." "${local.control_plane_build_dir}/"
     EOT
@@ -130,6 +133,7 @@ resource "null_resource" "build_rale_authorizer" {
     source_hash     = local.rale_authorizer_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -138,7 +142,7 @@ resource "null_resource" "build_rale_authorizer" {
       rm -rf "${local.rale_authorizer_build_dir}"
       mkdir -p "${local.rale_authorizer_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.rale_authorizer_requirements}" --target "${local.rale_authorizer_build_dir}"
       cp -R "${local.rale_authorizer_source_dir}/." "${local.rale_authorizer_build_dir}/"
     EOT
@@ -150,6 +154,7 @@ resource "null_resource" "build_rale_router" {
     source_hash     = local.rale_router_source_hash
     lambda_platform = local.lambda_pip_platform
     lambda_arch     = var.lambda_architecture
+    python_version  = local.lambda_python_version
   }
 
   provisioner "local-exec" {
@@ -158,7 +163,7 @@ resource "null_resource" "build_rale_router" {
       rm -rf "${local.rale_router_build_dir}"
       mkdir -p "${local.rale_router_build_dir}"
       uv pip install --no-cache \
-        --python-platform "${local.lambda_pip_platform}" --python-version 3.14 --only-binary :all: \
+        --python-platform "${local.lambda_pip_platform}" --python-version "${local.lambda_python_version}" --only-binary :all: \
         -r "${local.rale_router_requirements}" --target "${local.rale_router_build_dir}"
       cp -R "${local.rale_router_source_dir}/." "${local.rale_router_build_dir}/"
     EOT
@@ -350,6 +355,15 @@ resource "aws_iam_role_policy" "datazone_environment_owner" {
           aws_s3_bucket.rajee_test.arn,
           "${aws_s3_bucket.rajee_test.arn}/*"
         ]
+      },
+      {
+        Sid    = "InvokeRaleFunctionUrls"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunctionUrl"]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })
@@ -412,6 +426,15 @@ resource "aws_iam_role_policy" "datazone_environment_users" {
           aws_s3_bucket.rajee_registry.arn,
           aws_s3_bucket.rajee_test.arn
         ]
+      },
+      {
+        Sid    = "InvokeRaleFunctionUrls"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunctionUrl"]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })
@@ -472,6 +495,15 @@ resource "aws_iam_role_policy" "datazone_environment_guests" {
         Resource = [
           aws_s3_bucket.rajee_registry.arn,
           aws_s3_bucket.rajee_test.arn
+        ]
+      },
+      {
+        Sid    = "InvokeRaleFunctionUrls"
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunctionUrl"]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
         ]
       }
     ]
@@ -593,6 +625,16 @@ resource "aws_iam_role_policy" "control_plane_permissions" {
         ]
         Resource = [
           local.control_plane_lambda_arn,
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunctionUrl"
+        ]
+        Resource = [
           local.rale_authorizer_lambda_arn,
           local.rale_router_lambda_arn
         ]
@@ -793,6 +835,8 @@ resource "aws_lambda_function" "rale_authorizer" {
       RALE_ACTION                          = "quilt:ReadPackage"
       RALE_ISSUER                          = local.issuer
       RALE_AUDIENCE                        = "raja-rale"
+      RAJA_ALLOW_ASSERTED_PRINCIPAL        = var.auth_disabled ? "true" : "false"
+      RAJA_TRUSTED_FORWARDER_ARNS          = join(",", [aws_iam_role.rajee_task.arn, aws_iam_role.control_plane_lambda.arn])
     }
   }
 
@@ -805,7 +849,16 @@ resource "aws_lambda_function" "rale_authorizer" {
 
 resource "aws_lambda_function_url" "rale_authorizer" {
   function_name      = aws_lambda_function.rale_authorizer.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "rale_authorizer_url_account" {
+  statement_id            = "AllowAccountInvokeRaleAuthorizerUrl"
+  action                  = "lambda:InvokeFunctionUrl"
+  function_name           = aws_lambda_function.rale_authorizer.function_name
+  principal               = "*"
+  function_url_auth_type  = "AWS_IAM"
+  source_account          = data.aws_caller_identity.current.account_id
 }
 
 resource "aws_iam_role" "rale_router_lambda" {
@@ -894,7 +947,16 @@ resource "aws_lambda_function" "rale_router" {
 
 resource "aws_lambda_function_url" "rale_router" {
   function_name      = aws_lambda_function.rale_router.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "rale_router_url_account" {
+  statement_id            = "AllowAccountInvokeRaleRouterUrl"
+  action                  = "lambda:InvokeFunctionUrl"
+  function_name           = aws_lambda_function.rale_router.function_name
+  principal               = "*"
+  function_url_auth_type  = "AWS_IAM"
+  source_account          = data.aws_caller_identity.current.account_id
 }
 
 resource "aws_api_gateway_rest_api" "raja" {
@@ -1327,6 +1389,16 @@ resource "aws_iam_role_policy" "rajee_task_permissions" {
             "cloudwatch:namespace" = "RAJEE"
           }
         }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:InvokeFunctionUrl"
+        ]
+        Resource = [
+          local.rale_authorizer_lambda_arn,
+          local.rale_router_lambda_arn
+        ]
       }
     ]
   })

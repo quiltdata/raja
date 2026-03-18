@@ -63,6 +63,7 @@ def test_rale_router_retrieves_object_from_test_bucket() -> None:
         "GET",
         f"{require_rale_router_url()}{quote(usl_path, safe='/@')}",
         headers={"x-rale-taj": taj},
+        sigv4=True,
     )
     assert status == 200, body.decode("utf-8", errors="replace")
     assert body == expected_body

@@ -94,6 +94,7 @@ def test_rale_router_fetches_real_s3_object() -> None:
         "GET",
         f"{router_url}{encoded_usl_path}",
         headers={"x-rale-taj": taj},
+        sigv4=True,
     )
     assert status == 200, body.decode("utf-8", errors="replace")
     assert body == SEED_FILES["data.csv"]

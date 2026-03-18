@@ -125,6 +125,7 @@ def test_rale_router_rejects_expired_taj() -> None:
         "GET",
         f"{require_rale_router_url()}/registry/demo/package@abc123/some-file.txt",
         headers={"x-rale-taj": expired_taj},
+        sigv4=True,
     )
     assert status == 401
 
@@ -151,6 +152,7 @@ def test_rale_router_rejects_tampered_taj() -> None:
         "GET",
         f"{require_rale_router_url()}/registry/demo/package@abc123/some-file.txt",
         headers={"x-rale-taj": tampered_taj},
+        sigv4=True,
     )
     assert status == 401
 
@@ -170,6 +172,7 @@ def test_rale_router_denies_mismatched_package() -> None:
         "GET",
         f"{require_rale_router_url()}/registry/package-b@hash-b/some-file.txt",
         headers={"x-rale-taj": taj},
+        sigv4=True,
     )
     assert status == 403
 
@@ -194,6 +197,7 @@ def test_rale_router_denies_file_not_in_manifest() -> None:
             f"{parts['registry']}/{parts['package_name']}@{parts['hash']}/nonexistent-file.txt"
         ),
         headers={"x-rale-taj": taj},
+        sigv4=True,
     )
     assert status == 403
 

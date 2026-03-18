@@ -50,11 +50,15 @@ def test_seeded_users_are_found_in_datazone_projects() -> None:
     principals = require_raja_users()
     service, config = _make_service()
 
-    project_ids = [p for p in [
-        config.owner_project_id,
-        config.users_project_id,
-        config.guests_project_id,
-    ] if p]
+    project_ids = [
+        p
+        for p in [
+            config.owner_project_id,
+            config.users_project_id,
+            config.guests_project_id,
+        ]
+        if p
+    ]
 
     assert project_ids, "No DataZone project IDs configured (check DATAZONE_*_PROJECT_ID env vars)"
 
@@ -66,8 +70,7 @@ def test_seeded_users_are_found_in_datazone_projects() -> None:
 
     assert not failures, (
         f"find_project_for_principal returned None for {len(failures)} principal(s) "
-        f"— run `python scripts/seed_users.py` to fix:\n"
-        + "\n".join(f"  {p}" for p in failures)
+        f"— run `python scripts/seed_users.py` to fix:\n" + "\n".join(f"  {p}" for p in failures)
     )
 
 
@@ -89,9 +92,7 @@ def test_seeded_users_land_in_correct_tiers() -> None:
         users_arn = principals[1]
         assert service._is_project_member(
             project_id=config.users_project_id, principal=users_arn
-        ), (
-            f"{users_arn} is not a member of users project {config.users_project_id}"
-        )
+        ), f"{users_arn} is not a member of users project {config.users_project_id}"
 
 
 @pytest.mark.integration
@@ -101,11 +102,15 @@ def test_unknown_principal_returns_none() -> None:
 
     # Use an account that definitely does not exist
     fake_arn = "arn:aws:iam::000000000000:user/nobody-fake-xyzzy"
-    project_ids = [p for p in [
-        config.owner_project_id,
-        config.users_project_id,
-        config.guests_project_id,
-    ] if p]
+    project_ids = [
+        p
+        for p in [
+            config.owner_project_id,
+            config.users_project_id,
+            config.guests_project_id,
+        ]
+        if p
+    ]
 
     result = service.find_project_for_principal(fake_arn, project_ids=project_ids)
     assert result is None, (

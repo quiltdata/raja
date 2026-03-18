@@ -9,6 +9,7 @@ RAJA_ISSUER_VALUE="${RAJA_ISSUER:-http://localhost:8000}"
 PUBLIC_PATH_PREFIXES_VALUE="${RAJEE_PUBLIC_PATH_PREFIXES:-}"
 RALE_AUTHORIZER_URL_VALUE="${RALE_AUTHORIZER_URL:-}"
 RALE_ROUTER_URL_VALUE="${RALE_ROUTER_URL:-}"
+AWS_REGION_VALUE="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 
 JWKS_SCHEME=$(printf '%s' "$JWKS_ENDPOINT_VALUE" | sed -n 's#^\(https\?\)://.*#\1#p')
 JWKS_SCHEME="${JWKS_SCHEME:-http}"
@@ -109,6 +110,15 @@ EOF
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
           explicit_http_config:
             http_protocol_options: {}
+          http_filters:
+            - name: envoy.filters.http.aws_request_signing
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.aws_request_signing.v3.AwsRequestSigning
+                service_name: lambda
+                region: ${AWS_REGION_VALUE}
+            - name: envoy.filters.http.upstream_codec
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.upstream_codec.v3.UpstreamCodec
       load_assignment:
         cluster_name: rale_authorizer_cluster
         endpoints:
@@ -129,6 +139,15 @@ ${RALE_AUTHORIZER_TRANSPORT}
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
           explicit_http_config:
             http_protocol_options: {}
+          http_filters:
+            - name: envoy.filters.http.aws_request_signing
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.aws_request_signing.v3.AwsRequestSigning
+                service_name: lambda
+                region: ${AWS_REGION_VALUE}
+            - name: envoy.filters.http.upstream_codec
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.upstream_codec.v3.UpstreamCodec
       load_assignment:
         cluster_name: rale_router_cluster
         endpoints:
