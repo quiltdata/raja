@@ -318,6 +318,54 @@ resource "aws_lakeformation_permissions" "iceberg_lf_dz_domain_tables" {
   depends_on = [null_resource.enforce_iceberg_lf_native]
 }
 
+# H2 test: grant the owner Lakehouse environment role grantable permissions so
+# DataZone can delegate LF grants to subscriber environment roles.
+resource "aws_lakeformation_permissions" "iceberg_lf_owner_env_data_location" {
+  for_each  = local.iceberg_table_location_arns
+  principal = aws_iam_role.datazone_environment_owner.arn
+
+  permissions                   = ["DATA_LOCATION_ACCESS"]
+  permissions_with_grant_option = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = each.value
+  }
+
+  depends_on = [
+    null_resource.ensure_iceberg_table_location,
+    null_resource.enforce_iceberg_lf_native,
+  ]
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_owner_env_db" {
+  count     = local.iceberg_enabled ? 1 : 0
+  principal = aws_iam_role.datazone_environment_owner.arn
+
+  permissions                   = ["ALL"]
+  permissions_with_grant_option = ["ALL"]
+
+  database {
+    name = aws_glue_catalog_database.iceberg_lf[0].name
+  }
+
+  depends_on = [null_resource.enforce_iceberg_lf_native]
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_owner_env_tables" {
+  for_each  = local.iceberg_table_name_map
+  principal = aws_iam_role.datazone_environment_owner.arn
+
+  permissions                   = ["ALL"]
+  permissions_with_grant_option = ["ALL"]
+
+  table {
+    database_name = aws_glue_catalog_database.iceberg_lf[0].name
+    name          = each.key
+  }
+
+  depends_on = [null_resource.enforce_iceberg_lf_native]
+}
+
 resource "null_resource" "build_raja_layer" {
   triggers = {
     source_hash     = local.layer_source_hash

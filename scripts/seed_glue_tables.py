@@ -15,8 +15,10 @@ from typing import Any
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from scripts.seed_config import load_seed_state, write_seed_state
+from scripts.seed_config import load_seed_config, load_seed_state, write_seed_state
 from scripts.tf_outputs import load_tf_outputs
+
+SEED_CONFIG = load_seed_config()
 
 GLUE_TABLE_ASSET_TYPE = "amazon.datazone.GlueTableAssetType"
 GLUE_TABLE_FORM_NAME = "GlueTableForm"
@@ -56,6 +58,23 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Show planned actions only.")
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Revoke existing accepted subscriptions before re-creating them. "
+            "Use this to re-trigger DataZone's LF grant machinery after infrastructure changes."
+        ),
+    )
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help=(
+            "Inspect subscription grant state via DataZone API. "
+            "Reads saved seed state and reports what grants DataZone believes it issued "
+            "(GRANTED/PENDING/FAILED) vs the subscriptions that are ACCEPTED."
+        ),
+    )
+    parser.add_argument(
         "--database-name",
         default="",
         help="Override the LF-native Glue database name instead of reading infra/tf-outputs.json.",
@@ -63,14 +82,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--owner-project-id",
         default="",
-        help="Override the owner DataZone project ID instead of reading infra/tf-outputs.json.",
+        help="Override the default project ID instead of reading infra/tf-outputs.json.",
     )
     parser.add_argument(
         "--subscriber-project-ids",
         default="",
         help=(
             "Comma-separated subscriber project IDs. "
-            "Defaults to users and guests from infra/tf-outputs.json."
+            "Defaults to non-default projects from infra/tf-outputs.json."
         ),
     )
     return parser.parse_args()
@@ -100,9 +119,13 @@ def _get_database_name(args: argparse.Namespace, outputs: dict[str, Any]) -> str
 def _get_owner_project_id(args: argparse.Namespace, outputs: dict[str, Any]) -> str:
     if args.owner_project_id:
         return str(args.owner_project_id).strip()
-    owner_project_id = str(outputs.get("datazone_owner_project_id") or "").strip()
+    project_ids: dict[str, Any] = outputs.get("datazone_project_ids") or {}
+    owner_project_id = str(project_ids.get(SEED_CONFIG.default_project) or "").strip()
     if not owner_project_id:
-        raise SeedGlueTablesError("missing owner project ID in infra/tf-outputs.json")
+        raise SeedGlueTablesError(
+            f"missing project ID for default project {SEED_CONFIG.default_project!r}"
+            " in infra/tf-outputs.json:datazone_project_ids"
+        )
     return owner_project_id
 
 
@@ -110,12 +133,12 @@ def _get_subscriber_project_ids(args: argparse.Namespace, outputs: dict[str, Any
     if args.subscriber_project_ids:
         return [value.strip() for value in args.subscriber_project_ids.split(",") if value.strip()]
 
-    subscriber_project_ids: list[str] = []
-    for key in ("datazone_users_project_id", "datazone_guests_project_id"):
-        value = str(outputs.get(key) or "").strip()
-        if value:
-            subscriber_project_ids.append(value)
-    return subscriber_project_ids
+    project_ids: dict[str, Any] = outputs.get("datazone_project_ids") or {}
+    return [
+        str(project_ids[project.key])
+        for project in SEED_CONFIG.projects
+        if project.key != SEED_CONFIG.default_project and project_ids.get(project.key)
+    ]
 
 
 def _get_account_id() -> str:
@@ -423,6 +446,57 @@ def _get_subscription_request_status(client: Any, domain_id: str, request_id: st
     return str(response.get("status") or "")
 
 
+def _find_active_subscription(
+    client: Any,
+    domain_id: str,
+    listing_id: str,
+    project_id: str,
+) -> dict[str, Any] | None:
+    """Return the APPROVED subscription (not request) for a listing+project, or None."""
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "domainIdentifier": domain_id,
+            "subscribedListingId": listing_id,
+            "status": "APPROVED",
+            "maxResults": 50,
+        }
+        if next_token:
+            kwargs["nextToken"] = next_token
+        try:
+            response = client.list_subscriptions(**kwargs)
+        except (ClientError, BotoCoreError) as exc:
+            raise SeedGlueTablesError(
+                f"failed to list subscriptions for listing {listing_id}"
+            ) from exc
+        for item in response.get("items", []):
+            subscriber = item.get("subscribedPrincipal") or {}
+            project = subscriber.get("project") or {}
+            if project.get("id") == project_id:
+                return item
+        next_token = response.get("nextToken")
+        if not next_token:
+            return None
+
+
+def _revoke_subscription(
+    client: Any,
+    domain_id: str,
+    subscription_id: str,
+    table_name: str,
+) -> None:
+    try:
+        client.revoke_subscription(
+            domainIdentifier=domain_id,
+            identifier=subscription_id,
+        )
+    except (ClientError, BotoCoreError) as exc:
+        raise SeedGlueTablesError(
+            f"failed to revoke subscription {subscription_id} for {table_name}: {exc}"
+        ) from exc
+    print(f"  Revoked subscription {subscription_id}")
+
+
 def _ensure_subscription(
     client: Any,
     *,
@@ -430,12 +504,24 @@ def _ensure_subscription(
     listing: DataZoneListing,
     project_id: str,
     dry_run: bool,
+    force: bool = False,
 ) -> str:
     label = f"Subscription {project_id}/{listing.name}"
+
+    if force:
+        active = _find_active_subscription(client, domain_id, listing.listing_id, project_id)
+        if active is not None:
+            subscription_id = str(active.get("id") or "")
+            print(f"{label}: revoking ({subscription_id})")
+            if dry_run:
+                print(f"  [DRY-RUN] Would revoke subscription {subscription_id}")
+            else:
+                _revoke_subscription(client, domain_id, subscription_id, listing.name)
+
     accepted = _find_subscription_request(
         client, domain_id, listing.listing_id, project_id, "ACCEPTED"
     )
-    if accepted is not None:
+    if accepted is not None and not force:
         request_id = str(accepted.get("id") or "")
         print(f"{label}: present ({request_id})")
         return request_id
@@ -484,9 +570,285 @@ def _ensure_subscription(
     return request_id
 
 
+def _list_subscription_grants(
+    client: Any, domain_id: str, listing_id: str
+) -> list[dict[str, Any]]:
+    grants: list[dict[str, Any]] = []
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "domainIdentifier": domain_id,
+            "subscribedListingId": listing_id,
+            "maxResults": 50,
+        }
+        if next_token:
+            kwargs["nextToken"] = next_token
+        try:
+            response = client.list_subscription_grants(**kwargs)
+        except (ClientError, BotoCoreError) as exc:
+            raise SeedGlueTablesError(
+                f"failed to list subscription grants for listing {listing_id}"
+            ) from exc
+        grants.extend(response.get("items", []))
+        next_token = response.get("nextToken")
+        if not next_token:
+            return grants
+
+
+def _inspect_subscription_grants(
+    client: Any,
+    *,
+    domain_id: str,
+    state: dict[str, Any],
+) -> None:
+    """Report what DataZone believes it granted for each Glue table subscription.
+
+    Probes H4: accepted subscriptions may not have triggered DataZone-managed LF
+    grants. If no grant objects exist at all, DataZone never attempted to issue LF
+    permissions. If grants exist but have status GRANT_FAILED, DataZone tried and
+    failed (useful for H2 investigation — likely a missing grantable permission on
+    the publisher side).
+    """
+    glue_state: dict[str, Any] = state.get("glue_tables") or {}
+    if not glue_state:
+        print("No Glue table seed state found — run without --inspect first.")
+        return
+
+    print("=" * 60)
+    print("DataZone subscription grant inspection")
+    print("=" * 60)
+
+    any_missing = False
+    for table_name, table_state in sorted(glue_state.items()):
+        listing_id: str = str(table_state.get("listing_id") or "")
+        subscription_ids: dict[str, str] = table_state.get("subscription_ids") or {}
+        if not listing_id:
+            print(f"\n{table_name}: no listing_id in seed state — skipping")
+            continue
+
+        print(f"\n{table_name} (listing {listing_id})")
+        grants = _list_subscription_grants(client, domain_id, listing_id)
+        if not grants:
+            print("  ✗ No subscription grant objects found — DataZone never attempted LF grants")
+            any_missing = True
+            continue
+
+        for grant in grants:
+            grant_id = str(grant.get("id") or "")
+            grant_status = str(grant.get("status") or "?")
+            sub_id = str(grant.get("subscriptionId") or "")
+            assets = grant.get("assets") or []
+            print(f"  Grant {grant_id}  status={grant_status}  subscription={sub_id}")
+            for asset in assets:
+                asset_id = str(asset.get("assetId") or "")
+                asset_status = str(asset.get("status") or "?")
+                failure_cause = asset.get("failureCause") or {}
+                failure_msg = str(failure_cause.get("message") or "")
+                line = f"    asset={asset_id}  status={asset_status}"
+                if failure_msg:
+                    line += f"  failure={failure_msg}"
+                print(line)
+
+        # Cross-reference: warn about subscription request IDs that have no matching grant
+        grant_sub_ids = {str(g.get("subscriptionId") or "") for g in grants}
+        for project_id, request_id in sorted(subscription_ids.items()):
+            if request_id not in grant_sub_ids:
+                print(
+                    f"  ✗ Subscription request {request_id} (project {project_id})"
+                    " has no matching grant object"
+                )
+                any_missing = True
+
+    print("\n" + "=" * 60)
+    if any_missing:
+        print(
+            "RESULT: At least one accepted subscription has no grant object.\n"
+            "DataZone never initiated LF grant fulfillment for those subscriptions.\n"
+            "This confirms H4 and narrows root cause to H1 (data-source linkage) or\n"
+            "H2 (publisher-side grantable permissions)."
+        )
+    else:
+        print("RESULT: All subscriptions have grant objects — check statuses above for GRANT_FAILED.")
+
+
+DEFAULT_LAKEHOUSE_CONNECTION_NAME = "project.default_lakehouse"
+
+
+def _find_glue_data_source(
+    client: Any,
+    domain_id: str,
+    project_id: str,
+    data_source_name: str,
+) -> dict[str, Any] | None:
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "domainIdentifier": domain_id,
+            "projectIdentifier": project_id,
+            "maxResults": 50,
+            "type": "GLUE",
+        }
+        if next_token:
+            kwargs["nextToken"] = next_token
+        try:
+            response = client.list_data_sources(**kwargs)
+        except (ClientError, BotoCoreError) as exc:
+            code = exc.response.get("Error", {}).get("Code", "") if isinstance(exc, ClientError) else ""
+            if code in ("AccessDeniedException", "ValidationException"):
+                print(f"Glue data source: list_data_sources unsupported ({code}) — skipping")
+                return None
+            raise
+        for item in response.get("items", []):
+            if str(item.get("name") or "") == data_source_name:
+                return item
+        next_token = response.get("nextToken")
+        if not next_token:
+            return None
+
+
+def _find_project_connection_id(
+    client: Any,
+    domain_id: str,
+    project_id: str,
+    *,
+    connection_name: str,
+    connection_type: str | None = None,
+) -> str:
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "domainIdentifier": domain_id,
+            "projectIdentifier": project_id,
+            "maxResults": 50,
+        }
+        if next_token:
+            kwargs["nextToken"] = next_token
+        response = client.list_connections(**kwargs)
+        for item in response.get("items", []):
+            if str(item.get("name") or "") != connection_name:
+                continue
+            if connection_type and str(item.get("type") or "") != connection_type:
+                continue
+            connection_id = str(item.get("connectionId") or item.get("id") or "")
+            if connection_id:
+                return connection_id
+        next_token = response.get("nextToken")
+        if not next_token:
+            return ""
+
+
+def _wait_for_data_source_ready(client: Any, domain_id: str, data_source_id: str) -> bool:
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        response = client.get_data_source(
+            domainIdentifier=domain_id,
+            identifier=data_source_id,
+        )
+        status = str(response.get("status") or "")
+        if status == "READY":
+            return True
+        if status in {"FAILED_CREATION", "FAILED_UPDATE", "FAILED_DELETION"}:
+            print(f"  WARNING: data source {data_source_id} entered terminal status {status}")
+            return False
+        time.sleep(2)
+    print(f"  WARNING: timed out waiting for data source {data_source_id} to become READY")
+    return False
+
+
+def _start_data_source_run_if_ready(client: Any, domain_id: str, data_source_id: str) -> None:
+    if not _wait_for_data_source_ready(client, domain_id, data_source_id):
+        return
+    try:
+        client.start_data_source_run(
+            domainIdentifier=domain_id,
+            dataSourceIdentifier=data_source_id,
+        )
+        print(
+            f"  Started initial run for {data_source_id} — "
+            "check DataZone console for import status"
+        )
+    except (ClientError, BotoCoreError) as exc:
+        print(f"  WARNING: failed to start data source run: {exc}")
+
+
+def _ensure_glue_data_source(
+    client: Any,
+    *,
+    domain_id: str,
+    owner_project_id: str,
+    database_name: str,
+    dry_run: bool,
+) -> None:
+    """Ensure a DataZone-managed Glue data source exists for the LF-native Iceberg database."""
+    data_source_name = f"{database_name}-datasource"
+    existing = _find_glue_data_source(client, domain_id, owner_project_id, data_source_name)
+    if existing is not None:
+        data_source_id = str(existing.get("dataSourceId") or existing.get("id") or "")
+        data_source_status = str(existing.get("status") or "?")
+        print(f"Glue data source: present ({data_source_id}) [{data_source_status}]")
+        if data_source_id and int(existing.get("lastRunAssetCount") or 0) == 0:
+            _start_data_source_run_if_ready(client, domain_id, data_source_id)
+        return
+
+    connection_id = _find_project_connection_id(
+        client,
+        domain_id,
+        owner_project_id,
+        connection_name=DEFAULT_LAKEHOUSE_CONNECTION_NAME,
+        connection_type="LAKEHOUSE",
+    )
+    if not connection_id:
+        print(
+            f"Glue data source: skipped ({DEFAULT_LAKEHOUSE_CONNECTION_NAME!r} connection not found)"
+        )
+        return
+
+    print(f"Glue data source: creating {data_source_name!r}")
+    if dry_run:
+        print("  [DRY-RUN] Would create Glue data source and start initial run")
+        return
+
+    try:
+        response = client.create_data_source(
+            clientToken=str(uuid.uuid4()),
+            domainIdentifier=domain_id,
+            projectIdentifier=owner_project_id,
+            name=data_source_name,
+            type="GLUE",
+            connectionIdentifier=connection_id,
+            publishOnImport=True,
+            configuration={
+                "glueRunConfiguration": {
+                    "relationalFilterConfigurations": [
+                        {
+                            "databaseName": database_name,
+                            "filterExpressions": [{"expression": "*", "type": "INCLUDE"}],
+                        }
+                    ]
+                }
+            },
+        )
+    except (ClientError, BotoCoreError) as exc:
+        print(f"  WARNING: failed to create Glue data source: {exc}")
+        return
+
+    data_source_id = str(response.get("id") or "")
+    print(f"  Created data source {data_source_id}")
+    _start_data_source_run_if_ready(client, domain_id, data_source_id)
+
+
 def main() -> None:
     args = _parse_args()
     outputs = load_tf_outputs()
+
+    if args.inspect:
+        region = _get_region()
+        domain_id = _get_domain_id(outputs)
+        state = load_seed_state()
+        datazone_client = boto3.client("datazone", region_name=region)
+        _inspect_subscription_grants(datazone_client, domain_id=domain_id, state=state)
+        return
+
     database_name = _get_database_name(args, outputs)
     if not database_name:
         print("Glue table seeding: skipped (iceberg_lf_database_name is empty)")
@@ -506,6 +868,15 @@ def main() -> None:
     account_id = _get_account_id()
     datazone_client = boto3.client("datazone", region_name=region)
     glue_client = boto3.client("glue", region_name=region)
+
+    _ensure_glue_data_source(
+        datazone_client,
+        domain_id=domain_id,
+        owner_project_id=owner_project_id,
+        database_name=database_name,
+        dry_run=args.dry_run,
+    )
+
     asset_type = _get_glue_asset_type_config(datazone_client, domain_id)
 
     print("=" * 60)
@@ -518,6 +889,8 @@ def main() -> None:
     print(f"Glue table form:  {asset_type.form_type_name}@{asset_type.form_type_revision}")
     if args.dry_run:
         print("Mode:             DRY-RUN")
+    if args.force:
+        print("Mode:             FORCE (revoke + re-subscribe)")
     print("=" * 60)
 
     state = load_seed_state()
@@ -543,6 +916,7 @@ def main() -> None:
                 listing=listing,
                 project_id=project_id,
                 dry_run=args.dry_run,
+                force=args.force,
             )
         glue_state[table_name] = {
             "asset_id": listing.asset_id,
