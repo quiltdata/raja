@@ -53,6 +53,11 @@ output "datazone_package_asset_type_revision" {
   value       = aws_datazone_asset_type.quilt_package.revision
 }
 
+output "iceberg_lf_database_name" {
+  description = "Lake Formation-native Glue database mirroring the Quilt Iceberg tables."
+  value       = local.iceberg_enabled ? aws_glue_catalog_database.iceberg_lf[0].name : ""
+}
+
 output "control_plane_lambda_arn" {
   description = "Control plane Lambda ARN."
   value       = aws_lambda_function.control_plane.arn

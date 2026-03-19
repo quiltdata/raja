@@ -14,3 +14,4 @@ certificate_arn      = ""
 ecs_cpu_architecture = "ARM64"
 rajee_task_cpu       = 256
 rajee_task_memory    = 512
+iceberg_s3_bucket    = ""

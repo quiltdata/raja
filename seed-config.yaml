@@ -3,17 +3,17 @@ default_project: alpha
 projects:
   - key: alpha
     display_name: Alpha
-    project_name: owner
+    project_name: alpha
     designation: PROJECT_CONTRIBUTOR
     buckets: "*"
   - key: bio
     display_name: Bio
-    project_name: users
+    project_name: bio
     designation: PROJECT_CONTRIBUTOR
     buckets: "*bio*"
   - key: compute
     display_name: Compute
-    project_name: guests
+    project_name: compute
     designation: PROJECT_CONTRIBUTOR
     buckets: "*example*"
 packages:

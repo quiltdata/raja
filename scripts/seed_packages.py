@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import sys
 
 import boto3
 from botocore.exceptions import ClientError
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService, datazone_enabled
 from scripts.seed_config import (

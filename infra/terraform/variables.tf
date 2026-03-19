@@ -121,6 +121,12 @@ variable "registry_accessor_arns" {
   default     = []
 }
 
+variable "iceberg_s3_bucket" {
+  description = "S3 bucket containing the Quilt Iceberg tables (without s3:// prefix)."
+  type        = string
+  default     = ""
+}
+
 variable "datazone_domain_name" {
   description = "Amazon DataZone domain name for the RAJA package-grant POC."
   type        = string
@@ -149,4 +155,10 @@ variable "datazone_package_asset_type" {
   description = "Custom Amazon DataZone asset type name used for Quilt package listings."
   type        = string
   default     = "QuiltPackage"
+}
+
+variable "datazone_projects" {
+  description = "JSON blob mapping project keys to DataZone project_id/environment_id/project_label. Populated by sagemaker_gaps.py after environments are created and fed back in via TF_VAR_datazone_projects on subsequent runs."
+  type        = string
+  default     = ""
 }

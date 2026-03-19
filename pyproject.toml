@@ -1,6 +1,6 @@
 [project]
 name = "raja"
-version = "1.2.0"
+version = "1.3.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -117,11 +117,12 @@ demo-package = { cmd = "pytest tests/integration/test_rajee_package_grant.py -v 
 demo-translation = { cmd = "pytest tests/integration/test_rajee_translation_grant.py -v -s", help = "Run translation grant (TAJ-package) demonstrations" }
 
 # AWS deployment
-deploy = { sequence = ["_terraform-apply", "_wait-rajee-stable", "_sagemaker-gaps", "_seed-users", "_seed-packages", "_show-outputs"], help = "Deploy standalone RAJA stack, wait for RAJEE, fill V2 gaps, and seed integration fixtures" }
+deploy = { sequence = ["_terraform-apply", "_wait-rajee-stable", "_sagemaker-gaps", "_seed-users", "_seed-packages", "_seed-glue-tables", "_show-outputs"], help = "Deploy standalone RAJA stack, wait for RAJEE, fill V2 gaps, and seed integration fixtures" }
 deploy-fast = { sequence = ["deploy"], help = "Alias for Terraform deploy" }
 destroy = { sequence = ["_terraform-destroy"], help = "Destroy Terraform stack" }
 seed-users = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_users", help = "Seed integration test principals into DataZone" }
 seed-packages = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_packages", help = "Seed quilt3 packages into raja-poc-registry from raja-poc-test and publish the DataZone listing" }
+seed-glue-tables = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_glue_tables", help = "Seed LF-native Glue table assets into DataZone and auto-approve subscriber project grants" }
 sagemaker-gaps = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python scripts/sagemaker_gaps.py", help = "Fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
 
 # Docker image building
@@ -146,11 +147,12 @@ _format = { cmd = "uv run --extra dev ruff format src tests infra lambda_handler
 _lint-fix = { cmd = "uv run --extra dev ruff check --fix src tests infra lambda_handlers", help = "Internal: fix lint issues" }
 _typecheck = { cmd = "uv run --extra dev mypy src", help = "Internal: run type checker" }
 _show-outputs = { cmd = "python scripts/show_outputs.py", help = "Internal: print deployment summary" }
-_terraform-apply = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json | python3 -c \"import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))\" > ../tf-outputs.json", help = "Internal: deploy Terraform stack and persist outputs" }
+_terraform-apply = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); export TF_VAR_datazone_projects=$(python3 -c 'import json,os; d=json.load(open(\"infra/tf-outputs.json\")) if os.path.exists(\"infra/tf-outputs.json\") else {}; print(d.get(\"datazone_projects\", \"\"))'); cd infra/terraform && terraform init -input=false && terraform apply -auto-approve -input=false && terraform output -json | python3 -c \"import json,sys; print(json.dumps({k:v['value'] for k,v in json.load(sys.stdin).items()}))\" > ../tf-outputs.json", help = "Internal: deploy Terraform stack and persist outputs" }
 _wait-rajee-stable = { shell = "set -a; [ -f .env ] && . ./.env; set +a; aws ecs wait services-stable --cluster raja-standalone-rajee-cluster --services raja-standalone-rajee-service", help = "Internal: wait for the RAJEE ECS service to reach a stable state" }
 _sagemaker-gaps = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python scripts/sagemaker_gaps.py", help = "Internal: fill current SageMaker Unified Studio V2 / DataZone Terraform gaps" }
 _seed-users = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_users", help = "Internal: seed integration test principals into DataZone" }
 _seed-packages = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_packages", help = "Internal: seed quilt packages and DataZone listings" }
+_seed-glue-tables = { shell = "set -a; [ -f .env ] && . ./.env; set +a; uv run --extra aws python -m scripts.seed_glue_tables", help = "Internal: seed Glue table assets and DataZone subscriptions" }
 _terraform-destroy = { shell = "set -a; [ -f .env ] && . ./.env; set +a; if [ -z \"${RAJA_ADMIN_KEY:-}\" ]; then echo \"Missing RAJA_ADMIN_KEY\" >&2; exit 1; fi; export TF_VAR_raja_admin_key=${RAJA_ADMIN_KEY}; export TF_VAR_raja_default_principal_username=$(python3 -c 'import os; users=[u.strip() for u in os.environ.get(\"RAJA_USERS\", \"\").split(\",\") if u.strip()]; print(users[0] if users else \"\")'); cd infra/terraform && terraform init -input=false && terraform destroy -auto-approve -input=false && rm -f ../tf-outputs.json", help = "Internal: destroy Terraform stack" }
 
 [tool.mypy]

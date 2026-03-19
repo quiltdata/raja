@@ -39,7 +39,7 @@ locals {
     [filesha256(local.rale_router_requirements)],
     [for source_file in fileset(local.rale_router_source_dir, "**") : filesha256("${local.rale_router_source_dir}/${source_file}") if !endswith(source_file, ".pyc")]
   )))
-  lambda_pip_platform = var.lambda_architecture == "arm64" ? "aarch64-manylinux2014" : "x86_64-manylinux2014"
+  lambda_pip_platform   = var.lambda_architecture == "arm64" ? "aarch64-manylinux2014" : "x86_64-manylinux2014"
   lambda_python_version = "3.14"
 
   envoy_source_dir = "${local.repo_root}/infra/envoy"
@@ -73,18 +73,308 @@ locals {
     ARM64  = "ARM64 (linux/arm64)"
     X86_64 = "X86_64 (linux/amd64)"
   }
-  lambda_arn_prefix            = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
-  control_plane_lambda_name    = "${var.stack_name}-control-plane"
-  rale_authorizer_lambda_name  = "${var.stack_name}-rale-authorizer"
-  rale_router_lambda_name      = "${var.stack_name}-rale-router"
-  control_plane_lambda_arn     = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
-  rale_authorizer_lambda_arn   = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
-  rale_router_lambda_arn       = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
-  datazone_domain_exec_role    = "${var.stack_name}-datazone-domain-execution"
-  datazone_domain_service_role = "${var.stack_name}-datazone-domain-service"
-  datazone_env_owner_role      = "raja-dz-env-owner"
-  datazone_env_users_role      = "raja-dz-env-users"
-  datazone_env_guests_role     = "raja-dz-env-guests"
+  lambda_arn_prefix                = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
+  control_plane_lambda_name        = "${var.stack_name}-control-plane"
+  rale_authorizer_lambda_name      = "${var.stack_name}-rale-authorizer"
+  rale_router_lambda_name          = "${var.stack_name}-rale-router"
+  control_plane_lambda_arn         = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
+  rale_authorizer_lambda_arn       = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
+  rale_router_lambda_arn           = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
+  datazone_domain_exec_role        = "${var.stack_name}-datazone-domain-execution"
+  datazone_domain_service_role     = "${var.stack_name}-datazone-domain-service"
+  datazone_env_owner_role          = "raja-dz-env-owner"
+  datazone_env_users_role          = "raja-dz-env-users"
+  datazone_env_guests_role         = "raja-dz-env-guests"
+  tooling_blueprint_id             = "cjegf7f6kky6w7"
+  sagemaker_provisioning_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/service-role/AmazonSageMakerProvisioning-${data.aws_caller_identity.current.account_id}"
+  sagemaker_manage_access_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/service-role/AmazonSageMakerManageAccess-${var.aws_region}-${aws_datazone_domain.raja.id}"
+  tooling_regional_parameters = {
+    (var.aws_region) = {
+      AZs        = join(",", local.azs)
+      S3Location = "s3://amazon-sagemaker-${data.aws_caller_identity.current.account_id}-${var.aws_region}-db47c3e6c85d"
+      Subnets    = "subnet-09d384be5cc82f4a3,subnet-0c4d8951561fb21ea"
+      VpcId      = "vpc-010008ef3cce35c0c"
+    }
+  }
+
+  iceberg_enabled         = var.iceberg_s3_bucket != ""
+  iceberg_source_database = "icebergdatabase-v9cxuqnwjj5a"
+  iceberg_native_database = "${var.stack_name}-iceberg-lf"
+  iceberg_table_names     = ["package_entry", "package_manifest", "package_revision", "package_tag"]
+  iceberg_table_name_map  = local.iceberg_enabled ? { for name in local.iceberg_table_names : name => name } : {}
+  iceberg_table_location_arns = local.iceberg_enabled ? {
+    for table_name, table in data.aws_glue_catalog_table.iceberg_source :
+    table_name => replace(table.storage_descriptor[0].location, "s3://", "arn:aws:s3:::")
+  } : {}
+}
+
+data "aws_glue_catalog_table" "iceberg_source" {
+  for_each      = local.iceberg_table_name_map
+  database_name = local.iceberg_source_database
+  name          = each.key
+}
+
+resource "aws_glue_catalog_database" "iceberg_lf" {
+  count = local.iceberg_enabled ? 1 : 0
+  name  = local.iceberg_native_database
+}
+
+resource "aws_glue_catalog_table" "iceberg_lf" {
+  for_each      = local.iceberg_table_name_map
+  database_name = aws_glue_catalog_database.iceberg_lf[0].name
+  name          = each.key
+  description   = data.aws_glue_catalog_table.iceberg_source[each.key].description
+  owner         = data.aws_glue_catalog_table.iceberg_source[each.key].owner
+  retention     = data.aws_glue_catalog_table.iceberg_source[each.key].retention
+  table_type    = data.aws_glue_catalog_table.iceberg_source[each.key].table_type
+
+  parameters         = data.aws_glue_catalog_table.iceberg_source[each.key].parameters
+  view_expanded_text = data.aws_glue_catalog_table.iceberg_source[each.key].view_expanded_text
+  view_original_text = data.aws_glue_catalog_table.iceberg_source[each.key].view_original_text
+
+  storage_descriptor {
+    additional_locations      = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].additional_locations
+    bucket_columns            = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].bucket_columns
+    compressed                = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].compressed
+    input_format              = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].input_format
+    location                  = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].location
+    number_of_buckets         = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].number_of_buckets
+    output_format             = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].output_format
+    parameters                = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].parameters
+    stored_as_sub_directories = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].stored_as_sub_directories
+
+    dynamic "columns" {
+      for_each = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].columns
+      content {
+        comment    = columns.value.comment
+        name       = columns.value.name
+        parameters = columns.value.parameters
+        type       = columns.value.type
+      }
+    }
+
+    dynamic "schema_reference" {
+      for_each = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].schema_reference
+      content {
+        schema_version_id     = schema_reference.value.schema_version_id
+        schema_version_number = schema_reference.value.schema_version_number
+
+        dynamic "schema_id" {
+          for_each = schema_reference.value.schema_id
+          content {
+            registry_name = schema_id.value.registry_name
+            schema_arn    = schema_id.value.schema_arn
+            schema_name   = schema_id.value.schema_name
+          }
+        }
+      }
+    }
+
+    dynamic "ser_de_info" {
+      for_each = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].ser_de_info
+      content {
+        name                  = ser_de_info.value.name
+        parameters            = ser_de_info.value.parameters
+        serialization_library = ser_de_info.value.serialization_library
+      }
+    }
+
+    dynamic "skewed_info" {
+      for_each = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].skewed_info
+      content {
+        skewed_column_names               = skewed_info.value.skewed_column_names
+        skewed_column_value_location_maps = skewed_info.value.skewed_column_value_location_maps
+        skewed_column_values              = skewed_info.value.skewed_column_values
+      }
+    }
+
+    dynamic "sort_columns" {
+      for_each = data.aws_glue_catalog_table.iceberg_source[each.key].storage_descriptor[0].sort_columns
+      content {
+        column     = sort_columns.value.column
+        sort_order = sort_columns.value.sort_order
+      }
+    }
+  }
+
+  dynamic "partition_keys" {
+    for_each = data.aws_glue_catalog_table.iceberg_source[each.key].partition_keys
+    content {
+      comment    = partition_keys.value.comment
+      name       = partition_keys.value.name
+      parameters = partition_keys.value.parameters
+      type       = partition_keys.value.type
+    }
+  }
+
+  dynamic "target_table" {
+    for_each = data.aws_glue_catalog_table.iceberg_source[each.key].target_table
+    content {
+      catalog_id    = target_table.value.catalog_id
+      database_name = target_table.value.database_name
+      name          = target_table.value.name
+      region        = target_table.value.region
+    }
+  }
+}
+
+resource "null_resource" "enforce_iceberg_lf_native" {
+  count = local.iceberg_enabled ? 1 : 0
+
+  triggers = {
+    database_name = aws_glue_catalog_database.iceberg_lf[0].name
+    table_names   = join(",", local.iceberg_table_names)
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      aws glue update-database \
+        --region "${var.aws_region}" \
+        --name "${aws_glue_catalog_database.iceberg_lf[0].name}" \
+        --database-input '{"Name":"${aws_glue_catalog_database.iceberg_lf[0].name}","CreateTableDefaultPermissions":[]}'
+
+      if aws lakeformation list-permissions --region "${var.aws_region}" --resource '{"Database":{"Name":"${aws_glue_catalog_database.iceberg_lf[0].name}"}}' --query "PrincipalResourcePermissions[?Principal.DataLakePrincipalIdentifier=='IAM_ALLOWED_PRINCIPALS'] | length(@)" --output text | grep -Fqx "1"; then
+        aws lakeformation revoke-permissions \
+          --region "${var.aws_region}" \
+          --principal DataLakePrincipalIdentifier=IAM_ALLOWED_PRINCIPALS \
+          --resource '{"Database":{"Name":"${aws_glue_catalog_database.iceberg_lf[0].name}"}}' \
+          --permissions ALL
+      fi
+
+      for table in ${join(" ", local.iceberg_table_names)}; do
+        if aws lakeformation list-permissions --region "${var.aws_region}" --resource "{\\"Table\\":{\\"DatabaseName\\":\\"${aws_glue_catalog_database.iceberg_lf[0].name}\\",\\"Name\\":\\"$table\\"}}" --query "PrincipalResourcePermissions[?Principal.DataLakePrincipalIdentifier=='IAM_ALLOWED_PRINCIPALS'] | length(@)" --output text | grep -Fqx "1"; then
+          aws lakeformation revoke-permissions \
+            --region "${var.aws_region}" \
+            --principal DataLakePrincipalIdentifier=IAM_ALLOWED_PRINCIPALS \
+            --resource "{\\"Table\\":{\\"DatabaseName\\":\\"${aws_glue_catalog_database.iceberg_lf[0].name}\\",\\"Name\\":\\"$table\\"}}" \
+            --permissions ALL
+        fi
+      done
+    EOT
+  }
+
+  depends_on = [aws_glue_catalog_table.iceberg_lf]
+}
+
+resource "null_resource" "ensure_iceberg_table_location" {
+  for_each = local.iceberg_table_location_arns
+
+  triggers = {
+    resource_arn = each.value
+  }
+
+  # The AWS provider exposes aws_lakeformation_resource but does not support import.
+  # This stack already has these registrations in-place, so ensure they exist via CLI
+  # and let Terraform manage only the grant side.
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      if aws lakeformation list-resources --region "${var.aws_region}" --query "ResourceInfoList[?ResourceArn=='${each.value}'].ResourceArn" --output text | grep -Fqx "${each.value}"; then
+        echo "Lake Formation resource already registered: ${each.value}"
+      else
+        aws lakeformation register-resource \
+          --region "${var.aws_region}" \
+          --resource-arn "${each.value}" \
+          --use-service-linked-role \
+          --hybrid-access-enabled
+      fi
+    EOT
+  }
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_dz_domain_data_location" {
+  for_each  = local.iceberg_table_location_arns
+  principal = aws_datazone_domain.raja.domain_execution_role
+
+  permissions                   = ["DATA_LOCATION_ACCESS"]
+  permissions_with_grant_option = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = each.value
+  }
+
+  depends_on = [
+    null_resource.ensure_iceberg_table_location,
+    null_resource.enforce_iceberg_lf_native,
+  ]
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_dz_domain_db" {
+  count     = local.iceberg_enabled ? 1 : 0
+  principal = aws_datazone_domain.raja.domain_execution_role
+
+  permissions                   = ["ALL"]
+  permissions_with_grant_option = ["ALL"]
+
+  database {
+    name = aws_glue_catalog_database.iceberg_lf[0].name
+  }
+
+  depends_on = [null_resource.enforce_iceberg_lf_native]
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_dz_domain_tables" {
+  for_each  = local.iceberg_table_name_map
+  principal = aws_datazone_domain.raja.domain_execution_role
+
+  permissions                   = ["ALL"]
+  permissions_with_grant_option = ["ALL"]
+
+  table {
+    database_name = aws_glue_catalog_database.iceberg_lf[0].name
+    name          = each.key
+  }
+
+  depends_on = [null_resource.enforce_iceberg_lf_native]
+}
+
+# H2 test: grant the owner Lakehouse environment role grantable permissions so
+# DataZone can delegate LF grants to subscriber environment roles.
+resource "aws_lakeformation_permissions" "iceberg_lf_owner_env_data_location" {
+  for_each  = local.iceberg_table_location_arns
+  principal = aws_iam_role.datazone_environment_owner.arn
+
+  permissions                   = ["DATA_LOCATION_ACCESS"]
+  permissions_with_grant_option = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = each.value
+  }
+
+  depends_on = [
+    null_resource.ensure_iceberg_table_location,
+    null_resource.enforce_iceberg_lf_native,
+  ]
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_owner_env_db" {
+  count     = local.iceberg_enabled ? 1 : 0
+  principal = aws_iam_role.datazone_environment_owner.arn
+
+  permissions                   = ["ALL"]
+  permissions_with_grant_option = ["ALL"]
+
+  database {
+    name = aws_glue_catalog_database.iceberg_lf[0].name
+  }
+
+  depends_on = [null_resource.enforce_iceberg_lf_native]
+}
+
+resource "aws_lakeformation_permissions" "iceberg_lf_owner_env_tables" {
+  for_each  = local.iceberg_table_name_map
+  principal = aws_iam_role.datazone_environment_owner.arn
+
+  permissions                   = ["ALL"]
+  permissions_with_grant_option = ["ALL"]
+
+  table {
+    database_name = aws_glue_catalog_database.iceberg_lf[0].name
+    name          = each.key
+  }
+
+  depends_on = [null_resource.enforce_iceberg_lf_native]
 }
 
 resource "null_resource" "build_raja_layer" {
@@ -245,8 +535,8 @@ resource "aws_iam_role_policy" "datazone_domain_execution_blueprint" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = ["s3:GetObject", "s3:GetObjectVersion"]
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetObjectVersion"]
         Resource = "arn:aws:s3:::amazon-sagemaker-cf-templates-${var.aws_region}-*/*"
       },
       {
@@ -536,6 +826,17 @@ resource "aws_datazone_environment_blueprint_configuration" "default_data_lake" 
   domain_id                = aws_datazone_domain.raja.id
   environment_blueprint_id = "d6y5smpdi8x9lz"
   enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = local.sagemaker_provisioning_role_arn
+  manage_access_role_arn   = local.sagemaker_manage_access_role_arn
+}
+
+resource "aws_datazone_environment_blueprint_configuration" "default_tooling" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = local.tooling_blueprint_id
+  enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = local.sagemaker_provisioning_role_arn
+  manage_access_role_arn   = local.sagemaker_manage_access_role_arn
+  regional_parameters      = local.tooling_regional_parameters
 }
 
 resource "aws_datazone_environment_blueprint_configuration" "raja_registry" {
@@ -760,6 +1061,7 @@ resource "aws_lambda_function" "control_plane" {
       RAJEE_TEST_BUCKET_NAME               = aws_s3_bucket.rajee_test.bucket
       ECS_CLUSTER_NAME                     = "${var.stack_name}-rajee-cluster"
       ECS_SERVICE_NAME                     = "${var.stack_name}-rajee-service"
+      DATAZONE_PROJECTS                    = var.datazone_projects
     }
   }
 
@@ -871,6 +1173,7 @@ resource "aws_lambda_function" "rale_authorizer" {
       RALE_AUDIENCE                        = "raja-rale"
       RAJA_ALLOW_ASSERTED_PRINCIPAL        = var.auth_disabled ? "true" : "false"
       RAJA_TRUSTED_FORWARDER_ARNS          = join(",", [aws_iam_role.rajee_task.arn, aws_iam_role.control_plane_lambda.arn])
+      DATAZONE_PROJECTS                    = var.datazone_projects
     }
   }
 
@@ -887,12 +1190,12 @@ resource "aws_lambda_function_url" "rale_authorizer" {
 }
 
 resource "aws_lambda_permission" "rale_authorizer_url_account" {
-  statement_id            = "AllowAccountInvokeRaleAuthorizerUrl"
-  action                  = "lambda:InvokeFunctionUrl"
-  function_name           = aws_lambda_function.rale_authorizer.function_name
-  principal               = "*"
-  function_url_auth_type  = "AWS_IAM"
-  source_account          = data.aws_caller_identity.current.account_id
+  statement_id           = "AllowAccountInvokeRaleAuthorizerUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.rale_authorizer.function_name
+  principal              = "*"
+  function_url_auth_type = "AWS_IAM"
+  source_account         = data.aws_caller_identity.current.account_id
 }
 
 resource "aws_iam_role" "rale_router_lambda" {
@@ -985,12 +1288,12 @@ resource "aws_lambda_function_url" "rale_router" {
 }
 
 resource "aws_lambda_permission" "rale_router_url_account" {
-  statement_id            = "AllowAccountInvokeRaleRouterUrl"
-  action                  = "lambda:InvokeFunctionUrl"
-  function_name           = aws_lambda_function.rale_router.function_name
-  principal               = "*"
-  function_url_auth_type  = "AWS_IAM"
-  source_account          = data.aws_caller_identity.current.account_id
+  statement_id           = "AllowAccountInvokeRaleRouterUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.rale_router.function_name
+  principal              = "*"
+  function_url_auth_type = "AWS_IAM"
+  source_account         = data.aws_caller_identity.current.account_id
 }
 
 resource "aws_api_gateway_rest_api" "raja" {

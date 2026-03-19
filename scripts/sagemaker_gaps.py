@@ -4,9 +4,8 @@
 This script patches the current Terraform provider gaps for RAJA's V2 domain:
 
 1. Ensure the default project profile exists and is ENABLED.
-2. Resolve the three configured seed projects in the V2 domain.
-3. Ensure the root domain unit grants CREATE_ASSET_TYPE to project owners.
-4. Refresh infra/tf-outputs.json with discovered project IDs.
+2. Ensure the root domain unit grants CREATE_ASSET_TYPE to project owners.
+3. Refresh infra/tf-outputs.json with discovered environment IDs.
 
 It is safe to rerun. Existing resources are reused.
 """
@@ -40,7 +39,7 @@ DEFAULT_PROFILE_NAME = "raja-default-profile"
 DEFAULT_PROFILE_DESCRIPTION = "Default project profile for RAJA Terraform-managed V2 projects"
 SEED_CONFIG = load_seed_config()
 PROJECT_SPECS = {
-    project.project_name: {
+    project.key: {
         "name": project.display_name,
         "description": (
             f"{project.display_name} project in the RAJA symmetric seed topology. "
@@ -51,9 +50,11 @@ PROJECT_SPECS = {
     for project in SEED_CONFIG.projects
 }
 ENVIRONMENT_SPECS = {
-    project.project_name: f"raja-{project.key}-env"
+    project.key: f"raja-{project.key}-env"
     for project in SEED_CONFIG.projects
 }
+LAKEHOUSE_BLUEPRINT_ID = "d6y5smpdi8x9lz"
+LAKEHOUSE_ENVIRONMENT_NAME = "Lakehouse Database"
 CUSTOM_BLUEPRINT_CANDIDATE_NAMES = (
     "raja-registry-blueprint",
     "raja-poc",
@@ -149,16 +150,35 @@ def _get_context(args: argparse.Namespace) -> Context:
     )
 
 
-def _existing_project_id_from_outputs(outputs: dict[str, Any], project_name: str) -> str:
-    raw_projects = outputs.get("datazone_project_ids")
-    if isinstance(raw_projects, dict):
-        value = raw_projects.get(project_name)
-        if isinstance(value, str) and value:
-            return value
-    raw_legacy = outputs.get(f"datazone_{project_name}_project_id")
-    if isinstance(raw_legacy, str) and raw_legacy:
-        return raw_legacy
-    return ""
+def _load_project_ids_from_outputs(outputs: dict[str, Any]) -> dict[str, str]:
+    """Read {project.key: project_id} from Terraform outputs.
+
+    Prefer the canonical `datazone_project_ids` map written by this script.
+    Fall back to legacy flat Terraform output names for older stacks.
+    """
+    raw_project_ids = outputs.get("datazone_project_ids")
+    project_ids: dict[str, str] = {}
+    if isinstance(raw_project_ids, dict):
+        project_ids = {
+            str(key): str(value or "").strip()
+            for key, value in raw_project_ids.items()
+            if isinstance(key, str)
+        }
+
+    legacy_key_map = {
+        "alpha": "datazone_owner_project_id",
+        "bio": "datazone_users_project_id",
+        "compute": "datazone_guests_project_id",
+    }
+
+    resolved: dict[str, str] = {}
+    for project in SEED_CONFIG.projects:
+        resolved[project.key] = (
+            project_ids.get(project.key)
+            or str(outputs.get(f"datazone_{project.project_name}_project_id") or "").strip()
+            or str(outputs.get(legacy_key_map.get(project.key, "")) or "").strip()
+        )
+    return resolved
 
 
 def _build_datazone_projects_json(
@@ -166,10 +186,10 @@ def _build_datazone_projects_json(
     environment_ids: dict[str, str],
 ) -> str:
     projects = {
-        project.project_name: {
-            "project_id": project_ids.get(project.project_name, ""),
+        project.key: {
+            "project_id": project_ids.get(project.key, ""),
             "project_label": project.display_name,
-            "environment_id": environment_ids.get(project.project_name, ""),
+            "environment_id": environment_ids.get(project.key, ""),
         }
         for project in SEED_CONFIG.projects
     }
@@ -217,46 +237,6 @@ def _ensure_project_profile(client: Any, ctx: Context) -> str:
     return profile_id
 
 
-def _list_projects(client: Any, ctx: Context) -> list[dict[str, Any]]:
-    return _list_all(client.list_projects, "items", domainIdentifier=ctx.domain_id)
-
-
-def _ensure_projects(client: Any, ctx: Context, profile_id: str) -> dict[str, str]:
-    projects = _list_projects(client, ctx)
-    by_name = {str(project["name"]): project for project in projects}
-    by_id = {str(project["id"]): project for project in projects}
-    ensured: dict[str, str] = {}
-
-    for key, spec in PROJECT_SPECS.items():
-        existing = by_name.get(spec["name"])
-        if existing is None:
-            existing_output_id = _existing_project_id_from_outputs(ctx.outputs, key)
-            candidate = by_id.get(existing_output_id) if existing_output_id else None
-            if candidate is not None and str(candidate.get("name") or "") == spec["name"]:
-                existing = candidate
-        if existing:
-            project_id = str(existing["id"])
-            ensured[key] = project_id
-            print(f"Project {key}: {spec['name']} ({project_id})")
-            continue
-
-        print(f"Project {key}: {spec['name']} (missing)")
-        if ctx.dry_run:
-            print("  [DRY-RUN] Would create V2 project")
-            ensured[key] = f"dry-run-{key}"
-            continue
-
-        created = client.create_project(
-            domainIdentifier=ctx.domain_id,
-            name=spec["name"],
-            description=spec["description"],
-            projectProfileId=profile_id,
-        )
-        project_id = str(created["id"])
-        ensured[key] = project_id
-        print(f"  Created project {project_id}")
-
-    return ensured
 
 
 def _ensure_asset_type_grant(client: Any, ctx: Context) -> None:
@@ -455,7 +435,7 @@ def _discover_environment_ids(
 ) -> dict[str, str]:
     discovered: dict[str, str] = {}
 
-    for key, environment_name in ENVIRONMENT_SPECS.items():
+    for key, legacy_environment_name in ENVIRONMENT_SPECS.items():
         project_id = project_ids.get(key, "")
         if not project_id:
             continue
@@ -467,13 +447,38 @@ def _discover_environment_ids(
             domainIdentifier=ctx.domain_id,
             projectIdentifier=project_id,
         )
-        by_name = {str(item.get("name") or ""): item for item in items}
-        item = by_name.get(environment_name)
+
+        item = next(
+            (
+                candidate
+                for candidate in items
+                if str(candidate.get("environmentBlueprintId") or "") == LAKEHOUSE_BLUEPRINT_ID
+                and str(candidate.get("status") or "") == "ACTIVE"
+            ),
+            None,
+        )
+        if item is None:
+            item = next(
+                (
+                    candidate
+                    for candidate in items
+                    if str(candidate.get("name") or "") == LAKEHOUSE_ENVIRONMENT_NAME
+                    and str(candidate.get("status") or "") == "ACTIVE"
+                ),
+                None,
+            )
+        if item is None:
+            by_name = {str(candidate.get("name") or ""): candidate for candidate in items}
+            item = by_name.get(legacy_environment_name)
         if not item:
-            print(f"Environment {key}: {environment_name} (missing)")
+            print(
+                f"Environment {key}: {LAKEHOUSE_ENVIRONMENT_NAME} "
+                f"(missing; legacy name {legacy_environment_name!r} not found either)"
+            )
             continue
         environment_project_id = str(item.get("projectId") or "")
         environment_id = str(item.get("id") or "")
+        environment_name = str(item.get("name") or "")
         if environment_project_id and project_id != environment_project_id:
             print(
                 f"Environment {key}: {environment_name} ({environment_id}) "
@@ -667,6 +672,7 @@ def _ensure_subscription_grant(
     print(f"  Accepted subscription grant for {project_key}")
 
 
+
 def _ensure_default_subscription_grants(
     client: Any, ctx: Context, project_ids: dict[str, str]
 ) -> None:
@@ -676,8 +682,13 @@ def _ensure_default_subscription_grants(
 
 def _print_import_hints(ctx: Context, project_ids: dict[str, str]) -> None:
     print("\nTerraform import hints:")
-    for key, project_id in project_ids.items():
-        print(f"  terraform import aws_datazone_project.{key} {ctx.domain_id}:{project_id}")
+    for project in SEED_CONFIG.projects:
+        project_id = project_ids.get(project.key, "")
+        if project_id:
+            print(
+                f"  terraform import aws_datazone_project.{project.project_name}"
+                f" {ctx.domain_id}:{project_id}"
+            )
 
 
 def main() -> None:
@@ -692,7 +703,7 @@ def main() -> None:
         if ctx.dry_run:
             print("Mode:   DRY-RUN")
         profile_id = _ensure_project_profile(client, ctx)
-        project_ids = _ensure_projects(client, ctx, profile_id)
+        project_ids = _load_project_ids_from_outputs(ctx.outputs)
         _ensure_asset_type_grant(client, ctx)
         _ensure_default_subscription_grants(client, ctx, project_ids)
         ctx.custom_blueprint_id = _find_custom_blueprint_id(client, ctx)
