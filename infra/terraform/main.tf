@@ -73,18 +73,29 @@ locals {
     ARM64  = "ARM64 (linux/arm64)"
     X86_64 = "X86_64 (linux/amd64)"
   }
-  lambda_arn_prefix            = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
-  control_plane_lambda_name    = "${var.stack_name}-control-plane"
-  rale_authorizer_lambda_name  = "${var.stack_name}-rale-authorizer"
-  rale_router_lambda_name      = "${var.stack_name}-rale-router"
-  control_plane_lambda_arn     = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
-  rale_authorizer_lambda_arn   = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
-  rale_router_lambda_arn       = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
-  datazone_domain_exec_role    = "${var.stack_name}-datazone-domain-execution"
-  datazone_domain_service_role = "${var.stack_name}-datazone-domain-service"
-  datazone_env_owner_role      = "raja-dz-env-owner"
-  datazone_env_users_role      = "raja-dz-env-users"
-  datazone_env_guests_role     = "raja-dz-env-guests"
+  lambda_arn_prefix                = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function"
+  control_plane_lambda_name        = "${var.stack_name}-control-plane"
+  rale_authorizer_lambda_name      = "${var.stack_name}-rale-authorizer"
+  rale_router_lambda_name          = "${var.stack_name}-rale-router"
+  control_plane_lambda_arn         = "${local.lambda_arn_prefix}:${local.control_plane_lambda_name}"
+  rale_authorizer_lambda_arn       = "${local.lambda_arn_prefix}:${local.rale_authorizer_lambda_name}"
+  rale_router_lambda_arn           = "${local.lambda_arn_prefix}:${local.rale_router_lambda_name}"
+  datazone_domain_exec_role        = "${var.stack_name}-datazone-domain-execution"
+  datazone_domain_service_role     = "${var.stack_name}-datazone-domain-service"
+  datazone_env_owner_role          = "raja-dz-env-owner"
+  datazone_env_users_role          = "raja-dz-env-users"
+  datazone_env_guests_role         = "raja-dz-env-guests"
+  tooling_blueprint_id             = "cjegf7f6kky6w7"
+  sagemaker_provisioning_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/service-role/AmazonSageMakerProvisioning-${data.aws_caller_identity.current.account_id}"
+  sagemaker_manage_access_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/service-role/AmazonSageMakerManageAccess-${var.aws_region}-${aws_datazone_domain.raja.id}"
+  tooling_regional_parameters = {
+    (var.aws_region) = {
+      AZs        = join(",", local.azs)
+      S3Location = "s3://amazon-sagemaker-${data.aws_caller_identity.current.account_id}-${var.aws_region}-db47c3e6c85d"
+      Subnets    = "subnet-09d384be5cc82f4a3,subnet-0c4d8951561fb21ea"
+      VpcId      = "vpc-010008ef3cce35c0c"
+    }
+  }
 
   iceberg_enabled         = var.iceberg_s3_bucket != ""
   iceberg_source_database = "icebergdatabase-v9cxuqnwjj5a"
@@ -815,6 +826,17 @@ resource "aws_datazone_environment_blueprint_configuration" "default_data_lake" 
   domain_id                = aws_datazone_domain.raja.id
   environment_blueprint_id = "d6y5smpdi8x9lz"
   enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = local.sagemaker_provisioning_role_arn
+  manage_access_role_arn   = local.sagemaker_manage_access_role_arn
+}
+
+resource "aws_datazone_environment_blueprint_configuration" "default_tooling" {
+  domain_id                = aws_datazone_domain.raja.id
+  environment_blueprint_id = local.tooling_blueprint_id
+  enabled_regions          = [var.aws_region]
+  provisioning_role_arn    = local.sagemaker_provisioning_role_arn
+  manage_access_role_arn   = local.sagemaker_manage_access_role_arn
+  regional_parameters      = local.tooling_regional_parameters
 }
 
 resource "aws_datazone_environment_blueprint_configuration" "raja_registry" {

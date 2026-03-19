@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import boto3
@@ -56,6 +56,13 @@ class DataZoneListing:
     asset_revision: str
     name: str
     owner_project_id: str
+
+
+@dataclass(frozen=True)
+class AssetCandidate:
+    asset_id: str
+    asset_revision: str
+    asset_detail: dict[str, Any]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -233,7 +240,6 @@ def _find_listing(
     domain_id: str,
     owner_project_id: str,
     asset_type_name: str,
-    external_identifier: str,
     table_name: str,
 ) -> DataZoneListing | None:
     for asset in _asset_search(client, domain_id, owner_project_id, table_name):
@@ -247,8 +253,6 @@ def _find_listing(
         if not asset_id:
             continue
         asset_detail = _get_asset(client, domain_id, asset_id)
-        if str(asset_detail.get("externalIdentifier") or "") != external_identifier:
-            continue
         listing = asset_detail.get("listing") or {}
         return DataZoneListing(
             listing_id=str(listing.get("listingId") or ""),
@@ -259,6 +263,119 @@ def _find_listing(
             owner_project_id=owner_project_id,
         )
     return None
+
+
+def _form_names(asset_detail: dict[str, Any]) -> set[str]:
+    forms = asset_detail.get("formsOutput") or []
+    if not isinstance(forms, list):
+        return set()
+    names = {
+        str(form.get("formName") or "")
+        for form in forms
+        if isinstance(form, dict) and form.get("formName")
+    }
+    return {name for name in names if name}
+
+
+def _asset_candidates(
+    client: Any,
+    domain_id: str,
+    owner_project_id: str,
+    asset_type_name: str,
+    table_name: str,
+) -> list[AssetCandidate]:
+    candidates: list[AssetCandidate] = []
+    for asset in _asset_search(client, domain_id, owner_project_id, table_name):
+        if str(asset.get("name") or "") != table_name:
+            continue
+        if str(asset.get("typeIdentifier") or "") != asset_type_name:
+            continue
+        if str(asset.get("owningProjectId") or "") != owner_project_id:
+            continue
+        asset_id = str(asset.get("identifier") or "")
+        if not asset_id:
+            continue
+        asset_detail = _get_asset(client, domain_id, asset_id)
+        candidates.append(
+            AssetCandidate(
+                asset_id=asset_id,
+                asset_revision=str(asset_detail.get("revision") or ""),
+                asset_detail=asset_detail,
+            )
+        )
+    return candidates
+
+
+def _asset_score(
+    candidate: AssetCandidate, expected_external_identifier: str
+) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    forms = _form_names(candidate.asset_detail)
+    created_by = str(candidate.asset_detail.get("createdBy") or "")
+    external_identifier = str(candidate.asset_detail.get("externalIdentifier") or "")
+
+    if "DataSourceReferenceForm" in forms:
+        score += 10
+        reasons.append("has DataSourceReferenceForm")
+    if created_by == "SYSTEM":
+        score += 4
+        reasons.append("created by SYSTEM")
+    if external_identifier == expected_external_identifier:
+        score += 2
+        reasons.append("matches manual external identifier")
+    if external_identifier.startswith("arn:aws:glue:"):
+        score += 2
+        reasons.append("matches imported Glue external identifier")
+    if "SubscriptionTermsForm" in forms:
+        score += 1
+        reasons.append("has subscription terms")
+    return score, reasons
+
+
+def _select_listing_candidate(
+    candidates: list[AssetCandidate], expected_external_identifier: str
+) -> tuple[DataZoneListing | None, list[dict[str, Any]]]:
+    scored: list[tuple[int, AssetCandidate, list[str]]] = []
+    for candidate in candidates:
+        score, reasons = _asset_score(candidate, expected_external_identifier)
+        scored.append((score, candidate, reasons))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    summaries: list[dict[str, Any]] = []
+    for score, candidate, reasons in scored:
+        listing = candidate.asset_detail.get("listing") or {}
+        summaries.append(
+            {
+                "asset_id": candidate.asset_id,
+                "listing_id": str(listing.get("listingId") or ""),
+                "external_identifier": str(
+                    candidate.asset_detail.get("externalIdentifier") or ""
+                ),
+                "created_by": str(candidate.asset_detail.get("createdBy") or ""),
+                "forms": sorted(_form_names(candidate.asset_detail)),
+                "score": score,
+                "reasons": reasons,
+            }
+        )
+
+    for _, candidate, _ in scored:
+        listing = candidate.asset_detail.get("listing") or {}
+        listing_id = str(listing.get("listingId") or "")
+        if not listing_id:
+            continue
+        return (
+            DataZoneListing(
+                listing_id=listing_id,
+                listing_revision="",
+                asset_id=candidate.asset_id,
+                asset_revision=candidate.asset_revision,
+                name=str(candidate.asset_detail.get("name") or ""),
+                owner_project_id=str(candidate.asset_detail.get("owningProjectId") or ""),
+            ),
+            summaries,
+        )
+    return None, summaries
 
 
 def _glue_table_form_content(glue_table: dict[str, Any], account_id: str, region: str) -> str:
@@ -298,18 +415,42 @@ def _ensure_listing(
     dry_run: bool,
 ) -> DataZoneListing:
     external_identifier = _build_external_identifier(account_id, region, database_name, table_name)
+    existing, candidate_summaries = _select_listing_candidate(
+        _asset_candidates(
+            datazone_client,
+            domain_id,
+            owner_project_id,
+            asset_type.asset_type_name,
+            table_name,
+        ),
+        external_identifier,
+    )
+    if existing is not None:
+        selected = next(
+            (
+                summary
+                for summary in candidate_summaries
+                if str(summary.get("listing_id") or "") == existing.listing_id
+            ),
+            None,
+        )
+        if selected is not None:
+            print(
+                f"Listing {table_name}: selected {existing.listing_id}"
+                f" via {', '.join(selected.get('reasons') or ['existing asset'])}"
+            )
+        else:
+            print(f"Listing {table_name}: present ({existing.listing_id})")
+        return existing
+
     existing = _find_listing(
         datazone_client,
         domain_id,
         owner_project_id,
         asset_type.asset_type_name,
-        external_identifier,
         table_name,
     )
     if existing is not None:
-        if existing.listing_id:
-            print(f"Listing {table_name}: present ({existing.listing_id})")
-            return existing
         print(f"Listing {table_name}: asset exists, publishing listing")
         if dry_run:
             return DataZoneListing(
@@ -388,7 +529,6 @@ def _ensure_listing(
             domain_id,
             owner_project_id,
             asset_type.asset_type_name,
-            external_identifier,
             table_name,
         )
         if listing is not None:
@@ -672,7 +812,10 @@ def _inspect_subscription_grants(
             "H2 (publisher-side grantable permissions)."
         )
     else:
-        print("RESULT: All subscriptions have grant objects — check statuses above for GRANT_FAILED.")
+        print(
+            "RESULT: All subscriptions have grant objects — check statuses above for "
+            "GRANT_FAILED."
+        )
 
 
 DEFAULT_LAKEHOUSE_CONNECTION_NAME = "project.default_lakehouse"
@@ -697,7 +840,11 @@ def _find_glue_data_source(
         try:
             response = client.list_data_sources(**kwargs)
         except (ClientError, BotoCoreError) as exc:
-            code = exc.response.get("Error", {}).get("Code", "") if isinstance(exc, ClientError) else ""
+            code = (
+                exc.response.get("Error", {}).get("Code", "")
+                if isinstance(exc, ClientError)
+                else ""
+            )
             if code in ("AccessDeniedException", "ValidationException"):
                 print(f"Glue data source: list_data_sources unsupported ({code}) — skipping")
                 return None
@@ -803,7 +950,8 @@ def _ensure_glue_data_source(
     )
     if not connection_id:
         print(
-            f"Glue data source: skipped ({DEFAULT_LAKEHOUSE_CONNECTION_NAME!r} connection not found)"
+            "Glue data source: skipped "
+            f"({DEFAULT_LAKEHOUSE_CONNECTION_NAME!r} connection not found)"
         )
         return
 
