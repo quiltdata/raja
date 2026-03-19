@@ -156,6 +156,18 @@ def _get_account_id() -> str:
     return str(boto3.client("sts").get_caller_identity()["Account"])
 
 
+def _s3_uri_to_arn(location: str) -> str:
+    if not location.startswith("s3://"):
+        raise SeedGlueTablesError(f"expected s3:// location, got {location!r}")
+    bucket_and_key = location.removeprefix("s3://").rstrip("/")
+    bucket, _, key = bucket_and_key.partition("/")
+    if not bucket:
+        raise SeedGlueTablesError(f"could not parse S3 bucket from {location!r}")
+    if not key:
+        return f"arn:aws:s3:::{bucket}"
+    return f"arn:aws:s3:::{bucket}/{key}"
+
+
 def _get_glue_asset_type_config(client: Any, domain_id: str) -> GlueAssetTypeConfig:
     try:
         response = client.get_asset_type(
@@ -864,6 +876,99 @@ def _find_project_connection_id(
             return ""
 
 
+def _get_data_source_role_arn(client: Any, *, domain_id: str, data_source_id: str) -> str:
+    response = client.get_data_source(domainIdentifier=domain_id, identifier=data_source_id)
+    config = response.get("configuration") or {}
+    glue_config = config.get("glueRunConfiguration") or {}
+    role_arn = str(glue_config.get("dataAccessRole") or "")
+    if not role_arn:
+        raise SeedGlueTablesError(
+            f"data source {data_source_id} is missing glueRunConfiguration.dataAccessRole"
+        )
+    return role_arn
+
+
+def _grant_lf_permissions(
+    lf_client: Any,
+    *,
+    principal_arn: str,
+    resource: dict[str, Any],
+    permissions: list[str],
+    grant_permissions: list[str],
+) -> None:
+    try:
+        lf_client.grant_permissions(
+            Principal={"DataLakePrincipalIdentifier": principal_arn},
+            Resource=resource,
+            Permissions=permissions,
+            PermissionsWithGrantOption=grant_permissions,
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        message = str(exc)
+        if code == "AlreadyExistsException" or "Permissions modification is invalid" in message:
+            return
+        raise SeedGlueTablesError(
+            f"failed to grant Lake Formation permissions to {principal_arn}: {exc}"
+        ) from exc
+    except BotoCoreError as exc:
+        raise SeedGlueTablesError(
+            f"failed to grant Lake Formation permissions to {principal_arn}: {exc}"
+        ) from exc
+
+
+def _ensure_data_source_lf_permissions(
+    *,
+    datazone_client: Any,
+    glue_client: Any,
+    lf_client: Any,
+    domain_id: str,
+    data_source_id: str,
+    database_name: str,
+    table_names: tuple[str, ...],
+) -> None:
+    role_arn = _get_data_source_role_arn(
+        datazone_client, domain_id=domain_id, data_source_id=data_source_id
+    )
+    print(f"Glue data source role: {role_arn}")
+
+    _grant_lf_permissions(
+        lf_client,
+        principal_arn=role_arn,
+        resource={"Database": {"Name": database_name}},
+        permissions=["ALL"],
+        grant_permissions=["ALL"],
+    )
+
+    for table_name in table_names:
+        try:
+            glue_table = glue_client.get_table(DatabaseName=database_name, Name=table_name)["Table"]
+        except (ClientError, BotoCoreError) as exc:
+            raise SeedGlueTablesError(
+                f"failed to read Glue table {database_name}.{table_name}"
+            ) from exc
+        table_location = str((glue_table.get("StorageDescriptor") or {}).get("Location") or "")
+        if not table_location:
+            raise SeedGlueTablesError(
+                f"Glue table {database_name}.{table_name} is missing StorageDescriptor.Location"
+            )
+
+        _grant_lf_permissions(
+            lf_client,
+            principal_arn=role_arn,
+            resource={"Table": {"DatabaseName": database_name, "Name": table_name}},
+            permissions=["ALL"],
+            grant_permissions=["ALL"],
+        )
+        _grant_lf_permissions(
+            lf_client,
+            principal_arn=role_arn,
+            resource={"DataLocation": {"ResourceArn": _s3_uri_to_arn(table_location)}},
+            permissions=["DATA_LOCATION_ACCESS"],
+            grant_permissions=["DATA_LOCATION_ACCESS"],
+        )
+
+
 def _wait_for_data_source_ready(client: Any, domain_id: str, data_source_id: str) -> bool:
     deadline = time.time() + 120
     while time.time() < deadline:
@@ -905,7 +1010,7 @@ def _ensure_glue_data_source(
     owner_project_id: str,
     database_name: str,
     dry_run: bool,
-) -> None:
+) -> str:
     """Ensure a DataZone-managed Glue data source exists for the LF-native Iceberg database."""
     data_source_name = f"{database_name}-datasource"
     existing = _find_glue_data_source(client, domain_id, owner_project_id, data_source_name)
@@ -913,9 +1018,11 @@ def _ensure_glue_data_source(
         data_source_id = str(existing.get("dataSourceId") or existing.get("id") or "")
         data_source_status = str(existing.get("status") or "?")
         print(f"Glue data source: present ({data_source_id}) [{data_source_status}]")
-        if data_source_id and int(existing.get("lastRunAssetCount") or 0) == 0:
+        if data_source_id and (
+            int(existing.get("lastRunAssetCount") or 0) < len(ICEBERG_TABLE_NAMES)
+        ):
             _start_data_source_run_if_ready(client, domain_id, data_source_id)
-        return
+        return data_source_id
 
     connection_id = _find_project_connection_id(
         client,
@@ -929,12 +1036,12 @@ def _ensure_glue_data_source(
             "Glue data source: skipped "
             f"({DEFAULT_LAKEHOUSE_CONNECTION_NAME!r} connection not found)"
         )
-        return
+        return ""
 
     print(f"Glue data source: creating {data_source_name!r}")
     if dry_run:
         print("  [DRY-RUN] Would create Glue data source and start initial run")
-        return
+        return ""
 
     try:
         response = client.create_data_source(
@@ -958,11 +1065,12 @@ def _ensure_glue_data_source(
         )
     except (ClientError, BotoCoreError) as exc:
         print(f"  WARNING: failed to create Glue data source: {exc}")
-        return
+        return ""
 
     data_source_id = str(response.get("id") or "")
     print(f"  Created data source {data_source_id}")
     _start_data_source_run_if_ready(client, domain_id, data_source_id)
+    return data_source_id
 
 
 def main() -> None:
@@ -995,14 +1103,27 @@ def main() -> None:
 
     account_id = _get_account_id()
     datazone_client = boto3.client("datazone", region_name=region)
+    glue_client = boto3.client("glue", region_name=region)
+    lf_client = boto3.client("lakeformation", region_name=region)
 
-    _ensure_glue_data_source(
+    data_source_id = _ensure_glue_data_source(
         datazone_client,
         domain_id=domain_id,
         owner_project_id=owner_project_id,
         database_name=database_name,
         dry_run=args.dry_run,
     )
+    if data_source_id:
+        _ensure_data_source_lf_permissions(
+            datazone_client=datazone_client,
+            glue_client=glue_client,
+            lf_client=lf_client,
+            domain_id=domain_id,
+            data_source_id=data_source_id,
+            database_name=database_name,
+            table_names=ICEBERG_TABLE_NAMES,
+        )
+        _start_data_source_run_if_ready(datazone_client, domain_id, data_source_id)
 
     asset_type = _get_glue_asset_type_config(datazone_client, domain_id)
 
