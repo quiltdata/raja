@@ -1039,6 +1039,7 @@ resource "aws_lambda_function" "control_plane" {
       RAJEE_TEST_BUCKET_NAME               = aws_s3_bucket.rajee_test.bucket
       ECS_CLUSTER_NAME                     = "${var.stack_name}-rajee-cluster"
       ECS_SERVICE_NAME                     = "${var.stack_name}-rajee-service"
+      DATAZONE_PROJECTS                    = var.datazone_projects
     }
   }
 
@@ -1150,6 +1151,7 @@ resource "aws_lambda_function" "rale_authorizer" {
       RALE_AUDIENCE                        = "raja-rale"
       RAJA_ALLOW_ASSERTED_PRINCIPAL        = var.auth_disabled ? "true" : "false"
       RAJA_TRUSTED_FORWARDER_ARNS          = join(",", [aws_iam_role.rajee_task.arn, aws_iam_role.control_plane_lambda.arn])
+      DATAZONE_PROJECTS                    = var.datazone_projects
     }
   }
 

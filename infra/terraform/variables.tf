@@ -156,3 +156,9 @@ variable "datazone_package_asset_type" {
   type        = string
   default     = "QuiltPackage"
 }
+
+variable "datazone_projects" {
+  description = "JSON blob mapping project keys to DataZone project_id/environment_id/project_label. Populated by sagemaker_gaps.py after environments are created and fed back in via TF_VAR_datazone_projects on subsequent runs."
+  type        = string
+  default     = ""
+}
