@@ -6,6 +6,20 @@ All notable changes to the RAJA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-19
+
+### Added
+
+- **Lake Formation–native Iceberg catalog flow**: DataZone can now import Glue tables registered under Lake Formation. A new `seed_glue_tables.py` script creates and registers Glue databases and Iceberg tables, then imports them into DataZone as assets.
+- **`seed_glue_tables.py` script**: New seeding script that provisions Glue databases, registers S3 locations with Lake Formation, creates Iceberg tables, and drives the DataZone Glue import flow end-to-end.
+- **LF-native PoC scripts** (`scripts/lf_native_poc/`): Exploratory scripts for the Lake Formation–native Iceberg catalog path, including a throwaway-subscriber creation helper and a package-tag import proof-of-concept.
+
+### Changed
+
+- **Terraform: `DATAZONE_PROJECTS` declared in Terraform and fed back via `tf-outputs.json`**: The `DATAZONE_PROJECTS` env var is now sourced from Terraform outputs, eliminating config drift after domain recreation.
+- **Lake Formation access granted to DataZone Glue import role**: The IAM role used by DataZone to import Glue assets now has the necessary Lake Formation permissions (`lakeformation:GetDataAccess`, `lakeformation:GrantPermissions`, etc.).
+- **Seed scripts no longer use hardcoded project names**: `seed_glue_tables.py`, `seed_users.py`, and `seed_packages.py` derive project names from `seed-config.yaml` rather than hard-coded strings.
+
 ## [1.2.0] - 2026-03-18
 
 ### Added
