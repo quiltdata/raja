@@ -1,61 +1,69 @@
 # LF-Native Import POC
 
-This folder contains isolated probes for the LF-native Iceberg/DataZone blocker.
+This folder contains the isolated probes that turned the LF-native
+Iceberg/DataZone blocker from guesswork into a reproducible path.
 
-Current entrypoint:
+Entrypoints:
 
 - `python -m scripts.lf_native_poc.package_tag_import_poc`
 - `python -m scripts.lf_native_poc.create_throwaway_subscriber`
 
-The `package_tag` POC does four things against the deployed stack:
+## What Actually Worked
 
-1. Resolves the owner Glue data source for `raja-standalone-iceberg-lf`
-2. Grants Lake Formation permissions to the data source's `dataAccessRole`
-3. Re-runs the DataZone Glue import and looks for an imported `package_tag` asset
-4. Subscribes one subscriber project to that imported asset and inspects:
-   - DataZone subscription grant objects
-   - Lake Formation permissions for the subscriber environment role
+- Do not use manual `create_asset` Glue-table assets for LF-native tables.
+  They can reach `ACCEPTED` subscriptions without producing managed LF grants.
+- Use a real DataZone-managed Glue import and subscribe against the imported
+  listings, not the manual ones.
+- Give the owner Glue data source role Lake Formation access to the database,
+  every table, and every table location. This was the missing step that let the
+  data source import all four tables instead of only `package_tag`.
+- Re-run the Glue data source import whenever DataZone has imported fewer than
+  the expected four tables.
+- Keep the default Lakehouse blueprint healthy. Fresh subscriber projects only
+  worked after fixing the live Tooling and Lakehouse blueprint configs.
+- The successful LF fulfillment shape is not a direct table grant to the
+  subscriber environment role ARN. DataZone writes conditional `SELECT` grants
+  on `712023778557:IAMPrincipals` scoped by `context.datazone.projectId`.
 
-This is intentionally isolated from `scripts/seed_glue_tables.py` so we can test
-managed-import behavior without changing the main seed flow.
+## Final Working Path
 
-`create_throwaway_subscriber` creates a new DataZone project with a profile that
-actually includes the Lakehouse environment configuration, waits for the
-auto-created environments, and prints the new project/environment IDs plus the
-subscriber environment role ARN.
-
-## What Worked
-
-- Use a real DataZone-managed Glue import. Manual `create_asset` Glue-table
-  assets reached `ACCEPTED` subscriptions but did not produce managed LF grant
-  objects.
-- Subscribe against the imported `package_tag` listing `5za88zhymk4qzr`, not the
-  manual listing.
-- Patch the live domain to use the Terraform-owned execution and service roles.
-- Ensure the live DataZone manage-access role is the Lake Formation actor:
-  `arn:aws:iam::712023778557:role/service-role/AmazonSageMakerManageAccess-us-east-1-dzd-6w14ep5r5owwh3`
-- Fix broken DataZone environment blueprint configs so fresh subscriber
-  projects can actually provision:
-  - `cjegf7f6kky6w7` Tooling needed regional parameters and the standard
-    SageMaker provisioning/manage-access roles.
-  - `d6y5smpdi8x9lz` Lakehouse needed an explicit provisioning role and
-    manage-access role.
-- Use a brand-new throwaway subscriber project and environment after those
-  blueprint fixes.
-- Successful fulfillment shape is a conditional LF `SELECT` grant on
-  `712023778557:IAMPrincipals` scoped by `context.datazone.projectId`, not a
-  direct table grant to the subscriber environment role ARN.
+1. Mirror the four Iceberg tables into `raja-standalone-iceberg-lf`.
+2. Ensure the owner project has a DataZone Glue data source for that database.
+3. Grant the data source role LF `ALL` on the database and tables plus
+   `DATA_LOCATION_ACCESS` on all table locations.
+4. Start or restart the DataZone Glue import.
+5. Wait for imported listings for:
+   - `package_entry`
+   - `package_manifest`
+   - `package_revision`
+   - `package_tag`
+6. Subscribe `bio` and `compute` against those imported listings.
+7. Verify LF conditional `SELECT` grants exist for both subscriber project IDs.
 
 ## Working Evidence
 
-- Throwaway project: `60st0m21xz0a3r`
-- Throwaway Lakehouse environment: `bg97z6668zws2v`
-- Throwaway subscriber env role:
-  `arn:aws:iam::712023778557:role/datazone_usr_role_60st0m21xz0a3r_4e7kk4zcg1wmuf`
-- Imported-listing grant object: `509qbg4b2lj1rb`
-- Final DataZone state:
-  - grant `status = COMPLETED`
-  - asset `status = GRANTED`
-- Final LF state:
-  - conditional `SELECT` grant exists for
-    `context.datazone.projectId=="60st0m21xz0a3r"`
+- Imported listings now used by the main seed flow:
+  - `package_entry` -> `cll99ezfwkw8pz`
+  - `package_manifest` -> `6q5wgwn4bjha5j`
+  - `package_revision` -> `apj78613rljtpj`
+  - `package_tag` -> `5za88zhymk4qzr`
+- Completed DataZone grant objects now exist for:
+  - `package_entry`
+  - `package_manifest`
+  - `package_revision`
+  - `package_tag`
+- Final LF state now includes conditional `SELECT` grants for both subscriber
+  project IDs:
+  - `bm7eqh5dc6olrb`
+  - `b3byg401pnpjjb`
+
+## Cleanup
+
+- Delete the throwaway subscriber project `60st0m21xz0a3r` if it is no longer
+  needed.
+- Old failed `package_tag` grant records from earlier experiments still exist in
+  DataZone history. They do not block the working path, but they are noise when
+  inspecting grant history.
+- Terraform still does not fully own the live DataZone domain role selection if
+  `ignore_changes` remains on `domain_execution_role` / `service_role`. That is
+  worth reconciling separately so the production-shaped role choice is durable.
