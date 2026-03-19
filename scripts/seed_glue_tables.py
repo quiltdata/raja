@@ -277,6 +277,10 @@ def _form_names(asset_detail: dict[str, Any]) -> set[str]:
     return {name for name in names if name}
 
 
+def _is_imported_glue_asset(asset_detail: dict[str, Any]) -> bool:
+    return "DataSourceReferenceForm" in _form_names(asset_detail)
+
+
 def _asset_candidates(
     client: Any,
     domain_id: str,
@@ -335,7 +339,7 @@ def _asset_score(
 
 def _select_listing_candidate(
     candidates: list[AssetCandidate], expected_external_identifier: str
-) -> tuple[DataZoneListing | None, list[dict[str, Any]]]:
+) -> tuple[DataZoneListing | None, list[dict[str, Any]], bool]:
     scored: list[tuple[int, AssetCandidate, list[str]]] = []
     for candidate in candidates:
         score, reasons = _asset_score(candidate, expected_external_identifier)
@@ -354,6 +358,7 @@ def _select_listing_candidate(
                 ),
                 "created_by": str(candidate.asset_detail.get("createdBy") or ""),
                 "forms": sorted(_form_names(candidate.asset_detail)),
+                "imported": _is_imported_glue_asset(candidate.asset_detail),
                 "score": score,
                 "reasons": reasons,
             }
@@ -374,8 +379,42 @@ def _select_listing_candidate(
                 owner_project_id=str(candidate.asset_detail.get("owningProjectId") or ""),
             ),
             summaries,
+            _is_imported_glue_asset(candidate.asset_detail),
         )
-    return None, summaries
+    return None, summaries, False
+
+
+def _wait_for_imported_listing(
+    datazone_client: Any,
+    *,
+    domain_id: str,
+    owner_project_id: str,
+    asset_type_name: str,
+    account_id: str,
+    region: str,
+    database_name: str,
+    table_name: str,
+    timeout_seconds: int = 120,
+) -> tuple[DataZoneListing | None, list[dict[str, Any]], bool]:
+    external_identifier = _build_external_identifier(account_id, region, database_name, table_name)
+    deadline = time.time() + timeout_seconds
+    last_summaries: list[dict[str, Any]] = []
+    while time.time() < deadline:
+        listing, summaries, imported = _select_listing_candidate(
+            _asset_candidates(
+                datazone_client,
+                domain_id,
+                owner_project_id,
+                asset_type_name,
+                table_name,
+            ),
+            external_identifier,
+        )
+        last_summaries = summaries
+        if listing is not None and imported:
+            return listing, summaries, imported
+        time.sleep(5)
+    return None, last_summaries, False
 
 
 def _glue_table_form_content(glue_table: dict[str, Any], account_id: str, region: str) -> str:
@@ -403,7 +442,6 @@ def _glue_table_form_content(glue_table: dict[str, Any], account_id: str, region
 
 def _ensure_listing(
     datazone_client: Any,
-    glue_client: Any,
     *,
     domain_id: str,
     owner_project_id: str,
@@ -415,7 +453,7 @@ def _ensure_listing(
     dry_run: bool,
 ) -> DataZoneListing:
     external_identifier = _build_external_identifier(account_id, region, database_name, table_name)
-    existing, candidate_summaries = _select_listing_candidate(
+    existing, candidate_summaries, imported = _select_listing_candidate(
         _asset_candidates(
             datazone_client,
             domain_id,
@@ -441,101 +479,39 @@ def _ensure_listing(
             )
         else:
             print(f"Listing {table_name}: present ({existing.listing_id})")
-        return existing
+        if imported:
+            return existing
 
-    existing = _find_listing(
+    print(f"Listing {table_name}: waiting for imported Glue asset")
+    if dry_run:
+        return DataZoneListing(
+            listing_id=f"dry-run-{table_name}",
+            listing_revision="1",
+            asset_id=f"dry-run-asset-{table_name}",
+            asset_revision="1",
+            name=table_name,
+            owner_project_id=owner_project_id,
+        )
+
+    imported_listing, candidate_summaries, imported = _wait_for_imported_listing(
         datazone_client,
-        domain_id,
-        owner_project_id,
-        asset_type.asset_type_name,
-        table_name,
+        domain_id=domain_id,
+        owner_project_id=owner_project_id,
+        asset_type_name=asset_type.asset_type_name,
+        account_id=account_id,
+        region=region,
+        database_name=database_name,
+        table_name=table_name,
     )
-    if existing is not None:
-        print(f"Listing {table_name}: asset exists, publishing listing")
-        if dry_run:
-            return DataZoneListing(
-                listing_id=f"dry-run-{table_name}",
-                listing_revision="1",
-                asset_id=existing.asset_id,
-                asset_revision=existing.asset_revision,
-                name=table_name,
-                owner_project_id=owner_project_id,
-            )
-        asset_id = existing.asset_id
-        asset_revision = existing.asset_revision or "1"
-    else:
-        print(f"Listing {table_name}: missing")
-        if dry_run:
-            return DataZoneListing(
-                listing_id=f"dry-run-{table_name}",
-                listing_revision="1",
-                asset_id=f"dry-run-asset-{table_name}",
-                asset_revision="1",
-                name=table_name,
-                owner_project_id=owner_project_id,
-            )
+    if imported_listing is not None and imported:
+        print(f"  Imported listing {imported_listing.listing_id} is ready")
+        return imported_listing
 
-        try:
-            glue_table = glue_client.get_table(DatabaseName=database_name, Name=table_name)["Table"]
-        except (ClientError, BotoCoreError) as exc:
-            raise SeedGlueTablesError(
-                f"failed to read Glue table {database_name}.{table_name}"
-            ) from exc
-
-        form_content = _glue_table_form_content(glue_table, account_id, region)
-        try:
-            response = datazone_client.create_asset(
-                clientToken=str(uuid.uuid4()),
-                domainIdentifier=domain_id,
-                owningProjectIdentifier=owner_project_id,
-                name=table_name,
-                externalIdentifier=external_identifier,
-                typeIdentifier=asset_type.asset_type_name,
-                typeRevision=asset_type.asset_type_revision,
-                formsInput=[
-                    {
-                        "formName": asset_type.form_name,
-                        "typeIdentifier": asset_type.form_type_name,
-                        "typeRevision": asset_type.form_type_revision,
-                        "content": form_content,
-                    }
-                ],
-            )
-        except (ClientError, BotoCoreError) as exc:
-            raise SeedGlueTablesError(
-                f"failed to create DataZone asset for {table_name}: {exc}"
-            ) from exc
-
-        asset_id = str(response["id"])
-        asset_revision = str(response.get("revision") or "1")
-    try:
-        datazone_client.create_listing_change_set(
-            clientToken=str(uuid.uuid4()),
-            domainIdentifier=domain_id,
-            entityIdentifier=asset_id,
-            entityRevision=asset_revision,
-            entityType="ASSET",
-            action="PUBLISH",
-        )
-    except (ClientError, BotoCoreError) as exc:
-        raise SeedGlueTablesError(
-            f"failed to publish DataZone listing for {table_name}: {exc}"
-        ) from exc
-
-    deadline = time.time() + 60
-    while time.time() < deadline:
-        listing = _find_listing(
-            datazone_client,
-            domain_id,
-            owner_project_id,
-            asset_type.asset_type_name,
-            table_name,
-        )
-        if listing is not None:
-            print(f"  Created listing {listing.listing_id}")
-            return listing
-        time.sleep(2)
-    raise SeedGlueTablesError(f"timed out waiting for DataZone listing for {table_name}")
+    raise SeedGlueTablesError(
+        "expected a DataZone-imported Glue asset for "
+        f"{table_name}, but none was available after waiting. "
+        f"Candidates: {json.dumps(candidate_summaries, default=str)}"
+    )
 
 
 def _find_subscription_request(
@@ -1019,7 +995,6 @@ def main() -> None:
 
     account_id = _get_account_id()
     datazone_client = boto3.client("datazone", region_name=region)
-    glue_client = boto3.client("glue", region_name=region)
 
     _ensure_glue_data_source(
         datazone_client,
@@ -1050,7 +1025,6 @@ def main() -> None:
     for table_name in ICEBERG_TABLE_NAMES:
         listing = _ensure_listing(
             datazone_client,
-            glue_client,
             domain_id=domain_id,
             owner_project_id=owner_project_id,
             asset_type=asset_type,
