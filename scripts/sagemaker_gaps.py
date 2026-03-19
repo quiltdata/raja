@@ -151,11 +151,34 @@ def _get_context(args: argparse.Namespace) -> Context:
 
 
 def _load_project_ids_from_outputs(outputs: dict[str, Any]) -> dict[str, str]:
-    """Read {project.key: project_id} from Terraform-written flat outputs."""
-    return {
-        project.key: str(outputs.get(f"datazone_{project.project_name}_project_id") or "")
-        for project in SEED_CONFIG.projects
+    """Read {project.key: project_id} from Terraform outputs.
+
+    Prefer the canonical `datazone_project_ids` map written by this script.
+    Fall back to legacy flat Terraform output names for older stacks.
+    """
+    raw_project_ids = outputs.get("datazone_project_ids")
+    project_ids: dict[str, str] = {}
+    if isinstance(raw_project_ids, dict):
+        project_ids = {
+            str(key): str(value or "").strip()
+            for key, value in raw_project_ids.items()
+            if isinstance(key, str)
+        }
+
+    legacy_key_map = {
+        "alpha": "datazone_owner_project_id",
+        "bio": "datazone_users_project_id",
+        "compute": "datazone_guests_project_id",
     }
+
+    resolved: dict[str, str] = {}
+    for project in SEED_CONFIG.projects:
+        resolved[project.key] = (
+            project_ids.get(project.key)
+            or str(outputs.get(f"datazone_{project.project_name}_project_id") or "").strip()
+            or str(outputs.get(legacy_key_map.get(project.key, "")) or "").strip()
+        )
+    return resolved
 
 
 def _build_datazone_projects_json(

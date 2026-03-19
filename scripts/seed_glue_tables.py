@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
 import time
 import uuid
@@ -14,6 +15,9 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.seed_config import load_seed_config, load_seed_state, write_seed_state
 from scripts.tf_outputs import load_tf_outputs
