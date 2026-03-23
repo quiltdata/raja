@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+__all__ = ["Console", "Table"]
+
 try:
     from rich.console import Console
     from rich.table import Table

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import Iterable
 from importlib import import_module
 from typing import Any
@@ -11,9 +12,10 @@ from .quilt_uri import parse_quilt_uri
 
 
 def _load_quilt3() -> Any:
-    os.environ.setdefault("HOME", "/tmp")
-    os.environ.setdefault("XDG_DATA_HOME", "/tmp")
-    os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
+    temp_dir = tempfile.gettempdir()
+    os.environ.setdefault("HOME", temp_dir)
+    os.environ.setdefault("XDG_DATA_HOME", temp_dir)
+    os.environ.setdefault("XDG_CACHE_HOME", temp_dir)
     try:
         quilt3 = import_module("quilt3")
     except Exception as exc:  # pragma: no cover - exercised via callers

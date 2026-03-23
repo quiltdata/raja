@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from typing import Any
 
 import boto3
@@ -10,6 +11,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 from raja.datazone import DataZoneConfig, DataZoneError, DataZoneService
 from raja.quilt_uri import parse_quilt_uri
 from raja.token import create_taj_token
+
+__all__ = ["handler"]
 
 
 def _response(status_code: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -149,11 +152,12 @@ def _parse_usl(raw_path: str) -> tuple[str, str, str | None, str, str | None]:
 
 
 def _resolve_latest_hash_via_quilt3(registry: str, package_name: str) -> str:
-    os.environ.setdefault("HOME", "/tmp")
-    os.environ.setdefault("XDG_DATA_HOME", "/tmp")
-    os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
+    temp_dir = tempfile.gettempdir()
+    os.environ.setdefault("HOME", temp_dir)
+    os.environ.setdefault("XDG_DATA_HOME", temp_dir)
+    os.environ.setdefault("XDG_CACHE_HOME", temp_dir)
     try:
-        import quilt3  # type: ignore[import-not-found]
+        import quilt3  # type: ignore[import-untyped]
     except Exception as exc:  # pragma: no cover - exercised via integration tests
         raise RuntimeError("quilt3 is required for package resolution") from exc
     package = quilt3.Package.browse(
@@ -226,15 +230,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
         return _response(503, {"error": "authorization service unavailable"})
 
     if not allowed:
-        return _response(
-            403,
-            {
-                "decision": "DENY",
-                "manifest_hash": manifest_hash,
-                "package_name": package_name,
-                "registry": registry,
-            },
-        )
+        return _response(403, {"decision": "DENY"})
 
     secrets = boto3.client("secretsmanager", region_name=region)
     try:
