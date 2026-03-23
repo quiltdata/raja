@@ -51,7 +51,7 @@ locals {
 
   azs                      = slice(data.aws_availability_zones.available.names, 0, 2)
   rajee_endpoint_protocol  = var.certificate_arn == "" ? "http" : "https"
-  rajee_public_path_prefix = "/${aws_s3_bucket.rajee_test.bucket}"
+  rajee_public_path_prefix = var.perf_test_bucket != "" ? "/${aws_s3_bucket.rajee_test.bucket},/${var.perf_test_bucket}" : "/${aws_s3_bucket.rajee_test.bucket}"
 
   rajee_public_grants = var.use_public_grants ? [
     "s3:GetObject/${aws_s3_bucket.rajee_test.bucket}/rajee-integration/",
@@ -1248,6 +1248,31 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
         ]
         Resource = [
           aws_secretsmanager_secret.jwt.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "rale_router_perf_bucket" {
+  count = var.perf_test_bucket != "" ? 1 : 0
+  name  = "${var.stack_name}-rale-router-perf-bucket"
+  role  = aws_iam_role.rale_router_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "PerfTestBucketRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.perf_test_bucket}",
+          "arn:aws:s3:::${var.perf_test_bucket}/*"
         ]
       }
     ]

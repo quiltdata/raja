@@ -20,6 +20,40 @@ baselines (P50/P95/P99), isolate the auth cost, and determine whether optimizati
 
 ## Prerequisites
 
+### Stack Configuration for the Performance Bucket
+
+> **Lesson learned (2026-03-23):** The first live run against `data-yaml-spec-tests` failed
+> completely because the stack was never updated to include that bucket.  Every seeded
+> principal returned `404 Principal not found` from `/token`, and the auth-disabled baseline
+> returned `400` for all 1 000 requests.  Two independent gaps caused this:
+>
+> 1. **IAM gap** — the RALE router Lambda's execution role only had `s3:GetObject` /
+>    `s3:ListBucket` permission on `rajee_test` and `rajee_registry`.  It could not read
+>    `data-yaml-spec-tests` at all, so both the baseline (direct S3 proxy) and the
+>    auth-enabled path (RALE router streams the object) returned errors.
+> 2. **DataZone gap** — no DataZone subscription grant existed for any `scale/*` package in
+>    `data-yaml-spec-tests`.  Even with a valid JWT the RALE authorizer's
+>    `has_package_grant` check always returned `false`, producing `403 principal project not
+>    found`.  (The `/token` 404s were a separate symptom: `seed_users.py` had not been run
+>    after the last deploy, so principals were absent from all DataZone projects.)
+>
+> **Required one-time setup before running this benchmark:**
+>
+> ```bash
+> # 1. Apply the Terraform change that adds data-yaml-spec-tests to the RALE router role
+> #    and to RAJEE_PUBLIC_PATH_PREFIXES (see infra/terraform/variables.tf perf_test_bucket)
+> cd infra/terraform && terraform apply
+>
+> # 2. Re-seed IAM users into DataZone projects
+> python scripts/seed_users.py
+>
+> # 3. Seed DataZone assets + subscription grants for the scale/* packages
+> python scripts/seed_packages.py   # uses TEST_BUCKET / TEST_PACKAGE from .env
+>
+> # 4. Verify end-to-end access before running hey
+> python scripts/verify_perf_access.py
+> ```
+
 ### `hey` — HTTP Load Generator
 
 [`hey`](https://github.com/rakyll/hey) is a Go-based HTTP benchmarking tool used throughout
@@ -53,7 +87,7 @@ ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
 
 hey -n 1000 -c 10 -m GET \
   -H "x-test-run: baseline-no-auth" \
-  "$ENVOY/b/data-yaml-spec-tests/packages/scale/1k@40ff9e73"
+  "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73"
 
 # Re-enable auth immediately after
 terraform apply -var auth_disabled=false
@@ -82,7 +116,7 @@ TOKEN=$(curl -s -X POST "$API/token" \
 hey -n 1000 -c 10 -m GET \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-test-run: auth-enabled" \
-  "$ENVOY/b/data-yaml-spec-tests/packages/scale/1k@40ff9e73"
+  "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73"
 ```
 
 ### 3. Package Size Variation
@@ -118,7 +152,7 @@ for PKG in 1k 10k 100k 1m; do
   hey -n 200 -c 10 -m GET \
     -H "Authorization: Bearer $TOKEN" \
     -H "x-test-run: perf-$PKG" \
-    "$ENVOY/b/data-yaml-spec-tests/packages/scale/${PKG}@${HASHES[$PKG]}"
+    "$ENVOY/data-yaml-spec-tests/scale/${PKG}@${HASHES[$PKG]}"
 done
 ```
 

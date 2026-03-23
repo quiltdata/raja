@@ -229,19 +229,23 @@ def main() -> None:
 
         for index, package in enumerate(seed_config.packages, start=1):
             print(f"[{index}/{len(seed_config.packages)}] {package.name}")
-            print("  Ensuring test files exist in test bucket...")
-            entries = _ensure_test_files(s3, test_bucket, package.name, dry_run)
-            print("  Pushing package manifest to registry...")
-            top_hash = _push_package(
-                quilt3,
-                package.name,
-                entries,
-                test_bucket,
-                registry_bucket,
-                dry_run,
-            )
-            assert top_hash is not None
-            uri = f"quilt+s3://{registry_bucket}#package={package.name}@{top_hash}"
+            if package.uri:
+                uri = package.uri
+                print(f"  Using pre-built URI: {uri}")
+            else:
+                print("  Ensuring test files exist in test bucket...")
+                entries = _ensure_test_files(s3, test_bucket, package.name, dry_run)
+                print("  Pushing package manifest to registry...")
+                top_hash = _push_package(
+                    quilt3,
+                    package.name,
+                    entries,
+                    test_bucket,
+                    registry_bucket,
+                    dry_run,
+                )
+                assert top_hash is not None
+                uri = f"quilt+s3://{registry_bucket}#package={package.name}@{top_hash}"
             producer_project_id = project_ids.get(package.producer_project, "")
             consumer_project_id = project_ids.get(package.consumer_project, "")
             listing_id = ""
@@ -274,7 +278,9 @@ def main() -> None:
                 "producer_project": package.producer_project,
                 "consumer_project": package.consumer_project,
             }
-            print(f"  Hash: {top_hash}")
+            hash_suffix = uri.split("@", 1)[-1] if "@" in uri else ""
+            if hash_suffix:
+                print(f"  Hash: {hash_suffix}")
             print(f"  URI:  {uri}")
 
         default_package_name = seed_config.package_for_home_project(

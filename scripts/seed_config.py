@@ -29,6 +29,7 @@ class SeedPackage:
     name: str
     producer_project: str
     consumer_project: str
+    uri: str | None = None  # pre-built URI; if set, skip S3 upload and quilt push
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ def load_seed_config(path: Path = DEFAULT_SEED_CONFIG_PATH) -> SeedConfig:
             name=str(item["name"]),
             producer_project=str(item["producer_project"]),
             consumer_project=str(item["consumer_project"]),
+            uri=str(item["uri"]) if item.get("uri") else None,
         )
         for item in raw_packages
         if isinstance(item, dict)
