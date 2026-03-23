@@ -14,123 +14,140 @@ baselines (P50/P95/P99), isolate the auth cost, and determine whether optimizati
 | Envoy JWT+Lua filter chain latency | DataZone subscription grant resolution time |
 | S3 object streaming throughput across package sizes | Lambda cold-start optimization |
 | A/B comparison: auth enabled vs disabled | API Gateway latency |
-| Local echo-server isolation benchmark | Network egress cost |
-| CI performance regression gate | Infrastructure right-sizing |
+| | Network egress cost |
+| | CI performance regression gate |
+| | Infrastructure right-sizing |
+
+## Prerequisites
+
+### `hey` — HTTP Load Generator
+
+[`hey`](https://github.com/rakyll/hey) is a Go-based HTTP benchmarking tool used throughout
+this spec to drive load and collect latency percentiles.
+
+```bash
+# macOS
+brew install hey
+
+# Linux (or any platform with Go installed)
+go install github.com/rakyll/hey@latest
+```
+
+Basic usage: `hey -n <total-requests> -c <concurrency> [flags] <url>`
+
+---
 
 ## Approach
 
 ### 1. Establish Baseline: Auth-Disabled Envoy
 
-Deploy Envoy with the JWT+Lua filter chain disabled (or bypassed via `per_filter_config`)
-against the existing integration test infrastructure in `tests/integration/`.
+Toggle the live stack to disable the JWT+Lua filter chain via the `auth_disabled` Terraform
+variable. This sets `AUTH_DISABLED=true` in the ECS task, which causes `entrypoint.sh` to
+emit an empty `__AUTH_FILTER__` block. Re-deploy, wait for ECS to stabilize, then run:
 
 ```bash
-# Use existing infra from tf-outputs.json; override Envoy config for baseline run
-# Set failure_mode_allow: true and remove jwt_authn filter for baseline only
-# NEVER commit this config; it is test-only
+# Disable auth on the live stack — NEVER leave this in place
+cd infra/terraform && terraform apply -var auth_disabled=true
+
+ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
 
 hey -n 1000 -c 10 -m GET \
   -H "x-test-run: baseline-no-auth" \
-  https://<envoy-endpoint>/b/<bucket>/packages/<pkg>@<hash>/<object>
+  "$ENVOY/b/data-yaml-spec-tests/packages/scale/1k@40ff9e73"
+
+# Re-enable auth immediately after
+terraform apply -var auth_disabled=false
 ```
 
 Collect: mean, P50, P95, P99 latency; requests/sec; error rate.
 
 ### 2. Auth-Enabled Benchmark (JWT+Lua Active)
 
-Re-run identical requests with the JWT+Lua filter chain fully enabled. Use a pre-minted
-valid TAJ token with appropriate scopes to eliminate token issuance latency from
-measurements.
+Re-run identical requests with the JWT+Lua filter chain fully enabled. Mint a `raja` token
+via the RALE control plane API to eliminate token issuance latency from measurements.
 
 ```bash
-# Mint a long-lived test token (test env only — never production)
-TOKEN=$(python -m raja token mint --scopes "s3:read" --ttl 3600)
+API=https://wezevk884h.execute-api.us-east-1.amazonaws.com/prod
+ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
+
+# Mint a long-lived test token via the control plane (test env only — never production)
+# Principal from .rale-seed-state.json default_principal
+ADMIN_KEY=$(grep RAJA_ADMIN_KEY .env | cut -d= -f2)
+TOKEN=$(curl -s -X POST "$API/token" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"raja","ttl":3600}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 hey -n 1000 -c 10 -m GET \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-test-run: auth-enabled" \
-  https://<envoy-endpoint>/b/<bucket>/packages/<pkg>@<hash>/<object>
+  "$ENVOY/b/data-yaml-spec-tests/packages/scale/1k@40ff9e73"
 ```
 
-### 3. Isolate Auth Cost: Echo Server Upstream
+### 3. Package Size Variation
 
-Replace the real S3/Lambda upstream with a local echo server to eliminate upstream
-variability from measurements. This isolates filter chain overhead from network and S3 latency.
+Scale fixture packages exist in `s3://data-yaml-spec-tests` (created via the Quilt
+Packaging Engine). Each package covers one size tier:
 
-```yaml
-# docker-compose.local.yml addition: add echo upstream service
-services:
-  echo:
-    image: mendhak/http-https-echo:latest
-    ports: ["8081:8080"]
-```
+| Package | Object count | Purpose | Hash |
+| ------- | ------------ | ------- | ---- |
+| `scale/1k` | ~1,000 files | Latency floor | `40ff9e73` |
+| `scale/10k` | ~10,000 files | Moderate load | `e75c5d5e` |
+| `scale/100k` | ~100,000 files | Heavy load | `eb6c8db9` |
+| `scale/1m` | ~1,000,000 files | Throughput ceiling | `2a5a6715` |
 
-Run the same A/B test (auth off vs auth on) against the echo upstream. The delta between
-the two runs is the pure Envoy JWT+Lua overhead.
+Browse at: `https://nightly.quilttest.com/b/data-yaml-spec-tests/packages/scale/`
+
+Mint a token (same method as Step 2), then run `hey` against each tier and record
+P50/P95/P99 latency:
 
 ```bash
-# Baseline vs auth against echo server — isolates filter overhead
-hey -n 5000 -c 20 http://localhost:9901/echo  # envoy → echo, no auth
-hey -n 5000 -c 20 -H "Authorization: Bearer $TOKEN" \
-  http://localhost:9901/echo                   # envoy → echo, auth enabled
+API=https://wezevk884h.execute-api.us-east-1.amazonaws.com/prod
+ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
+ADMIN_KEY=$(grep RAJA_ADMIN_KEY .env | cut -d= -f2)
+TOKEN=$(curl -s -X POST "$API/token" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"raja","ttl":3600}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+declare -A HASHES=([1k]=40ff9e73 [10k]=e75c5d5e [100k]=eb6c8db9 [1m]=2a5a6715)
+for PKG in 1k 10k 100k 1m; do
+  echo "=== scale/$PKG ==="
+  hey -n 200 -c 10 -m GET \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "x-test-run: perf-$PKG" \
+    "$ENVOY/b/data-yaml-spec-tests/packages/scale/${PKG}@${HASHES[$PKG]}"
+done
 ```
 
-### 4. Package Size Variation
+### 4. Envoy Admin Stats
 
-Test against packages at each scale tier under
-`s3://data-yaml-spec-tests/scale/`:
-
-| Folder | Approx. size | Purpose |
-|--------|-------------|---------|
-| `small/` | < 1 MB | Latency floor |
-| `medium/` | 10–100 MB | Typical use |
-| `large/` | > 500 MB | Throughput ceiling |
-
-For each size tier, record throughput (MB/s) and P99 latency with auth enabled.
-Use the existing `tests/integration/helpers.py` fixture patterns to enumerate packages.
-
-```python
-# tests/integration/test_perf_filter_chain.py (new file)
-import pytest, statistics, time, requests
-
-SCALE_PACKAGES = [
-    ("small", "data-yaml-spec-tests", "scale/small/..."),
-    ("medium", "data-yaml-spec-tests", "scale/medium/..."),
-    ("large", "data-yaml-spec-tests", "scale/large/..."),
-]
-
-@pytest.mark.performance
-@pytest.mark.parametrize("label,bucket,key", SCALE_PACKAGES)
-def test_latency_by_package_size(label, bucket, key, auth_token, envoy_url):
-    latencies = []
-    for _ in range(50):
-        t0 = time.perf_counter()
-        r = requests.get(f"{envoy_url}/b/{bucket}/{key}",
-                         headers={"Authorization": f"Bearer {auth_token}"})
-        latencies.append(time.perf_counter() - t0)
-        assert r.status_code == 200
-    p99 = statistics.quantiles(latencies, n=100)[98]
-    assert p99 < 2.0, f"{label} P99 {p99:.3f}s exceeds 2s threshold"
-```
-
-### 5. Envoy Admin Stats
-
-Use the Envoy admin API to collect internal filter chain metrics:
+The admin port (9901) is only exposed via the ALB if `admin_allowed_cidrs` is set in
+Terraform. Access it via ECS exec instead:
 
 ```bash
-# Per-filter timing breakdown
-curl http://localhost:9901/stats | grep -E \
-  "(http.*.jwt_authn|lua|downstream_cx_length_ms|upstream_rq_time)"
+# Get the running task ARN
+TASK=$(aws ecs list-tasks \
+  --cluster raja-standalone-rajee-cluster \
+  --service-name raja-standalone-rajee-service \
+  --query 'taskArns[0]' --output text)
 
-# Watch live during load test
-watch -n1 'curl -s http://localhost:9901/stats/prometheus | \
-  grep envoy_http_downstream_rq_time'
+# Collect filter chain stats from the live container
+aws ecs execute-command \
+  --cluster raja-standalone-rajee-cluster \
+  --task "$TASK" \
+  --container envoy \
+  --interactive \
+  --command "curl -s http://localhost:9901/stats" \
+  | grep -E "(http.*.jwt_authn|lua|downstream_cx_length_ms|upstream_rq_time)"
 ```
 
 Key metrics to record: `envoy_http_jwt_authn_allowed`, `envoy_http_jwt_authn_denied`,
 `lua.errors`, `downstream_rq_time` histograms.
 
-### 6. Document Results and Optimization Decision
+### 5. Document Results and Optimization Decision
 
 After collecting data, populate `docs/performance.md` with:
 
@@ -147,41 +164,24 @@ After collecting data, populate `docs/performance.md` with:
 3. **Connection-level auth** — consider moving scope validation to the RALE Authorizer
    response and trusting Envoy's built-in JWT verification for the hot path
 
-### 7. CI Performance Regression Gate
+### 6. Record Baseline for Future Regression Gate
 
-Add a `performance` pytest marker and a GitHub Actions workflow step:
-
-```yaml
-# .github/workflows/ci.yml addition
-- name: Performance regression check
-  if: github.event_name == 'pull_request'
-  run: |
-    pytest -m performance tests/integration/test_perf_filter_chain.py \
-      --tb=short -q
-  env:
-    RAJA_ENVOY_URL: ${{ secrets.NIGHTLY_ENVOY_URL }}
-    RAJA_TEST_TOKEN: ${{ secrets.NIGHTLY_TEST_TOKEN }}
-```
-
-Gate: P99 latency for `small` package must be < 500 ms; `medium` < 2 s.
+Once results are in `docs/performance.md`, the P99 numbers become the baseline for a
+future CI gate. That is a separate task — do not add CI changes as part of this audit.
 
 ## Deliverables
 
 1. **`docs/performance.md`** — baseline vs auth latency tables, overhead %, optimization
    recommendation with rationale
-2. **`tests/integration/test_perf_filter_chain.py`** — parametrized performance test suite
-   with `@pytest.mark.performance` marker
-3. **CI step** in `.github/workflows/ci.yml` gating on P99 thresholds
-4. **Envoy stats snapshot** (`docs/audits/envoy-stats-baseline.txt`) captured during
+2. **Envoy stats snapshot** (`docs/audits/envoy-stats-baseline.txt`) captured during
    benchmark run for future regression comparison
 
 ## Success Criteria
 
 | Metric | Target |
 |--------|--------|
-| Auth overhead at P99 (small package) | Measured and documented |
-| Auth overhead at P99 (medium package) | Measured and documented |
+| Auth overhead at P99 (`scale/1k`) | Measured and documented |
+| Auth overhead at P99 (`scale/10k`) | Measured and documented |
 | Auth overhead > 15% P99 | Optimization plan filed as GitHub issue |
-| `test_perf_filter_chain.py` passing in CI | Yes |
 | `docs/performance.md` published | Yes, with raw numbers |
 | Baseline stats snapshot committed | Yes |
