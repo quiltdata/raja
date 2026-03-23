@@ -50,13 +50,20 @@ def _load_dotenv() -> None:
             os.environ[key] = value
 
 
-def _http(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> tuple[int, bytes]:
-    req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+def _http(method: str, url: str, *, headers: dict[str, str] | None = None, body: bytes | None = None, retries: int = 3) -> tuple[int, bytes]:
+    import time
+    last: tuple[int, bytes] = (0, b"")
+    for _ in range(retries):
+        req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as exc:
+            last = (exc.code, exc.read())
+            if exc.code != 503:
+                return last
+            time.sleep(1)
+    return last
 
 
 def _ok(label: str) -> None:
