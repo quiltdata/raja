@@ -2007,6 +2007,7 @@ resource "aws_ecs_service" "rajee" {
   task_definition                    = aws_ecs_task_definition.rajee.arn
   desired_count                      = 2
   launch_type                        = "FARGATE"
+  enable_execute_command             = true
   health_check_grace_period_seconds  = 30
   deployment_minimum_healthy_percent = 50
   deployment_maximum_percent         = 200

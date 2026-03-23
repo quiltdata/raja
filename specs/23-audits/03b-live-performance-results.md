@@ -91,6 +91,26 @@ Start: `2026-03-23T21:41:51Z`
 
 The spec’s authenticated authorized path could not be completed with a live control-plane-issued token because every tested seeded principal returned `404 Principal not found` from `/token`.
 
+**Resolution (2026-03-23):** `seed_users.py` had not been run after the latest deploy.
+Principals were absent from all DataZone projects. Fixed by adding `data-yaml-spec-tests`
+`scale/*` packages to `seed-config.yaml` and wiring `verify_perf_access.py` into the deploy
+chain so this is caught automatically going forward.
+
+### Control-Plane Token Accepted but Envoy Returns 403
+
+Even after `/token` started returning 200, the issued JWT was not accepted by the live Envoy
+JWT filter: the RALE authorizer still returned `403 principal project not found`.
+
+**Root cause:** `_extract_principal` in `lambda_handlers/rale_authorizer/handler.py` called
+`json.loads(payload_raw)` directly on the `x-raja-jwt-payload` header value. Envoy’s
+`forward_payload_header` forwards the JWT payload as a base64url string, not plain JSON, so
+`json.loads` silently failed and the function fell through to the IAM caller ARN (the ECS task
+role), which is not in any DataZone project.
+
+**Resolution (2026-03-23):** `_extract_principal` now checks whether the header value starts
+with `{`; if not, it base64url-decodes it before calling `json.loads`. This mirrors the same
+guard already present in `infra/envoy/authorize.lua`.
+
 ### Package Size Matrix (`1k`, `10k`, `100k`, `1m`)
 
 The full authorized package matrix was not run because the authenticated authorized setup did not succeed. No live successful request-path measurements were collected for:
@@ -103,9 +123,12 @@ The full authorized package matrix was not run because the authenticated authori
 
 The ECS exec step returned:
 
-`InvalidParameterException: The execute command failed because execute command was not enabled when the task was run or the execute command agent isn't running.`
+`InvalidParameterException: The execute command failed because execute command was not enabled when the task was run or the execute command agent isn’t running.`
 
 No live `jwt_authn` / `lua` stats snapshot was collected.
+
+**Resolution (2026-03-23):** Added `enable_execute_command = true` to `aws_ecs_service.rajee`
+in `infra/terraform/main.tf`. Takes effect on next `./poe deploy`.
 
 ## Raw Outcome Summary
 

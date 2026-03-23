@@ -127,9 +127,7 @@ def main() -> int:
 
     # ── Envoy probe ───────────────────────────────────────────────────────────
     usl_path = _uri_to_usl_path(perf_uri)
-    # x-raja-principal tells the RALE authorizer who the end-user is.
-    # The ECS task role is a trusted forwarder, so this header is accepted.
-    probe_headers: dict[str, str] = {"x-raja-principal": principal}
+    probe_headers: dict[str, str] = {}
     if token:
         probe_headers["Authorization"] = f"Bearer {token}"
 

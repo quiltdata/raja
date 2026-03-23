@@ -80,8 +80,18 @@ def _extract_principal(event: dict[str, Any]) -> str:
 
     payload_raw = headers.get("x-raja-jwt-payload")
     if payload_raw and trusted_forwarder:
+        import base64
+
+        payload_str = payload_raw
+        if not payload_str.startswith("{"):
+            # Envoy forwards the JWT payload as base64url; decode it first.
+            padded = payload_str + "=" * (-len(payload_str) % 4)
+            try:
+                payload_str = base64.urlsafe_b64decode(padded).decode("utf-8")
+            except Exception:
+                payload_str = payload_raw
         try:
-            payload = json.loads(payload_raw)
+            payload = json.loads(payload_str)
         except json.JSONDecodeError:
             payload = {}
         subject = payload.get("sub")
