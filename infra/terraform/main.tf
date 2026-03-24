@@ -1279,6 +1279,31 @@ resource "aws_iam_role_policy" "rale_router_perf_bucket" {
   })
 }
 
+resource "aws_iam_role_policy" "rajee_task_perf_bucket" {
+  count = var.perf_test_bucket != "" ? 1 : 0
+  name  = "${var.stack_name}-rajee-task-perf-bucket"
+  role  = aws_iam_role.rajee_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "PerfDirectBucketRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.perf_test_bucket}",
+          "arn:aws:s3:::${var.perf_test_bucket}/*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_lambda_function" "rale_router" {
   function_name = "${var.stack_name}-rale-router"
   role          = aws_iam_role.rale_router_lambda.arn

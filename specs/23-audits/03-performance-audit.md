@@ -86,7 +86,7 @@ ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
 
 hey -n 1000 -c 10 -m GET \
   -H "x-test-run: baseline-direct" \
-  "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73"
+  "$ENVOY/_perf/data-yaml-spec-tests/scale/1k@40ff9e73"
 ```
 
 Collect: mean, P50, P95, P99 latency; requests/sec; error rate.

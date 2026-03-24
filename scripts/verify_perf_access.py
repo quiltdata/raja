@@ -224,8 +224,11 @@ def _print_header(ctx: Context) -> None:
 
 
 def _check_direct_access(ctx: Context) -> CheckResult:
-    """GET the perf package path with no token via the PERF_DIRECT_BUCKET route."""
-    status, resp_bytes = _http("GET", f"{ctx.envoy_url}{ctx.usl_path}")
+    """GET the perf package via the /_perf/ signed route (no token required)."""
+    # /_perf/{usl_path_without_leading_slash} → Envoy rewrites to /{usl_path} and
+    # forwards to s3_perf_upstream with AWS SigV4 signing.
+    direct_path = "/_perf" + ctx.usl_path
+    status, resp_bytes = _http("GET", f"{ctx.envoy_url}{direct_path}")
     detail = _decode_excerpt(resp_bytes)
     return CheckResult("direct_access", status == 200, status, detail)
 
@@ -327,10 +330,10 @@ def main() -> int:
     direct_result = _check_direct_access(ctx)
     results.append(direct_result)
     if direct_result.ok:
-        _ok(f"Direct GET {ctx.usl_path} (no token) → 200")
+        _ok(f"Direct GET /_perf{ctx.usl_path} (no token) → 200")
     else:
         _fail(
-            f"Direct GET {ctx.usl_path} (no token) → {direct_result.status}",
+            f"Direct GET /_perf{ctx.usl_path} (no token) → {direct_result.status}",
             direct_result.detail,
         )
         total_failures += 1
