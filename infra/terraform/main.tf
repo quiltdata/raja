@@ -1761,6 +1761,17 @@ resource "aws_iam_role_policy" "rajee_task_permissions" {
           local.rale_authorizer_lambda_arn,
           local.rale_router_lambda_arn
         ]
+      },
+      {
+        Sid    = "ECSExec"
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = ["*"]
       }
     ]
   })
