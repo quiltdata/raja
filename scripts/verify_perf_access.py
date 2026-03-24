@@ -173,7 +173,11 @@ def _load_context() -> Context:
     principal = str(seed_state.get("default_principal", ""))
     packages: dict[str, dict[str, str]] = seed_state.get("packages", {})  # type: ignore[assignment]
     perf_uri = packages.get("scale/1k", {}).get("uri", "")
+    # Derive the perf bucket from the URI if not explicitly overridden.
     perf_bucket = os.environ.get("PERF_DIRECT_BUCKET", "")
+    if not perf_bucket and perf_uri:
+        # quilt+s3://{bucket}#package=... → bucket
+        perf_bucket = perf_uri.removeprefix("quilt+s3://").split("#")[0]
 
     if not api_url or not envoy_url:
         print("ERROR: api_url / rajee_endpoint missing from tf-outputs.json", file=sys.stderr)
@@ -195,10 +199,6 @@ def _load_context() -> Context:
             file=sys.stderr,
         )
         raise SystemExit(1)
-    if not perf_bucket:
-        print("ERROR: PERF_DIRECT_BUCKET not set in .env or environment", file=sys.stderr)
-        raise SystemExit(1)
-
     return Context(
         api_url=api_url,
         envoy_url=envoy_url,
