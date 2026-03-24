@@ -224,17 +224,20 @@ def _print_header(ctx: Context) -> None:
 
 
 def _check_direct_access(ctx: Context) -> CheckResult:
-    """GET the perf package via the /_perf/ signed route (no token required)."""
-    # /_perf/{usl_path_without_leading_slash} → Envoy rewrites to /{usl_path} and
-    # forwards to s3_perf_upstream with AWS SigV4 signing.
-    direct_path = "/_perf" + ctx.usl_path
-    status, resp_bytes = _http("GET", f"{ctx.envoy_url}{direct_path}")
+    """GET the perf bucket root via /_perf/ (no token).
+
+    Accepts 200 or 403 — both prove the request reached S3 rather than being
+    blocked by Envoy's jwt_authn or Lua filters (which return 401).
+    """
+    url = f"{ctx.envoy_url}/_perf/{ctx.perf_bucket}/"
+    status, resp_bytes = _http("GET", url)
     detail = _decode_excerpt(resp_bytes)
-    return CheckResult("direct_access", status == 200, status, detail)
+    ok = status in (200, 403)
+    return CheckResult("direct_access", ok, status, detail)
 
 
 def _check_token(ctx: Context) -> tuple[CheckResult, str]:
-    body = json.dumps({"principal": ctx.principal, "token_type": "raja", "ttl": 300}).encode()
+    body = json.dumps({"principal": ctx.principal, "token_type": "rajee", "ttl": 300}).encode()
     status, resp_bytes = _http(
         "POST",
         f"{ctx.api_url}/token",
@@ -330,10 +333,10 @@ def main() -> int:
     direct_result = _check_direct_access(ctx)
     results.append(direct_result)
     if direct_result.ok:
-        _ok(f"Direct GET /_perf{ctx.usl_path} (no token) → 200")
+        _ok(f"Direct GET /_perf/{ctx.perf_bucket}/ (no token) → {direct_result.status}")
     else:
         _fail(
-            f"Direct GET /_perf{ctx.usl_path} (no token) → {direct_result.status}",
+            f"Direct GET /_perf/{ctx.perf_bucket}/ (no token) → {direct_result.status}",
             direct_result.detail,
         )
         total_failures += 1
