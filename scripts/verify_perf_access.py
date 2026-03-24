@@ -224,15 +224,11 @@ def _print_header(ctx: Context) -> None:
 
 
 def _check_direct_access(ctx: Context) -> CheckResult:
-    """GET the perf bucket root via /_perf/ (no token).
-
-    Accepts 200 or 403 — both prove the request reached S3 rather than being
-    blocked by Envoy's jwt_authn or Lua filters (which return 401).
-    """
-    url = f"{ctx.envoy_url}/_perf/{ctx.perf_bucket}/"
+    """GET the exact benchmark package path via /_perf/ (no token)."""
+    url = f"{ctx.envoy_url}/_perf{ctx.usl_path}"
     status, resp_bytes = _http("GET", url)
     detail = _decode_excerpt(resp_bytes)
-    ok = status in (200, 403)
+    ok = status == 200
     return CheckResult("direct_access", ok, status, detail)
 
 
