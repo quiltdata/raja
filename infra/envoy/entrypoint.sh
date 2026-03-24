@@ -7,6 +7,7 @@ AUTH_DISABLED_VALUE="$(printf '%s' "$AUTH_DISABLED_VALUE" | tr '[:upper:]' '[:lo
 JWKS_ENDPOINT_VALUE="${JWKS_ENDPOINT:-http://localhost:8001/.well-known/jwks.json}"
 RAJA_ISSUER_VALUE="${RAJA_ISSUER:-http://localhost:8000}"
 PUBLIC_PATH_PREFIXES_VALUE="${RAJEE_PUBLIC_PATH_PREFIXES:-}"
+PERF_DIRECT_BUCKET_VALUE="${PERF_DIRECT_BUCKET:-}"
 RALE_AUTHORIZER_URL_VALUE="${RALE_AUTHORIZER_URL:-}"
 RALE_ROUTER_URL_VALUE="${RALE_ROUTER_URL:-}"
 AWS_REGION_VALUE="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
@@ -221,6 +222,26 @@ fi
 
 AUTH_LUA=$(sed 's/^/                          /' /etc/envoy/authorize.lua)
 
+PERF_DIRECT_ROUTE=""
+if [ -n "$PERF_DIRECT_BUCKET_VALUE" ]; then
+  PERF_DIRECT_ROUTE=$(cat <<EOF
+                        - match:
+                            prefix: "/${PERF_DIRECT_BUCKET_VALUE}/"
+                          route:
+                            cluster: s3_upstream
+                            timeout: 300s
+                            host_rewrite_literal: s3.us-east-1.amazonaws.com
+                          typed_per_filter_config:
+                            envoy.filters.http.jwt_authn:
+                              "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.PerRouteConfig
+                              disabled: true
+                            envoy.filters.http.lua:
+                              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+                              disabled: true
+EOF
+)
+fi
+
 awk -v auth_filter="$AUTH_FILTER" \
     -v auth_lua="$AUTH_LUA" \
     -v public_path_rules="$PUBLIC_PATH_RULES" \
@@ -231,6 +252,7 @@ awk -v auth_filter="$AUTH_FILTER" \
     -v jwks_endpoint="$JWKS_ENDPOINT_VALUE" \
     -v raja_issuer="$RAJA_ISSUER_VALUE" \
     -v jwt_default_rule="$JWT_DEFAULT_RULE" \
+    -v perf_direct_route="$PERF_DIRECT_ROUTE" \
     '{
       gsub(/__AUTH_FILTER__/, auth_filter)
       gsub(/__PUBLIC_PATH_RULES__/, public_path_rules)
@@ -242,6 +264,7 @@ awk -v auth_filter="$AUTH_FILTER" \
       gsub(/__RALE_CLUSTERS__/, rale_clusters)
       gsub(/__JWKS_ENDPOINT__/, jwks_endpoint)
       gsub(/__RAJA_ISSUER__/, raja_issuer)
+      gsub(/__PERF_DIRECT_ROUTE__/, perf_direct_route)
     }1' /etc/envoy/envoy.yaml.tmpl > /tmp/envoy.yaml
 
 if [ "${ENVOY_VALIDATE:-}" = "true" ] || [ "${ENVOY_VALIDATE:-}" = "1" ]; then

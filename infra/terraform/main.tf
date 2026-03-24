@@ -1835,6 +1835,10 @@ resource "aws_ecs_task_definition" "rajee" {
           value = local.rajee_public_path_prefix
         },
         {
+          name  = "PERF_DIRECT_BUCKET"
+          value = var.perf_test_bucket
+        },
+        {
           name  = "RAJEE_PUBLIC_GRANTS"
           value = join(",", local.rajee_public_grants)
         },

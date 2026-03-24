@@ -10,10 +10,10 @@ baselines (P50/P95/P99), isolate the auth cost, and determine whether optimizati
 ## Scope
 
 | In | Out |
-|----|-----|
+| -- | --- |
 | Envoy JWT+Lua filter chain latency | DataZone subscription grant resolution time |
 | S3 object streaming throughput across package sizes | Lambda cold-start optimization |
-| A/B comparison: auth enabled vs disabled | API Gateway latency |
+| A/B comparison: direct route vs auth-enabled | API Gateway latency |
 | | Network egress cost |
 | | CI performance regression gate |
 | | Infrastructure right-sizing |
@@ -40,8 +40,8 @@ baselines (P50/P95/P99), isolate the auth cost, and determine whether optimizati
 > **Required one-time setup before running this benchmark:**
 >
 > ```bash
-> # 1. Apply the Terraform change that adds data-yaml-spec-tests to the RALE router role
-> #    and to RAJEE_PUBLIC_PATH_PREFIXES (see infra/terraform/variables.tf perf_test_bucket)
+> # 1. Apply the Terraform change that adds data-yaml-spec-tests to the RALE router role,
+> #    RAJEE_PUBLIC_PATH_PREFIXES, and activates the PERF_DIRECT_BUCKET route
 > cd infra/terraform && terraform apply
 >
 > # 2. Re-seed IAM users into DataZone projects
@@ -73,24 +73,20 @@ Basic usage: `hey -n <total-requests> -c <concurrency> [flags] <url>`
 
 ## Approach
 
-### 1. Establish Baseline: Auth-Disabled Envoy
+### 1. Establish Baseline: Direct-Route Envoy (No Auth)
 
-Toggle the live stack to disable the JWT+Lua filter chain via the `auth_disabled` Terraform
-variable. This sets `AUTH_DISABLED=true` in the ECS task, which causes `entrypoint.sh` to
-emit an empty `__AUTH_FILTER__` block. Re-deploy, wait for ECS to stabilize, then run:
+The stack exposes a dedicated no-auth route scoped to the perf test bucket via the
+`PERF_DIRECT_BUCKET` Envoy environment variable (set automatically by Terraform from
+`var.perf_test_bucket`).  Requests to `/{perf_bucket}/...` on this route bypass both the
+`jwt_authn` and `lua` HTTP filters entirely — Envoy proxies straight to S3.  No stack
+changes are required to run the baseline.
 
 ```bash
-# Disable auth on the live stack — NEVER leave this in place
-cd infra/terraform && terraform apply -var auth_disabled=true
-
 ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
 
 hey -n 1000 -c 10 -m GET \
-  -H "x-test-run: baseline-no-auth" \
+  -H "x-test-run: baseline-direct" \
   "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73"
-
-# Re-enable auth immediately after
-terraform apply -var auth_disabled=false
 ```
 
 Collect: mean, P50, P95, P99 latency; requests/sec; error rate.
@@ -190,6 +186,7 @@ After collecting data, populate `docs/performance.md` with:
 - Throughput comparison (MB/s) per size tier
 
 **Optimization trigger:** If auth overhead > 15% at P99 for any size tier, evaluate:
+
 1. **Lua-side JWT caching** — cache decoded token in Envoy shared data keyed on
    `Authorization` header hash; invalidate on expiry
 2. **Native `jwt_authn` HTTP filter** — replace Lua JWT decode with Envoy's built-in
@@ -213,7 +210,7 @@ future CI gate. That is a separate task — do not add CI changes as part of thi
 ## Success Criteria
 
 | Metric | Target |
-|--------|--------|
+| ------ | ------ |
 | Auth overhead at P99 (`scale/1k`) | Measured and documented |
 | Auth overhead at P99 (`scale/10k`) | Measured and documented |
 | Auth overhead > 15% P99 | Optimization plan filed as GitHub issue |
