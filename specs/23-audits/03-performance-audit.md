@@ -77,7 +77,7 @@ Basic usage: `hey -n <total-requests> -c <concurrency> [flags] <url>`
 
 The stack exposes a dedicated no-auth route scoped to the perf test bucket via the
 `PERF_DIRECT_BUCKET` Envoy environment variable (set automatically by Terraform from
-`var.perf_test_bucket`).  Requests to `/{perf_bucket}/...` on this route bypass both the
+`var.perf_test_bucket`).  Requests to `/_perf/{perf_bucket}/...` on this route bypass both the
 `jwt_authn` and `lua` HTTP filters entirely — Envoy proxies straight to S3.  No stack
 changes are required to run the baseline.
 
@@ -106,7 +106,7 @@ ADMIN_KEY=$(grep RAJA_ADMIN_KEY .env | cut -d= -f2)
 TOKEN=$(curl -s -X POST "$API/token" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ADMIN_KEY" \
-  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"raja","ttl":3600}' \
+  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"rajee","ttl":3600}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 hey -n 1000 -c 10 -m GET \
@@ -139,7 +139,7 @@ ADMIN_KEY=$(grep RAJA_ADMIN_KEY .env | cut -d= -f2)
 TOKEN=$(curl -s -X POST "$API/token" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ADMIN_KEY" \
-  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"raja","ttl":3600}' \
+  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"rajee","ttl":3600}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 declare -A HASHES=([1k]=40ff9e73 [10k]=e75c5d5e [100k]=eb6c8db9 [1m]=2a5a6715)
