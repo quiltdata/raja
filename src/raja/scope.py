@@ -74,7 +74,7 @@ def _normalize_scopes(scopes: Iterable[Scope | str]) -> set[str]:
                 normalized.add(format_scope(scope.resource_type, scope.resource_id, scope.action))
             else:
                 normalized.add(format_scope(**parse_scope(scope).model_dump()))
-        except (ScopeParseError, ScopeValidationError):
+        except ScopeParseError, ScopeValidationError:
             # Re-raise our custom exceptions
             raise
         except Exception as exc:

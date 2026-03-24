@@ -25,6 +25,8 @@ static_resources:
                     - name: s3_proxy
                       domains:
                         - "*"
+                      request_headers_to_remove:
+                        - "x-raja-jwt-payload"
                       routes:
 __PERF_DIRECT_ROUTE__
                         - match:

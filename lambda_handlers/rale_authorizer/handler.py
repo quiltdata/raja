@@ -236,7 +236,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
         allowed = service.has_package_grant(project_id=project_id, quilt_uri=quilt_uri)
     except DataZoneError:
         return _response(503, {"error": "authorization service unavailable"})
-    except (ClientError, BotoCoreError):
+    except ClientError, BotoCoreError:
         return _response(503, {"error": "authorization service unavailable"})
 
     if not allowed:
@@ -248,7 +248,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
         if jwt_secret_version:
             secret_kwargs["VersionId"] = jwt_secret_version
         jwt_secret = secrets.get_secret_value(**secret_kwargs)["SecretString"]
-    except (ClientError, BotoCoreError, KeyError):
+    except ClientError, BotoCoreError, KeyError:
         return _response(503, {"error": "failed to load jwt secret"})
 
     token_ttl = int(os.environ.get("TOKEN_TTL", "3600"))
