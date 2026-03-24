@@ -73,23 +73,41 @@ Basic usage: `hey -n <total-requests> -c <concurrency> [flags] <url>`
 
 ## Approach
 
-### 1. Establish Baseline: Direct-Route Envoy (No Auth)
+### 1. Establish Baseline: Direct S3 Object Read via AWS CLI
 
-The stack exposes a dedicated no-auth route scoped to the perf test bucket via the
-`PERF_DIRECT_BUCKET` Envoy environment variable (set automatically by Terraform from
-`var.perf_test_bucket`).  Requests to `/_perf/{perf_bucket}/...` on this route bypass both the
-`jwt_authn` and `lua` HTTP filters entirely — Envoy proxies straight to S3.  No stack
-changes are required to run the baseline.
+For now, use the AWS CLI to read the exact S3 object directly rather than the indirect
+`/_perf/...` Envoy route. This gives a baseline for the underlying object fetch without
+the JWT+Lua filter chain in the request path.
 
 ```bash
-ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
+python3 - <<'PY'
+import subprocess
+import time
 
-hey -n 1000 -c 10 -m GET \
-  -H "x-test-run: baseline-direct" \
-  "$ENVOY/_perf/data-yaml-spec-tests/scale/1k@40ff9e73"
+cmd = [
+    "aws", "s3", "cp",
+    "s3://data-yaml-spec-tests/scale/1k/e2-0/e1-0/e0-0.txt",
+    "-",
+]
+
+durations = []
+for _ in range(100):
+    start = time.perf_counter()
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    durations.append(time.perf_counter() - start)
+
+durations.sort()
+count = len(durations)
+print({
+    "p50": durations[int(count * 0.50)],
+    "p95": durations[int(count * 0.95)],
+    "p99": durations[int(count * 0.99)],
+    "avg": sum(durations) / count,
+})
+PY
 ```
 
-Collect: mean, P50, P95, P99 latency; requests/sec; error rate.
+Collect: mean, P50, P95, P99 latency; error rate.
 
 ### 2. Auth-Enabled Benchmark (JWT+Lua Active)
 
@@ -112,7 +130,7 @@ TOKEN=$(curl -s -X POST "$API/token" \
 hey -n 1000 -c 10 -m GET \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-test-run: auth-enabled" \
-  "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73"
+  "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73/e2-0/e1-0/e0-0.txt"
 ```
 
 ### 3. Package Size Variation
@@ -122,10 +140,10 @@ Packaging Engine). Each package covers one size tier:
 
 | Package | Object count | Purpose | Hash |
 | ------- | ------------ | ------- | ---- |
-| `scale/1k` | ~1,000 files | Latency floor | `40ff9e73` |
-| `scale/10k` | ~10,000 files | Moderate load | `e75c5d5e` |
-| `scale/100k` | ~100,000 files | Heavy load | `eb6c8db9` |
-| `scale/1m` | ~1,000,000 files | Throughput ceiling | `2a5a6715` |
+| `scale/1k` | ~1,000 files | `e2-0/e1-0/e0-0.txt` | `40ff9e73` |
+| `scale/10k` | ~10,000 files | `e3-0/e2-0/e1-0/e0-0.txt` | `e75c5d5e` |
+| `scale/100k` | ~100,000 files | `e4-0/e3-0/e2-0/e1-0/e0-0.txt` | `eb6c8db9` |
+| `scale/1m` | ~1,000,000 files | `e0/e4-0/e3-0/e2-0/e1-0/e0-0.txt` | `2a5a6715` |
 
 Browse at: `https://nightly.quilttest.com/b/data-yaml-spec-tests/packages/scale/`
 
@@ -143,12 +161,18 @@ TOKEN=$(curl -s -X POST "$API/token" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 declare -A HASHES=([1k]=40ff9e73 [10k]=e75c5d5e [100k]=eb6c8db9 [1m]=2a5a6715)
+declare -A FILES=(
+  [1k]='e2-0/e1-0/e0-0.txt'
+  [10k]='e3-0/e2-0/e1-0/e0-0.txt'
+  [100k]='e4-0/e3-0/e2-0/e1-0/e0-0.txt'
+  [1m]='e0/e4-0/e3-0/e2-0/e1-0/e0-0.txt'
+)
 for PKG in 1k 10k 100k 1m; do
   echo "=== scale/$PKG ==="
   hey -n 200 -c 10 -m GET \
     -H "Authorization: Bearer $TOKEN" \
     -H "x-test-run: perf-$PKG" \
-    "$ENVOY/data-yaml-spec-tests/scale/${PKG}@${HASHES[$PKG]}"
+    "$ENVOY/data-yaml-spec-tests/scale/${PKG}@${HASHES[$PKG]}/${FILES[$PKG]}"
 done
 ```
 

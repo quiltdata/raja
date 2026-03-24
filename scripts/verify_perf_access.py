@@ -45,6 +45,8 @@ class Context:
     perf_uri: str
     usl_path: str
     perf_bucket: str
+    logical_key: str
+    direct_s3_key: str
 
 
 @dataclass
@@ -199,6 +201,7 @@ def _load_context() -> Context:
             file=sys.stderr,
         )
         raise SystemExit(1)
+    logical_key = "e2-0/e1-0/e0-0.txt"
     return Context(
         api_url=api_url,
         envoy_url=envoy_url,
@@ -209,6 +212,8 @@ def _load_context() -> Context:
         perf_uri=perf_uri,
         usl_path=_uri_to_usl_path(perf_uri),
         perf_bucket=perf_bucket,
+        logical_key=logical_key,
+        direct_s3_key=f"scale/1k/{logical_key}",
     )
 
 
@@ -219,17 +224,30 @@ def _print_header(ctx: Context) -> None:
     print(f"  ECS:          {ctx.ecs_cluster or '(missing)'} / {ctx.ecs_service or '(missing)'}")
     print(f"  Principal:    {ctx.principal}")
     print(f"  Package:      {ctx.perf_uri}")
+    print(f"  Logical key:  {ctx.logical_key}")
     print(f"  Perf bucket:  {ctx.perf_bucket}")
     print()
 
 
 def _check_direct_access(ctx: Context) -> CheckResult:
-    """GET the exact benchmark package path via /_perf/ (no token)."""
-    url = f"{ctx.envoy_url}/_perf{ctx.usl_path}"
-    status, resp_bytes = _http("GET", url)
-    detail = _decode_excerpt(resp_bytes)
-    ok = status == 200
-    return CheckResult("direct_access", ok, status, detail)
+    """Read the exact S3 object used for the benchmark via the AWS CLI."""
+    if shutil.which("aws") is None:
+        return CheckResult("direct_access", False, None, "aws CLI is not installed")
+    code, output = _run_command(
+        [
+            "aws",
+            "s3",
+            "cp",
+            f"s3://{ctx.perf_bucket}/{ctx.direct_s3_key}",
+            "-",
+        ]
+    )
+    return CheckResult(
+        "direct_access",
+        code == 0,
+        200 if code == 0 else code,
+        _text_excerpt(output),
+    )
 
 
 def _check_token(ctx: Context) -> tuple[CheckResult, str]:
@@ -254,7 +272,11 @@ def _check_token(ctx: Context) -> tuple[CheckResult, str]:
 
 def _check_envoy_get(ctx: Context, token: str) -> CheckResult:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    status, resp_bytes = _http("GET", f"{ctx.envoy_url}{ctx.usl_path}", headers=headers)
+    status, resp_bytes = _http(
+        "GET",
+        f"{ctx.envoy_url}{ctx.usl_path}/{ctx.logical_key}",
+        headers=headers,
+    )
     detail = _decode_excerpt(resp_bytes)
     return CheckResult("envoy_get", status == 200, status, detail)
 
@@ -329,10 +351,10 @@ def main() -> int:
     direct_result = _check_direct_access(ctx)
     results.append(direct_result)
     if direct_result.ok:
-        _ok(f"Direct GET /_perf/{ctx.perf_bucket}/ (no token) → {direct_result.status}")
+        _ok(f"AWS s3 cp s3://{ctx.perf_bucket}/{ctx.direct_s3_key} → 200")
     else:
         _fail(
-            f"Direct GET /_perf/{ctx.perf_bucket}/ (no token) → {direct_result.status}",
+            f"AWS s3 cp s3://{ctx.perf_bucket}/{ctx.direct_s3_key} → {direct_result.status}",
             direct_result.detail,
         )
         total_failures += 1
@@ -348,10 +370,10 @@ def main() -> int:
     envoy_result = _check_envoy_get(ctx, token)
     results.append(envoy_result)
     if envoy_result.ok:
-        _ok(f"Envoy GET {ctx.usl_path} (with token) → 200")
+        _ok(f"Envoy GET {ctx.usl_path}/{ctx.logical_key} (with token) → 200")
     else:
         _fail(
-            f"Envoy GET {ctx.usl_path} (with token) → {envoy_result.status}",
+            f"Envoy GET {ctx.usl_path}/{ctx.logical_key} (with token) → {envoy_result.status}",
             envoy_result.detail,
         )
         total_failures += 1
