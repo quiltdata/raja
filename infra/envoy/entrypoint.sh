@@ -166,6 +166,7 @@ fi
 if [ "$AUTH_DISABLED_VALUE" = "1" ] || [ "$AUTH_DISABLED_VALUE" = "true" ] || [ "$AUTH_DISABLED_VALUE" = "yes" ] || [ "$AUTH_DISABLED_VALUE" = "on" ]; then
   AUTH_FILTER=""
   JWT_DEFAULT_RULE=""
+  AUTH_LUA=""
 else
   PUBLIC_PATH_RULES=""
   if [ -n "$PUBLIC_PATH_PREFIXES_VALUE" ]; then
