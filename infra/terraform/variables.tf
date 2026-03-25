@@ -151,6 +151,12 @@ variable "datazone_guests_project_name" {
   default     = "raja-guests"
 }
 
+variable "perf_test_bucket" {
+  description = "External S3 bucket used for performance benchmarks (e.g. data-yaml-spec-tests). Grants the RALE router Lambda read access and adds the bucket prefix to RAJEE_PUBLIC_PATH_PREFIXES so the auth-disabled Envoy baseline can reach it."
+  type        = string
+  default     = "data-yaml-spec-tests"
+}
+
 variable "datazone_package_asset_type" {
   description = "Custom Amazon DataZone asset type name used for Quilt package listings."
   type        = string

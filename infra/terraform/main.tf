@@ -51,7 +51,7 @@ locals {
 
   azs                      = slice(data.aws_availability_zones.available.names, 0, 2)
   rajee_endpoint_protocol  = var.certificate_arn == "" ? "http" : "https"
-  rajee_public_path_prefix = "/${aws_s3_bucket.rajee_test.bucket}"
+  rajee_public_path_prefix = var.perf_test_bucket != "" ? "/${aws_s3_bucket.rajee_test.bucket},/${var.perf_test_bucket}" : "/${aws_s3_bucket.rajee_test.bucket}"
 
   rajee_public_grants = var.use_public_grants ? [
     "s3:GetObject/${aws_s3_bucket.rajee_test.bucket}/rajee-integration/",
@@ -1254,6 +1254,56 @@ resource "aws_iam_role_policy" "rale_router_permissions" {
   })
 }
 
+resource "aws_iam_role_policy" "rale_router_perf_bucket" {
+  count = var.perf_test_bucket != "" ? 1 : 0
+  name  = "${var.stack_name}-rale-router-perf-bucket"
+  role  = aws_iam_role.rale_router_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "PerfTestBucketRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.perf_test_bucket}",
+          "arn:aws:s3:::${var.perf_test_bucket}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "rajee_task_perf_bucket" {
+  count = var.perf_test_bucket != "" ? 1 : 0
+  name  = "${var.stack_name}-rajee-task-perf-bucket"
+  role  = aws_iam_role.rajee_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "PerfDirectBucketRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.perf_test_bucket}",
+          "arn:aws:s3:::${var.perf_test_bucket}/*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_lambda_function" "rale_router" {
   function_name = "${var.stack_name}-rale-router"
   role          = aws_iam_role.rale_router_lambda.arn
@@ -1736,6 +1786,17 @@ resource "aws_iam_role_policy" "rajee_task_permissions" {
           local.rale_authorizer_lambda_arn,
           local.rale_router_lambda_arn
         ]
+      },
+      {
+        Sid    = "ECSExec"
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = ["*"]
       }
     ]
   })
@@ -1797,6 +1858,10 @@ resource "aws_ecs_task_definition" "rajee" {
         {
           name  = "RAJEE_PUBLIC_PATH_PREFIXES"
           value = local.rajee_public_path_prefix
+        },
+        {
+          name  = "PERF_DIRECT_BUCKET"
+          value = var.perf_test_bucket
         },
         {
           name  = "RAJEE_PUBLIC_GRANTS"
@@ -1982,6 +2047,7 @@ resource "aws_ecs_service" "rajee" {
   task_definition                    = aws_ecs_task_definition.rajee.arn
   desired_count                      = 2
   launch_type                        = "FARGATE"
+  enable_execute_command             = true
   health_check_grace_period_seconds  = 30
   deployment_minimum_healthy_percent = 50
   deployment_maximum_percent         = 200

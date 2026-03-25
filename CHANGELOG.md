@@ -6,6 +6,21 @@ All notable changes to the RAJA project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-03-23
+
+### Added
+
+- **`/_perf/` no-auth Envoy route**: Dedicated route to the perf test bucket that bypasses `jwt_authn` and Lua filters entirely, giving a clean direct-S3 baseline for future benchmarks without infrastructure toggling.
+- **`scripts/verify_perf_access.py`**: Pre-flight checker that validates direct S3 access, token issuance, authenticated Envoy GET, and ECS exec connectivity before running a benchmark.
+
+### Fixed
+
+- **Envoy header trust boundary**: Added `request_headers_to_remove: [x-raja-jwt-payload]` to the virtual host in `infra/envoy/envoy.yaml.tmpl`. Clients could previously supply a forged payload header; Lua now only ever sees the value written by `jwt_authn` after successful verification.
+- **Lambda handler type coverage**: Lambda handler directories are now proper packages; `mypy --strict` runs clean across both `src/raja` and `lambda_handlers`.
+- **Deny response metadata leak**: `rale_authorizer` no longer exposes `manifest_hash`, `package_name`, or `registry` in denied authorization responses.
+- **Hard-coded `/tmp` in Lambda**: Replaced with `tempfile.gettempdir()`; `bandit -ll` reports no medium/high findings.
+- **Dependency lockfile drift**: Updated `uv.lock` — `fastapi`, `starlette`, `mangum`, `boto3`, `ruff`, `pydantic-core` brought to current releases.
+
 ## [1.3.1] - 2026-03-19
 
 ### Changed

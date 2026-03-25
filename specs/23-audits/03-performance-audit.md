@@ -1,0 +1,242 @@
+# Performance Audit — RAJA JWT+Lua Filter Chain
+
+## Objective
+
+Quantify the latency overhead introduced by the Envoy JWT+Lua authorization filter chain
+relative to an unauthenticated baseline for S3 object streaming. Establish per-percentile
+baselines (P50/P95/P99), isolate the auth cost, and determine whether optimization
+(caching, native Envoy filter) is required before production.
+
+## Scope
+
+| In | Out |
+| -- | --- |
+| Envoy JWT+Lua filter chain latency | DataZone subscription grant resolution time |
+| S3 object streaming throughput across package sizes | Lambda cold-start optimization |
+| A/B comparison: direct route vs auth-enabled | API Gateway latency |
+| | Network egress cost |
+| | CI performance regression gate |
+| | Infrastructure right-sizing |
+
+## Prerequisites
+
+### Stack Configuration for the Performance Bucket
+
+> **Lesson learned (2026-03-23):** The first live run against `data-yaml-spec-tests` failed
+> completely because the stack was never updated to include that bucket.  Every seeded
+> principal returned `404 Principal not found` from `/token`, and the auth-disabled baseline
+> returned `400` for all 1 000 requests.  Two independent gaps caused this:
+>
+> 1. **IAM gap** — the RALE router Lambda's execution role only had `s3:GetObject` /
+>    `s3:ListBucket` permission on `rajee_test` and `rajee_registry`.  It could not read
+>    `data-yaml-spec-tests` at all, so both the baseline (direct S3 proxy) and the
+>    auth-enabled path (RALE router streams the object) returned errors.
+> 2. **DataZone gap** — no DataZone subscription grant existed for any `scale/*` package in
+>    `data-yaml-spec-tests`.  Even with a valid JWT the RALE authorizer's
+>    `has_package_grant` check always returned `false`, producing `403 principal project not
+>    found`.  (The `/token` 404s were a separate symptom: `seed_users.py` had not been run
+>    after the last deploy, so principals were absent from all DataZone projects.)
+>
+> **Required one-time setup before running this benchmark:**
+>
+> ```bash
+> # 1. Apply the Terraform change that adds data-yaml-spec-tests to the RALE router role,
+> #    RAJEE_PUBLIC_PATH_PREFIXES, and activates the PERF_DIRECT_BUCKET route
+> cd infra/terraform && terraform apply
+>
+> # 2. Re-seed IAM users into DataZone projects
+> python scripts/seed_users.py
+>
+> # 3. Seed DataZone assets + subscription grants for the scale/* packages
+> python scripts/seed_packages.py   # uses TEST_BUCKET / TEST_PACKAGE from .env
+>
+> # 4. Verify end-to-end access before running hey
+> python scripts/verify_perf_access.py
+> ```
+
+### `hey` — HTTP Load Generator
+
+[`hey`](https://github.com/rakyll/hey) is a Go-based HTTP benchmarking tool used throughout
+this spec to drive load and collect latency percentiles.
+
+```bash
+# macOS
+brew install hey
+
+# Linux (or any platform with Go installed)
+go install github.com/rakyll/hey@latest
+```
+
+Basic usage: `hey -n <total-requests> -c <concurrency> [flags] <url>`
+
+---
+
+## Approach
+
+### 1. Establish Baseline: Direct S3 Object Read via AWS CLI
+
+For now, use the AWS CLI to read the exact S3 object directly rather than the indirect
+`/_perf/...` Envoy route. This gives a baseline for the underlying object fetch without
+the JWT+Lua filter chain in the request path.
+
+```bash
+python3 - <<'PY'
+import subprocess
+import time
+
+cmd = [
+    "aws", "s3", "cp",
+    "s3://data-yaml-spec-tests/scale/1k/e2-0/e1-0/e0-0.txt",
+    "-",
+]
+
+durations = []
+for _ in range(100):
+    start = time.perf_counter()
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    durations.append(time.perf_counter() - start)
+
+durations.sort()
+count = len(durations)
+print({
+    "p50": durations[int(count * 0.50)],
+    "p95": durations[int(count * 0.95)],
+    "p99": durations[int(count * 0.99)],
+    "avg": sum(durations) / count,
+})
+PY
+```
+
+Collect: mean, P50, P95, P99 latency; error rate.
+
+### 2. Auth-Enabled Benchmark (JWT+Lua Active)
+
+Re-run identical requests with the JWT+Lua filter chain fully enabled. Mint a `raja` token
+via the RALE control plane API to eliminate token issuance latency from measurements.
+
+```bash
+API=https://wezevk884h.execute-api.us-east-1.amazonaws.com/prod
+ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
+
+# Mint a long-lived test token via the control plane (test env only — never production)
+# Principal from .rale-seed-state.json default_principal
+ADMIN_KEY=$(grep RAJA_ADMIN_KEY .env | cut -d= -f2)
+TOKEN=$(curl -s -X POST "$API/token" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"rajee","ttl":3600}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+hey -n 1000 -c 10 -m GET \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "x-test-run: auth-enabled" \
+  "$ENVOY/data-yaml-spec-tests/scale/1k@40ff9e73/e2-0/e1-0/e0-0.txt"
+```
+
+### 3. Package Size Variation
+
+Scale fixture packages exist in `s3://data-yaml-spec-tests` (created via the Quilt
+Packaging Engine). Each package covers one size tier:
+
+| Package | Object count | Purpose | Hash |
+| ------- | ------------ | ------- | ---- |
+| `scale/1k` | ~1,000 files | `e2-0/e1-0/e0-0.txt` | `40ff9e73` |
+| `scale/10k` | ~10,000 files | `e3-0/e2-0/e1-0/e0-0.txt` | `e75c5d5e` |
+| `scale/100k` | ~100,000 files | `e4-0/e3-0/e2-0/e1-0/e0-0.txt` | `eb6c8db9` |
+| `scale/1m` | ~1,000,000 files | `e0/e4-0/e3-0/e2-0/e1-0/e0-0.txt` | `2a5a6715` |
+
+Browse at: `https://nightly.quilttest.com/b/data-yaml-spec-tests/packages/scale/`
+
+Mint a token (same method as Step 2), then run `hey` against each tier and record
+P50/P95/P99 latency:
+
+```bash
+API=https://wezevk884h.execute-api.us-east-1.amazonaws.com/prod
+ENVOY=http://raja-standalone-rajee-alb-2076392115.us-east-1.elb.amazonaws.com
+ADMIN_KEY=$(grep RAJA_ADMIN_KEY .env | cut -d= -f2)
+TOKEN=$(curl -s -X POST "$API/token" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{"principal":"arn:aws:iam::712023778557:user/ernest-staging","token_type":"rajee","ttl":3600}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+declare -A HASHES=([1k]=40ff9e73 [10k]=e75c5d5e [100k]=eb6c8db9 [1m]=2a5a6715)
+declare -A FILES=(
+  [1k]='e2-0/e1-0/e0-0.txt'
+  [10k]='e3-0/e2-0/e1-0/e0-0.txt'
+  [100k]='e4-0/e3-0/e2-0/e1-0/e0-0.txt'
+  [1m]='e0/e4-0/e3-0/e2-0/e1-0/e0-0.txt'
+)
+for PKG in 1k 10k 100k 1m; do
+  echo "=== scale/$PKG ==="
+  hey -n 200 -c 10 -m GET \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "x-test-run: perf-$PKG" \
+    "$ENVOY/data-yaml-spec-tests/scale/${PKG}@${HASHES[$PKG]}/${FILES[$PKG]}"
+done
+```
+
+### 4. Envoy Admin Stats
+
+The admin port (9901) is only exposed via the ALB if `admin_allowed_cidrs` is set in
+Terraform. Access it via ECS exec instead:
+
+```bash
+# Get the running task ARN
+TASK=$(aws ecs list-tasks \
+  --cluster raja-standalone-rajee-cluster \
+  --service-name raja-standalone-rajee-service \
+  --query 'taskArns[0]' --output text)
+
+# Collect filter chain stats from the live container
+aws ecs execute-command \
+  --cluster raja-standalone-rajee-cluster \
+  --task "$TASK" \
+  --container envoy \
+  --interactive \
+  --command "curl -s http://localhost:9901/stats" \
+  | grep -E "(http.*.jwt_authn|lua|downstream_cx_length_ms|upstream_rq_time)"
+```
+
+Key metrics to record: `envoy_http_jwt_authn_allowed`, `envoy_http_jwt_authn_denied`,
+`lua.errors`, `downstream_rq_time` histograms.
+
+### 5. Document Results and Optimization Decision
+
+After collecting data, populate `docs/performance.md` with:
+
+- Baseline vs auth-enabled latency table (P50/P95/P99 by package size)
+- Calculated auth overhead % = `(auth_p99 - baseline_p99) / baseline_p99 * 100`
+- Throughput comparison (MB/s) per size tier
+
+**Optimization trigger:** If auth overhead > 15% at P99 for any size tier, evaluate:
+
+1. **Lua-side JWT caching** — cache decoded token in Envoy shared data keyed on
+   `Authorization` header hash; invalidate on expiry
+2. **Native `jwt_authn` HTTP filter** — replace Lua JWT decode with Envoy's built-in
+   `envoy.filters.http.jwt_authn` filter, which is implemented in C++ and significantly
+   faster than Lua for cryptographic operations
+3. **Connection-level auth** — consider moving scope validation to the RALE Authorizer
+   response and trusting Envoy's built-in JWT verification for the hot path
+
+### 6. Record Baseline for Future Regression Gate
+
+Once results are in `docs/performance.md`, the P99 numbers become the baseline for a
+future CI gate. That is a separate task — do not add CI changes as part of this audit.
+
+## Deliverables
+
+1. **`docs/performance.md`** — baseline vs auth latency tables, overhead %, optimization
+   recommendation with rationale
+2. **Envoy stats snapshot** (`docs/audits/envoy-stats-baseline.txt`) captured during
+   benchmark run for future regression comparison
+
+## Success Criteria
+
+| Metric | Target |
+| ------ | ------ |
+| Auth overhead at P99 (`scale/1k`) | Measured and documented |
+| Auth overhead at P99 (`scale/10k`) | Measured and documented |
+| Auth overhead > 15% P99 | Optimization plan filed as GitHub issue |
+| `docs/performance.md` published | Yes, with raw numbers |
+| Baseline stats snapshot committed | Yes |

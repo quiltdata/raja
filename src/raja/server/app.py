@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -61,15 +62,15 @@ def health() -> dict[str, Any]:
             dependency_checks[name] = f"error: {exc}"
 
     _check("jwt_secret", dependencies.get_jwt_secret)
-    if dependencies.os.environ.get("DATAZONE_DOMAIN_ID"):
+    if os.environ.get("DATAZONE_DOMAIN_ID"):
         _check("datazone", dependencies.get_datazone_client)
 
     status = "ok" if all(value == "ok" for value in dependency_checks.values()) else "degraded"
     config: dict[str, str] = {}
-    rajee_endpoint = dependencies.os.environ.get("RAJEE_ENDPOINT")
+    rajee_endpoint = os.environ.get("RAJEE_ENDPOINT")
     if rajee_endpoint:
         config["rajee_endpoint"] = rajee_endpoint
-    default_principal = dependencies.os.environ.get("RAJA_DEFAULT_PRINCIPAL", "").strip()
+    default_principal = os.environ.get("RAJA_DEFAULT_PRINCIPAL", "").strip()
     if default_principal:
         config["default_principal"] = default_principal
     return {"status": status, "dependencies": dependency_checks, "config": config}

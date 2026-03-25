@@ -5,13 +5,17 @@ from collections.abc import Callable
 import structlog
 from pydantic import ValidationError
 
-from .exceptions import ScopeValidationError, TokenExpiredError, TokenInvalidError
+from .exceptions import (
+    ScopeValidationError,
+    TokenExpiredError,
+    TokenInvalidError,
+    TokenValidationError,
+)
 from .models import AuthRequest, Decision, PackageAccessRequest, Scope
 from .package_map import PackageMap
 from .quilt_uri import package_name_matches
 from .scope import format_scope, parse_scope
 from .token import (
-    TokenValidationError,
     decode_token,
     validate_package_map_token,
     validate_package_token,

@@ -26,3 +26,22 @@ packages:
   - name: compute/home
     producer_project: compute
     consumer_project: alpha
+
+  # Performance benchmark packages — pre-existing in s3://data-yaml-spec-tests.
+  # Files are not uploaded; only DataZone listings and grants are created.
+  - name: scale/1k
+    producer_project: alpha
+    consumer_project: alpha
+    uri: quilt+s3://data-yaml-spec-tests#package=scale/1k@40ff9e73
+  - name: scale/10k
+    producer_project: alpha
+    consumer_project: alpha
+    uri: quilt+s3://data-yaml-spec-tests#package=scale/10k@e75c5d5e
+  - name: scale/100k
+    producer_project: alpha
+    consumer_project: alpha
+    uri: quilt+s3://data-yaml-spec-tests#package=scale/100k@eb6c8db9
+  - name: scale/1m
+    producer_project: alpha
+    consumer_project: alpha
+    uri: quilt+s3://data-yaml-spec-tests#package=scale/1m@2a5a6715

@@ -231,7 +231,7 @@ class DataZoneService:
                 domainIdentifier=self._config.domain_id,
                 identifier=asset_id,
             )
-        except (ClientError, BotoCoreError):
+        except ClientError, BotoCoreError:
             return ""
         if not isinstance(response, dict):
             return ""
@@ -263,7 +263,7 @@ class DataZoneService:
             )
             arn: str | None = resp.get("details", {}).get("iam", {}).get("arn")
             return arn
-        except (ClientError, BotoCoreError):
+        except ClientError, BotoCoreError:
             return None
 
     def _get_user_id_for_principal(self, principal: str) -> str | None:
@@ -276,7 +276,7 @@ class DataZoneService:
             )
             user_id: str | None = resp.get("id")
             return user_id
-        except (ClientError, BotoCoreError):
+        except ClientError, BotoCoreError:
             return None
 
     def _resolve_membership_user_identifier(self, user_identifier: str) -> str:

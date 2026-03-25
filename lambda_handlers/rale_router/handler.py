@@ -8,14 +8,14 @@ from typing import Any
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from raja.exceptions import TokenExpiredError, TokenInvalidError, TokenValidationError
 from raja.manifest import resolve_package_map
 from raja.models import S3Location
 from raja.token import (
-    TokenExpiredError,
-    TokenInvalidError,
-    TokenValidationError,
     validate_taj_token,
 )
+
+__all__ = ["handler"]
 
 
 def _response(
@@ -133,7 +133,7 @@ def _proxy_get_or_head(
         )
     except s3_client.exceptions.NoSuchKey:
         return _response(404, {"error": "object not found"})
-    except (ClientError, BotoCoreError):
+    except ClientError, BotoCoreError:
         return _response(502, {"error": "failed to fetch object from S3"})
 
 
@@ -161,14 +161,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:  # noqa: ARG
         if jwt_secret_version:
             secret_kwargs["VersionId"] = jwt_secret_version
         jwt_secret = secrets.get_secret_value(**secret_kwargs)["SecretString"]
-    except (ClientError, BotoCoreError, KeyError):
+    except ClientError, BotoCoreError, KeyError:
         return _response(503, {"error": "failed to load jwt secret"})
 
     try:
         claims = validate_taj_token(taj, jwt_secret)
     except TokenExpiredError:
         return _response(401, {"error": "expired TAJ"})
-    except (TokenInvalidError, TokenValidationError):
+    except TokenInvalidError, TokenValidationError:
         return _response(401, {"error": "invalid TAJ"})
 
     # For un-pinned USLs the hash comes from the TAJ; for pinned USLs validate
