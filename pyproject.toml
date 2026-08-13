@@ -51,7 +51,8 @@ build-backend = "uv_build"
 rale = "raja.cli:main"
 
 [tool.ruff]
-target-version = "py314"
+# target-version is inferred from project.requires-python, so the formatter and
+# linter never emit syntax that is newer than the interpreters we support.
 line-length = 100
 extend-exclude = ["infra/cdk.out", "infra/cdk.out*"]
 
